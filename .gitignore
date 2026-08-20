@@ -1,0 +1,30 @@
+# secrets
+.env
+*.env.*
+!.env.example
+
+# Flutter
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.next/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
