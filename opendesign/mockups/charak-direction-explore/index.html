@@ -1,0 +1,1587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CHARAK — Direction Exploration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="pagehead">
+  <div class="ph-top">
+    <div class="ph-brand">
+      <span class="ph-kicker">CHARAK · Direction Exploration</span>
+      <h1 class="ph-title">One app, five feels</h1>
+      <p class="ph-sub">3 core screens — Patient Home, Doctor Directory, Doctor Requests — rendered in 5 directions. Static only: pick a direction, then we build the full flow in it.</p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab on" data-panel="v1" role="tab">V1 · Premium Banking</button>
+    <button class="tab" data-panel="v2" role="tab">V2 · Calm Health</button>
+    <button class="tab" data-panel="v3" role="tab">V3 · Marketplace</button>
+    <button class="tab" data-panel="v4" role="tab">V4 · Dark Clinical</button>
+    <button class="tab" data-panel="v5" role="tab">V5 · Warm Editorial</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ============ V1 · PREMIUM BANKING ============ -->
+<section class="panel var-1 on" id="v1">
+  <div class="panel-head">
+    <div>
+      <h2>V1 · Premium Banking</h2>
+      <p class="pn-note">Restraint: white, one blue accent, hairline borders, Inter. Trust through precision.</p>
+    </div>
+    <p class="pn-ref">Refs: Mercury · Revolut · Linear &nbsp;·&nbsp; Fonts: Inter</p>
+  </div>
+  <div class="group">
+    <p class="group-label">Patient app</p>
+    <div class="trio duo">
+    <!-- PATIENT HOME -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Patient Home screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-home">
+            <header class="greet">
+              <div class="greet-txt"><p class="hi">Good morning</p><h1 class="h-name">Pranav</h1></div>
+              <button class="iconbtn" aria-label="Notifications"><i data-lucide="bell"></i><span class="notif-dot"></span></button>
+            </header>
+            <div class="search"><i data-lucide="search"></i><span>Search doctors or specialties</span></div>
+            <div class="banner trust-banner"><i data-lucide="shield-check"></i><span>Every doctor is manually verified</span></div>
+            <h2 class="sec-title">Book by specialty</h2>
+            <div class="spec-grid">
+              <button class="spec"><span class="spec-ic"><i data-lucide="stethoscope"></i></span><span class="spec-n">General Physician</span><span class="spec-c">24</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="bone"></i></span><span class="spec-n">Orthopedic</span><span class="spec-c">11</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="syringe"></i></span><span class="spec-n">Nurse</span><span class="spec-c">18</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="heart-pulse"></i></span><span class="spec-n">Cardiology</span><span class="spec-c">9</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="droplets"></i></span><span class="spec-n">Dermatology</span><span class="spec-c">14</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="baby"></i></span><span class="spec-n">Gynecology</span><span class="spec-c">10</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="smile"></i></span><span class="spec-n">Pediatrics</span><span class="spec-c">13</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="dumbbell"></i></span><span class="spec-n">Physiotherapy</span><span class="spec-c">16</span></button>
+              <button class="spec more"><span class="spec-ic"><i data-lucide="plus"></i></span><span class="spec-n">More</span></button>
+            </div>
+            <div class="featured">
+              <article class="feat-card">
+                <div class="avatar av-1">PN</div>
+                <div class="feat-info">
+                  <p class="feat-tag">Most booked this week</p>
+                  <h3 class="feat-name">Dr. Priya Nair</h3>
+                  <p class="feat-sub">General Physician · 4.9 <em>(301)</em></p>
+                </div>
+                <span class="feat-price">₹600</span>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item on"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Patient Home</p>
+    </div>
+
+    <!-- DIRECTORY LIST -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor directory screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-dir">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>General Physician</h1><p class="sub">24 doctors near you</p></div>
+              <button class="iconbtn" aria-label="Filters"><i data-lucide="sliders-horizontal"></i></button>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">Online</button>
+              <button class="chip">Home Visit</button>
+              <button class="chip sort"><span>Price</span><i data-lucide="chevron-down"></i></button>
+            </div>
+            <div class="doc-list">
+              <article class="doc-card">
+                <div class="avatar av-1">AM</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Aarav Mehta</h3></div>
+                  <p class="doc-spec">MBBS, MD · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span><span class="badge">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.8 <em>(214)</em></span>
+                    <span class="price">₹500</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Today, 6:00 PM</p>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-2">PN</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Priya Nair</h3></div>
+                  <p class="doc-spec">MBBS, DNB · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span><span class="badge">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.9 <em>(301)</em></span>
+                    <span class="price">₹600</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Today, 7:30 PM</p>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-3">RK</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Rohan Kulkarni</h3></div>
+                  <p class="doc-spec">MBBS · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.7 <em>(156)</em></span>
+                    <span class="price">₹450</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Tomorrow, 10:00 AM</p>
+                </div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Directory</p>
+    </div>
+
+    </div>
+  </div>
+  <div class="group">
+    <p class="group-label">Doctor app &middot; same theme, its own shell</p>
+    <div class="trio">
+    <!-- DOCTOR REQUESTS -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor requests screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-req">
+            <header class="req-head">
+              <h1>Requests</h1>
+              <span class="count-pill">3 new</span>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">New</button>
+              <button class="chip">Pending</button>
+            </div>
+            <div class="req-list">
+              <article class="req-card new">
+                <span class="req-tag">New request</span>
+                <div class="req-top">
+                  <div class="avatar av-4">AS</div>
+                  <div class="req-who"><h3>Anita Sharma</h3><p class="req-sub">General Physician · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 6:00 PM</span>
+                  <span class="price">₹800</span>
+                </div>
+                <p class="req-trip"><i data-lucide="map-pin"></i>2.4 km · Sector 17, Vashi</p>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-5">RI</div>
+                  <div class="req-who"><h3>Rakesh Iyer</h3><p class="req-sub">Cardiology · Online Consult</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 7:30 PM</span>
+                  <span class="price">₹600</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-6">MJ</div>
+                  <div class="req-who"><h3>Meera Joshi</h3><p class="req-sub">Physiotherapy · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Tomorrow, 10:00 AM</span>
+                  <span class="price">₹750</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Requests</p>
+    </div>
+
+    <!-- DOCTOR REQUEST DETAIL -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor request detail screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-detail">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>Request</h1><p class="sub">Home Visit · Today, 6:00 PM</p></div>
+              <button class="iconbtn" aria-label="More"><i data-lucide="more-horizontal"></i></button>
+            </header>
+            <div class="pat-strip">
+              <div class="avatar av-4">AS</div>
+              <div class="pat-info">
+                <h3>Anita Sharma</h3>
+                <p class="doc-spec">Patient · 62 yrs · Female</p>
+              </div>
+              <div class="pat-right">
+                <span class="price">₹800</span>
+                <span class="badge">Home Visit</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">What the patient said</h2>
+              <div class="intake typed">
+                <p>My mother has had pain in both knees for about a week. It is worse in the morning. She is 62 and diabetic.</p>
+              </div>
+              <div class="intake voice">
+                <div class="vhead"><i data-lucide="mic"></i><span>Voice note · 0:42</span><span class="vtag">Transcribed</span></div>
+                <p class="vtranscript">"Also, she finished her BP medicine yesterday — please check if she needs a refill."</p>
+              </div>
+              <div class="intake photo">
+                <span class="ph-thumb"><i data-lucide="image"></i></span>
+                <span>1 photo attached</span>
+                <span class="ph-view">View</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">Visit details</h2>
+              <div class="visit-row"><i data-lucide="clock"></i><span>Today, 6:00 PM · 45 min</span></div>
+              <div class="visit-row"><i data-lucide="map-pin"></i><span>Sector 17, Vashi · 2.4 km</span></div>
+            </div>
+            <button class="btn clarify"><i data-lucide="phone"></i>Request clarification call</button>
+            <div class="spacer"></div>
+          </div>
+          <div class="action-bar">
+            <button class="btn ghost">Decline</button>
+            <button class="btn primary">Accept</button>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Request Detail</p>
+    </div>
+
+    <!-- DOCTOR SCHEDULE -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor schedule screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-sched">
+            <header class="req-head">
+              <h1>Schedule</h1>
+              <button class="btn block"><i data-lucide="plus"></i>Block time</button>
+            </header>
+            <div class="week-strip">
+              <button class="wday"><span class="wd-n">Mo</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Tu</span><span class="wd-c">14</span></button>
+              <button class="wday on"><span class="wd-n">We</span><span class="wd-c">8</span></button>
+              <button class="wday"><span class="wd-n">Th</span><span class="wd-c">10</span></button>
+              <button class="wday"><span class="wd-n">Fr</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Sa</span><span class="wd-c">6</span></button>
+              <button class="wday"><span class="wd-n">Su</span><span class="wd-c">–</span></button>
+            </div>
+            <div class="day-head">Today, Wednesday</div>
+            <div class="slot-row booked"><span class="slot-time">10:00</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">General · ₹500</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row open"><span class="slot-time">11:00</span><div class="slot-info"><p class="slot-title">Open slot</p><p class="slot-sub">Tap to block</p></div><span class="slot-state">Open</span></div>
+            <div class="slot-row booked home"><span class="slot-time">12:00</span><div class="slot-info"><p class="slot-title">Home Visit</p><p class="slot-sub">General · ₹800</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row blocked"><span class="slot-time">16:00</span><div class="slot-info"><p class="slot-title">Blocked</p><p class="slot-sub">Personal time</p></div><span class="slot-state">Blocked</span></div>
+            <div class="slot-row booked"><span class="slot-time">17:30</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">Cardiology · ₹600</p></div><span class="slot-state">Booked</span></div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item on"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Schedule</p>
+    </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V2 · CALM HEALTH ============ -->
+<section class="panel var-2" id="v2">
+  <div class="panel-head">
+    <div>
+      <h2>V2 · Calm Health</h2>
+      <p class="pn-note">Warm mint-whites, teal green, big rounded surfaces, soft shadows. Restraint as care.</p>
+    </div>
+    <p class="pn-ref">Refs: Headspace · Ada Health &nbsp;·&nbsp; Fonts: Manrope</p>
+  </div>
+  <div class="group">
+    <p class="group-label">Patient app</p>
+    <div class="trio duo">
+    <!-- PATIENT HOME -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Patient Home screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-home">
+            <header class="greet">
+              <div class="greet-txt"><p class="hi">Good morning</p><h1 class="h-name">Pranav</h1></div>
+              <button class="iconbtn" aria-label="Notifications"><i data-lucide="bell"></i><span class="notif-dot"></span></button>
+            </header>
+            <div class="search"><i data-lucide="search"></i><span>Search doctors or specialties</span></div>
+            <div class="banner trust-banner"><i data-lucide="shield-check"></i><span>Every CHARAK doctor is verified before listing</span></div>
+            <h2 class="sec-title">What do you need help with?</h2>
+            <div class="spec-grid">
+              <button class="spec"><span class="spec-ic"><i data-lucide="stethoscope"></i></span><span class="spec-n">General Physician</span><span class="spec-c">24</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="bone"></i></span><span class="spec-n">Orthopedic</span><span class="spec-c">11</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="syringe"></i></span><span class="spec-n">Nurse</span><span class="spec-c">18</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="heart-pulse"></i></span><span class="spec-n">Cardiology</span><span class="spec-c">9</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="droplets"></i></span><span class="spec-n">Dermatology</span><span class="spec-c">14</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="baby"></i></span><span class="spec-n">Gynecology</span><span class="spec-c">10</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="smile"></i></span><span class="spec-n">Pediatrics</span><span class="spec-c">13</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="dumbbell"></i></span><span class="spec-n">Physiotherapy</span><span class="spec-c">16</span></button>
+              <button class="spec more"><span class="spec-ic"><i data-lucide="plus"></i></span><span class="spec-n">More</span></button>
+            </div>
+            <div class="featured">
+              <article class="feat-card">
+                <div class="avatar av-2">PN</div>
+                <div class="feat-info">
+                  <p class="feat-tag">Most booked this week</p>
+                  <h3 class="feat-name">Dr. Priya Nair</h3>
+                  <p class="feat-sub">General Physician · 4.9 <em>(301)</em></p>
+                </div>
+                <span class="feat-price">₹600</span>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item on"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Patient Home</p>
+    </div>
+
+    <!-- DIRECTORY LIST -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor directory screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-dir">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>General Physician</h1><p class="sub">24 doctors near you</p></div>
+              <button class="iconbtn" aria-label="Filters"><i data-lucide="sliders-horizontal"></i></button>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">Online</button>
+              <button class="chip">Home Visit</button>
+              <button class="chip sort"><span>Price</span><i data-lucide="chevron-down"></i></button>
+            </div>
+            <div class="doc-list">
+              <article class="doc-card">
+                <div class="avatar av-1">AM</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Aarav Mehta</h3><i data-lucide="shield-check" class="verif"></i></div>
+                  <p class="doc-spec">MBBS, MD · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span><span class="badge">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.8 <em>(214)</em></span>
+                    <span class="price">₹500</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Today, 6:00 PM</p>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-2">PN</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Priya Nair</h3><i data-lucide="shield-check" class="verif"></i></div>
+                  <p class="doc-spec">MBBS, DNB · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span><span class="badge">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.9 <em>(301)</em></span>
+                    <span class="price">₹600</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Today, 7:30 PM</p>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-3">RK</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Rohan Kulkarni</h3></div>
+                  <p class="doc-spec">MBBS · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.7 <em>(156)</em></span>
+                    <span class="price">₹450</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Tomorrow, 10:00 AM</p>
+                </div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Directory</p>
+    </div>
+
+    </div>
+  </div>
+  <div class="group">
+    <p class="group-label">Doctor app &middot; same theme, its own shell</p>
+    <div class="trio">
+    <!-- DOCTOR REQUESTS -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor requests screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-req">
+            <header class="req-head">
+              <h1>Requests</h1>
+              <span class="count-pill">3 new</span>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">New</button>
+              <button class="chip">Pending</button>
+            </div>
+            <div class="req-list">
+              <article class="req-card new">
+                <span class="req-tag">New request</span>
+                <div class="req-top">
+                  <div class="avatar av-4">AS</div>
+                  <div class="req-who"><h3>Anita Sharma</h3><p class="req-sub">General Physician · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 6:00 PM</span>
+                  <span class="price">₹800</span>
+                </div>
+                <p class="req-trip"><i data-lucide="map-pin"></i>2.4 km · Sector 17, Vashi</p>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-5">RI</div>
+                  <div class="req-who"><h3>Rakesh Iyer</h3><p class="req-sub">Cardiology · Online Consult</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 7:30 PM</span>
+                  <span class="price">₹600</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-6">MJ</div>
+                  <div class="req-who"><h3>Meera Joshi</h3><p class="req-sub">Physiotherapy · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Tomorrow, 10:00 AM</span>
+                  <span class="price">₹750</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Requests</p>
+    </div>
+
+    <!-- DOCTOR REQUEST DETAIL -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor request detail screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-detail">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>Request</h1><p class="sub">Home Visit · Today, 6:00 PM</p></div>
+              <button class="iconbtn" aria-label="More"><i data-lucide="more-horizontal"></i></button>
+            </header>
+            <div class="pat-strip">
+              <div class="avatar av-4">AS</div>
+              <div class="pat-info">
+                <h3>Anita Sharma</h3>
+                <p class="doc-spec">Patient · 62 yrs · Female</p>
+              </div>
+              <div class="pat-right">
+                <span class="price">₹800</span>
+                <span class="badge">Home Visit</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">What the patient said</h2>
+              <div class="intake typed">
+                <p>My mother has had pain in both knees for about a week. It is worse in the morning. She is 62 and diabetic.</p>
+              </div>
+              <div class="intake voice">
+                <div class="vhead"><i data-lucide="mic"></i><span>Voice note · 0:42</span><span class="vtag">Transcribed</span></div>
+                <p class="vtranscript">"Also, she finished her BP medicine yesterday — please check if she needs a refill."</p>
+              </div>
+              <div class="intake photo">
+                <span class="ph-thumb"><i data-lucide="image"></i></span>
+                <span>1 photo attached</span>
+                <span class="ph-view">View</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">Visit details</h2>
+              <div class="visit-row"><i data-lucide="clock"></i><span>Today, 6:00 PM · 45 min</span></div>
+              <div class="visit-row"><i data-lucide="map-pin"></i><span>Sector 17, Vashi · 2.4 km</span></div>
+            </div>
+            <button class="btn clarify"><i data-lucide="phone"></i>Request clarification call</button>
+            <div class="spacer"></div>
+          </div>
+          <div class="action-bar">
+            <button class="btn ghost">Decline</button>
+            <button class="btn primary">Accept</button>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Request Detail</p>
+    </div>
+
+    <!-- DOCTOR SCHEDULE -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor schedule screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-sched">
+            <header class="req-head">
+              <h1>Schedule</h1>
+              <button class="btn block"><i data-lucide="plus"></i>Block time</button>
+            </header>
+            <div class="week-strip">
+              <button class="wday"><span class="wd-n">Mo</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Tu</span><span class="wd-c">14</span></button>
+              <button class="wday on"><span class="wd-n">We</span><span class="wd-c">8</span></button>
+              <button class="wday"><span class="wd-n">Th</span><span class="wd-c">10</span></button>
+              <button class="wday"><span class="wd-n">Fr</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Sa</span><span class="wd-c">6</span></button>
+              <button class="wday"><span class="wd-n">Su</span><span class="wd-c">–</span></button>
+            </div>
+            <div class="day-head">Today, Wednesday</div>
+            <div class="slot-row booked"><span class="slot-time">10:00</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">General · ₹500</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row open"><span class="slot-time">11:00</span><div class="slot-info"><p class="slot-title">Open slot</p><p class="slot-sub">Tap to block</p></div><span class="slot-state">Open</span></div>
+            <div class="slot-row booked home"><span class="slot-time">12:00</span><div class="slot-info"><p class="slot-title">Home Visit</p><p class="slot-sub">General · ₹800</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row blocked"><span class="slot-time">16:00</span><div class="slot-info"><p class="slot-title">Blocked</p><p class="slot-sub">Personal time</p></div><span class="slot-state">Blocked</span></div>
+            <div class="slot-row booked"><span class="slot-time">17:30</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">Cardiology · ₹600</p></div><span class="slot-state">Booked</span></div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item on"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Schedule</p>
+    </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V3 · MARKETPLACE ============ -->
+<section class="panel var-3" id="v3">
+  <div class="panel-head">
+    <div>
+      <h2>V3 · Marketplace</h2>
+      <p class="pn-note">Denser, high-contrast, ratings-forward. A marketplace you trust to move fast.</p>
+    </div>
+    <p class="pn-ref">Refs: Uber · Practo &nbsp;·&nbsp; Fonts: Plus Jakarta Sans</p>
+  </div>
+  <div class="group">
+    <p class="group-label">Patient app</p>
+    <div class="trio duo">
+    <!-- PATIENT HOME -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Patient Home screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-home">
+            <header class="greet">
+              <div class="greet-txt"><p class="hi">Hi, Pranav</p><p class="hi-sub">Book a doctor near you</p></div>
+              <button class="iconbtn" aria-label="Notifications"><i data-lucide="bell"></i><span class="notif-dot"></span></button>
+            </header>
+            <div class="search"><i data-lucide="search"></i><span>Search doctors, specialties…</span></div>
+            <div class="quick-chips">
+              <button class="qchip dark"><i data-lucide="video"></i>Online</button>
+              <button class="qchip dark"><i data-lucide="map-pin"></i>Nearby</button>
+              <button class="qchip outline"><i data-lucide="flame"></i>Popular</button>
+            </div>
+            <h2 class="sec-title">Book by specialty</h2>
+            <div class="spec-grid">
+              <button class="spec"><span class="spec-ic"><i data-lucide="stethoscope"></i></span><span class="spec-n">General</span><span class="spec-c">24</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="bone"></i></span><span class="spec-n">Ortho</span><span class="spec-c">11</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="syringe"></i></span><span class="spec-n">Nurse</span><span class="spec-c">18</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="heart-pulse"></i></span><span class="spec-n">Cardio</span><span class="spec-c">9</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="droplets"></i></span><span class="spec-n">Derma</span><span class="spec-c">14</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="baby"></i></span><span class="spec-n">Gynae</span><span class="spec-c">10</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="smile"></i></span><span class="spec-n">Paed</span><span class="spec-c">13</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="dumbbell"></i></span><span class="spec-n">Physio</span><span class="spec-c">16</span></button>
+              <button class="spec more"><span class="spec-ic"><i data-lucide="plus"></i></span><span class="spec-n">More</span></button>
+            </div>
+            <div class="featured">
+              <article class="feat-card">
+                <div class="avatar av-2">PN</div>
+                <div class="feat-info">
+                  <p class="feat-tag">Most booked</p>
+                  <h3 class="feat-name">Dr. Priya Nair</h3>
+                  <p class="feat-sub">General Physician · <i data-lucide="star"></i>4.9 <em>(301)</em></p>
+                </div>
+                <span class="feat-price">₹600</span>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item on"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Patient Home</p>
+    </div>
+
+    <!-- DIRECTORY LIST -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor directory screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-dir">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>General Physician</h1><p class="sub">24 doctors · Navi Mumbai</p></div>
+              <button class="iconbtn" aria-label="Filters"><i data-lucide="sliders-horizontal"></i></button>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">Online</button>
+              <button class="chip">Home Visit</button>
+              <button class="chip sort"><span>Price</span><i data-lucide="chevron-down"></i></button>
+            </div>
+            <div class="doc-list">
+              <article class="doc-card">
+                <div class="avatar av-1">AM</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Aarav Mehta</h3><i data-lucide="shield-check" class="verif"></i></div>
+                  <p class="doc-spec">MBBS, MD · General Physician</p>
+                  <div class="doc-badges"><span class="badge dark">Online</span><span class="badge dark">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.8 <em>(214)</em></span>
+                    <span class="next-mini"><i data-lucide="clock"></i>Today 6PM</span>
+                    <span class="price">₹500</span>
+                  </div>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-2">PN</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Priya Nair</h3><i data-lucide="shield-check" class="verif"></i></div>
+                  <p class="doc-spec">MBBS, DNB · General Physician</p>
+                  <div class="doc-badges"><span class="badge dark">Online</span><span class="badge dark">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.9 <em>(301)</em></span>
+                    <span class="next-mini"><i data-lucide="clock"></i>Today 7:30PM</span>
+                    <span class="price">₹600</span>
+                  </div>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-3">RK</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Rohan Kulkarni</h3></div>
+                  <p class="doc-spec">MBBS · General Physician</p>
+                  <div class="doc-badges"><span class="badge dark">Online</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.7 <em>(156)</em></span>
+                    <span class="next-mini"><i data-lucide="clock"></i>Tomorrow 10AM</span>
+                    <span class="price">₹450</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Directory</p>
+    </div>
+
+    </div>
+  </div>
+  <div class="group">
+    <p class="group-label">Doctor app &middot; same theme, its own shell</p>
+    <div class="trio">
+    <!-- DOCTOR REQUESTS -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor requests screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-req">
+            <header class="req-head">
+              <h1>Requests</h1>
+              <span class="count-pill">3 new</span>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">New</button>
+              <button class="chip">Pending</button>
+            </div>
+            <div class="req-list">
+              <article class="req-card new">
+                <div class="req-top">
+                  <div class="avatar av-4">AS</div>
+                  <div class="req-who"><h3>Anita Sharma</h3><p class="req-sub">General Physician · Home Visit</p></div>
+                  <span class="req-tag">New</span>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 6:00 PM</span>
+                  <span class="req-dist">2.4 km</span>
+                  <span class="price">₹800</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-5">RI</div>
+                  <div class="req-who"><h3>Rakesh Iyer</h3><p class="req-sub">Cardiology · Online Consult</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 7:30 PM</span>
+                  <span class="price">₹600</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-6">MJ</div>
+                  <div class="req-who"><h3>Meera Joshi</h3><p class="req-sub">Physiotherapy · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Tomorrow, 10:00 AM</span>
+                  <span class="price">₹750</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Requests</p>
+    </div>
+
+    <!-- DOCTOR REQUEST DETAIL -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor request detail screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-detail">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>Request</h1><p class="sub">Home Visit · Today, 6:00 PM</p></div>
+              <button class="iconbtn" aria-label="More"><i data-lucide="more-horizontal"></i></button>
+            </header>
+            <div class="pat-strip">
+              <div class="avatar av-4">AS</div>
+              <div class="pat-info">
+                <h3>Anita Sharma</h3>
+                <p class="doc-spec">Patient · 62 yrs · Female</p>
+              </div>
+              <div class="pat-right">
+                <span class="price">₹800</span>
+                <span class="badge">Home Visit</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">What the patient said</h2>
+              <div class="intake typed">
+                <p>My mother has had pain in both knees for about a week. It is worse in the morning. She is 62 and diabetic.</p>
+              </div>
+              <div class="intake voice">
+                <div class="vhead"><i data-lucide="mic"></i><span>Voice note · 0:42</span><span class="vtag">Transcribed</span></div>
+                <p class="vtranscript">"Also, she finished her BP medicine yesterday — please check if she needs a refill."</p>
+              </div>
+              <div class="intake photo">
+                <span class="ph-thumb"><i data-lucide="image"></i></span>
+                <span>1 photo attached</span>
+                <span class="ph-view">View</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">Visit details</h2>
+              <div class="visit-row"><i data-lucide="clock"></i><span>Today, 6:00 PM · 45 min</span></div>
+              <div class="visit-row"><i data-lucide="map-pin"></i><span>Sector 17, Vashi · 2.4 km</span></div>
+            </div>
+            <button class="btn clarify"><i data-lucide="phone"></i>Request clarification call</button>
+            <div class="spacer"></div>
+          </div>
+          <div class="action-bar">
+            <button class="btn ghost">Decline</button>
+            <button class="btn primary">Accept</button>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Request Detail</p>
+    </div>
+
+    <!-- DOCTOR SCHEDULE -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor schedule screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-sched">
+            <header class="req-head">
+              <h1>Schedule</h1>
+              <button class="btn block"><i data-lucide="plus"></i>Block time</button>
+            </header>
+            <div class="week-strip">
+              <button class="wday"><span class="wd-n">Mo</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Tu</span><span class="wd-c">14</span></button>
+              <button class="wday on"><span class="wd-n">We</span><span class="wd-c">8</span></button>
+              <button class="wday"><span class="wd-n">Th</span><span class="wd-c">10</span></button>
+              <button class="wday"><span class="wd-n">Fr</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Sa</span><span class="wd-c">6</span></button>
+              <button class="wday"><span class="wd-n">Su</span><span class="wd-c">–</span></button>
+            </div>
+            <div class="day-head">Today, Wednesday</div>
+            <div class="slot-row booked"><span class="slot-time">10:00</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">General · ₹500</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row open"><span class="slot-time">11:00</span><div class="slot-info"><p class="slot-title">Open slot</p><p class="slot-sub">Tap to block</p></div><span class="slot-state">Open</span></div>
+            <div class="slot-row booked home"><span class="slot-time">12:00</span><div class="slot-info"><p class="slot-title">Home Visit</p><p class="slot-sub">General · ₹800</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row blocked"><span class="slot-time">16:00</span><div class="slot-info"><p class="slot-title">Blocked</p><p class="slot-sub">Personal time</p></div><span class="slot-state">Blocked</span></div>
+            <div class="slot-row booked"><span class="slot-time">17:30</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">Cardiology · ₹600</p></div><span class="slot-state">Booked</span></div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item on"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Schedule</p>
+    </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V4 · DARK CLINICAL ============ -->
+<section class="panel var-4" id="v4">
+  <div class="panel-head">
+    <div>
+      <h2>V4 · Dark Clinical <span class="mine-tag">my take</span></h2>
+      <p class="pn-note">Near-black ink, electric blue, editorial grotesk. Premium after-hours calm.</p>
+    </div>
+    <p class="pn-ref">Fonts: Space Grotesk + Inter</p>
+  </div>
+  <div class="group">
+    <p class="group-label">Patient app</p>
+    <div class="trio duo">
+    <!-- PATIENT HOME -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Patient Home screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-home">
+            <header class="greet">
+              <div class="greet-txt"><p class="hi">Good morning</p><h1 class="h-name">Pranav</h1></div>
+              <button class="iconbtn" aria-label="Notifications"><i data-lucide="bell"></i><span class="notif-dot"></span></button>
+            </header>
+            <div class="search"><i data-lucide="search"></i><span>Search doctors or specialties</span></div>
+            <h2 class="sec-title">Book by specialty</h2>
+            <div class="spec-grid">
+              <button class="spec"><span class="spec-ic"><i data-lucide="stethoscope"></i></span><span class="spec-n">General Physician</span><span class="spec-c">24</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="bone"></i></span><span class="spec-n">Orthopedic</span><span class="spec-c">11</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="syringe"></i></span><span class="spec-n">Nurse</span><span class="spec-c">18</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="heart-pulse"></i></span><span class="spec-n">Cardiology</span><span class="spec-c">9</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="droplets"></i></span><span class="spec-n">Dermatology</span><span class="spec-c">14</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="baby"></i></span><span class="spec-n">Gynecology</span><span class="spec-c">10</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="smile"></i></span><span class="spec-n">Pediatrics</span><span class="spec-c">13</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="dumbbell"></i></span><span class="spec-n">Physiotherapy</span><span class="spec-c">16</span></button>
+              <button class="spec more"><span class="spec-ic"><i data-lucide="plus"></i></span><span class="spec-n">More</span></button>
+            </div>
+            <div class="featured">
+              <article class="feat-card">
+                <div class="avatar av-2">PN</div>
+                <div class="feat-info">
+                  <p class="feat-tag">Most booked this week</p>
+                  <h3 class="feat-name">Dr. Priya Nair</h3>
+                  <p class="feat-sub">General Physician · 4.9 <em>(301)</em></p>
+                </div>
+                <span class="feat-price">₹600</span>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item on"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Patient Home</p>
+    </div>
+
+    <!-- DIRECTORY LIST -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor directory screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-dir">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>General Physician</h1><p class="sub">24 doctors near you</p></div>
+              <button class="iconbtn" aria-label="Filters"><i data-lucide="sliders-horizontal"></i></button>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">Online</button>
+              <button class="chip">Home Visit</button>
+              <button class="chip sort"><span>Price</span><i data-lucide="chevron-down"></i></button>
+            </div>
+            <div class="doc-list">
+              <article class="doc-card">
+                <div class="avatar av-1">AM</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Aarav Mehta</h3><i data-lucide="shield-check" class="verif"></i></div>
+                  <p class="doc-spec">MBBS, MD · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span><span class="badge">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.8 <em>(214)</em></span>
+                    <span class="price">₹500</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Today, 6:00 PM</p>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-2">PN</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Priya Nair</h3><i data-lucide="shield-check" class="verif"></i></div>
+                  <p class="doc-spec">MBBS, DNB · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span><span class="badge">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.9 <em>(301)</em></span>
+                    <span class="price">₹600</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Today, 7:30 PM</p>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-3">RK</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Rohan Kulkarni</h3></div>
+                  <p class="doc-spec">MBBS · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.7 <em>(156)</em></span>
+                    <span class="price">₹450</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Tomorrow, 10:00 AM</p>
+                </div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Directory</p>
+    </div>
+
+    </div>
+  </div>
+  <div class="group">
+    <p class="group-label">Doctor app &middot; same theme, its own shell</p>
+    <div class="trio">
+    <!-- DOCTOR REQUESTS -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor requests screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-req">
+            <header class="req-head">
+              <h1>Requests</h1>
+              <span class="count-pill">3 new</span>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">New</button>
+              <button class="chip">Pending</button>
+            </div>
+            <div class="req-list">
+              <article class="req-card new">
+                <span class="req-tag">New request</span>
+                <div class="req-top">
+                  <div class="avatar av-4">AS</div>
+                  <div class="req-who"><h3>Anita Sharma</h3><p class="req-sub">General Physician · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 6:00 PM</span>
+                  <span class="price">₹800</span>
+                </div>
+                <p class="req-trip"><i data-lucide="map-pin"></i>2.4 km · Sector 17, Vashi</p>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-5">RI</div>
+                  <div class="req-who"><h3>Rakesh Iyer</h3><p class="req-sub">Cardiology · Online Consult</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 7:30 PM</span>
+                  <span class="price">₹600</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-6">MJ</div>
+                  <div class="req-who"><h3>Meera Joshi</h3><p class="req-sub">Physiotherapy · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Tomorrow, 10:00 AM</span>
+                  <span class="price">₹750</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Requests</p>
+    </div>
+
+    <!-- DOCTOR REQUEST DETAIL -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor request detail screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-detail">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>Request</h1><p class="sub">Home Visit · Today, 6:00 PM</p></div>
+              <button class="iconbtn" aria-label="More"><i data-lucide="more-horizontal"></i></button>
+            </header>
+            <div class="pat-strip">
+              <div class="avatar av-4">AS</div>
+              <div class="pat-info">
+                <h3>Anita Sharma</h3>
+                <p class="doc-spec">Patient · 62 yrs · Female</p>
+              </div>
+              <div class="pat-right">
+                <span class="price">₹800</span>
+                <span class="badge">Home Visit</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">What the patient said</h2>
+              <div class="intake typed">
+                <p>My mother has had pain in both knees for about a week. It is worse in the morning. She is 62 and diabetic.</p>
+              </div>
+              <div class="intake voice">
+                <div class="vhead"><i data-lucide="mic"></i><span>Voice note · 0:42</span><span class="vtag">Transcribed</span></div>
+                <p class="vtranscript">"Also, she finished her BP medicine yesterday — please check if she needs a refill."</p>
+              </div>
+              <div class="intake photo">
+                <span class="ph-thumb"><i data-lucide="image"></i></span>
+                <span>1 photo attached</span>
+                <span class="ph-view">View</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">Visit details</h2>
+              <div class="visit-row"><i data-lucide="clock"></i><span>Today, 6:00 PM · 45 min</span></div>
+              <div class="visit-row"><i data-lucide="map-pin"></i><span>Sector 17, Vashi · 2.4 km</span></div>
+            </div>
+            <button class="btn clarify"><i data-lucide="phone"></i>Request clarification call</button>
+            <div class="spacer"></div>
+          </div>
+          <div class="action-bar">
+            <button class="btn ghost">Decline</button>
+            <button class="btn primary">Accept</button>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Request Detail</p>
+    </div>
+
+    <!-- DOCTOR SCHEDULE -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor schedule screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-sched">
+            <header class="req-head">
+              <h1>Schedule</h1>
+              <button class="btn block"><i data-lucide="plus"></i>Block time</button>
+            </header>
+            <div class="week-strip">
+              <button class="wday"><span class="wd-n">Mo</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Tu</span><span class="wd-c">14</span></button>
+              <button class="wday on"><span class="wd-n">We</span><span class="wd-c">8</span></button>
+              <button class="wday"><span class="wd-n">Th</span><span class="wd-c">10</span></button>
+              <button class="wday"><span class="wd-n">Fr</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Sa</span><span class="wd-c">6</span></button>
+              <button class="wday"><span class="wd-n">Su</span><span class="wd-c">–</span></button>
+            </div>
+            <div class="day-head">Today, Wednesday</div>
+            <div class="slot-row booked"><span class="slot-time">10:00</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">General · ₹500</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row open"><span class="slot-time">11:00</span><div class="slot-info"><p class="slot-title">Open slot</p><p class="slot-sub">Tap to block</p></div><span class="slot-state">Open</span></div>
+            <div class="slot-row booked home"><span class="slot-time">12:00</span><div class="slot-info"><p class="slot-title">Home Visit</p><p class="slot-sub">General · ₹800</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row blocked"><span class="slot-time">16:00</span><div class="slot-info"><p class="slot-title">Blocked</p><p class="slot-sub">Personal time</p></div><span class="slot-state">Blocked</span></div>
+            <div class="slot-row booked"><span class="slot-time">17:30</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">Cardiology · ₹600</p></div><span class="slot-state">Booked</span></div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item on"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Schedule</p>
+    </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V5 · WARM EDITORIAL ============ -->
+<section class="panel var-5" id="v5">
+  <div class="panel-head">
+    <div>
+      <h2>V5 · Warm Editorial <span class="mine-tag">my take</span></h2>
+      <p class="pn-note">Paper-white, serif display, deep green. A medical practice that feels human.</p>
+    </div>
+    <p class="pn-ref">Fonts: Fraunces + Inter</p>
+  </div>
+  <div class="group">
+    <p class="group-label">Patient app</p>
+    <div class="trio duo">
+    <!-- PATIENT HOME -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Patient Home screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-home">
+            <header class="greet">
+              <div class="greet-txt"><p class="hi">Good morning,</p><h1 class="h-name">Pranav</h1></div>
+              <button class="iconbtn" aria-label="Notifications"><i data-lucide="bell"></i><span class="notif-dot"></span></button>
+            </header>
+            <div class="search"><i data-lucide="search"></i><span>Search doctors or specialties</span></div>
+            <div class="banner trust-banner"><i data-lucide="shield-check"></i><span>All doctors are manually verified — no AI diagnosis, ever</span></div>
+            <h2 class="sec-title">Book by specialty</h2>
+            <div class="spec-grid">
+              <button class="spec"><span class="spec-ic"><i data-lucide="stethoscope"></i></span><span class="spec-n">General Physician</span><span class="spec-c">24</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="bone"></i></span><span class="spec-n">Orthopedic</span><span class="spec-c">11</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="syringe"></i></span><span class="spec-n">Nurse</span><span class="spec-c">18</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="heart-pulse"></i></span><span class="spec-n">Cardiology</span><span class="spec-c">9</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="droplets"></i></span><span class="spec-n">Dermatology</span><span class="spec-c">14</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="baby"></i></span><span class="spec-n">Gynecology</span><span class="spec-c">10</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="smile"></i></span><span class="spec-n">Pediatrics</span><span class="spec-c">13</span></button>
+              <button class="spec"><span class="spec-ic"><i data-lucide="dumbbell"></i></span><span class="spec-n">Physiotherapy</span><span class="spec-c">16</span></button>
+              <button class="spec more"><span class="spec-ic"><i data-lucide="plus"></i></span><span class="spec-n">More</span></button>
+            </div>
+            <div class="featured">
+              <article class="feat-card">
+                <div class="avatar av-2">PN</div>
+                <div class="feat-info">
+                  <p class="feat-tag">Most booked this week</p>
+                  <h3 class="feat-name">Dr. Priya Nair</h3>
+                  <p class="feat-sub">General Physician · 4.9 <em>(301)</em></p>
+                </div>
+                <span class="feat-price">₹600</span>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item on"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Patient Home</p>
+    </div>
+
+    <!-- DIRECTORY LIST -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor directory screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-dir">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>General Physician</h1><p class="sub">24 doctors near you</p></div>
+              <button class="iconbtn" aria-label="Filters"><i data-lucide="sliders-horizontal"></i></button>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">Online</button>
+              <button class="chip">Home Visit</button>
+              <button class="chip sort"><span>Price</span><i data-lucide="chevron-down"></i></button>
+            </div>
+            <div class="doc-list">
+              <article class="doc-card">
+                <div class="avatar av-1">AM</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Aarav Mehta</h3><i data-lucide="shield-check" class="verif"></i></div>
+                  <p class="doc-spec">MBBS, MD · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span><span class="badge">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.8 <em>(214)</em></span>
+                    <span class="price">₹500</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Today, 6:00 PM</p>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-2">PN</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Priya Nair</h3><i data-lucide="shield-check" class="verif"></i></div>
+                  <p class="doc-spec">MBBS, DNB · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span><span class="badge">Home Visit</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.9 <em>(301)</em></span>
+                    <span class="price">₹600</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Today, 7:30 PM</p>
+                </div>
+              </article>
+              <article class="doc-card">
+                <div class="avatar av-3">RK</div>
+                <div class="doc-info">
+                  <div class="doc-top"><h3>Dr. Rohan Kulkarni</h3></div>
+                  <p class="doc-spec">MBBS · General Physician</p>
+                  <div class="doc-badges"><span class="badge">Online</span></div>
+                  <div class="doc-meta">
+                    <span class="rate"><i data-lucide="star"></i>4.7 <em>(156)</em></span>
+                    <span class="price">₹450</span>
+                  </div>
+                  <p class="next"><i data-lucide="clock"></i>Next: Tomorrow, 10:00 AM</p>
+                </div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Patient tabs">
+            <button class="tab-item"><i data-lucide="home"></i><span>Home</span></button>
+            <button class="tab-item"><i data-lucide="calendar"></i><span>Bookings</span></button>
+            <button class="tab-item"><i data-lucide="history"></i><span>History</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Directory</p>
+    </div>
+
+    </div>
+  </div>
+  <div class="group">
+    <p class="group-label">Doctor app &middot; same theme, its own shell</p>
+    <div class="trio">
+    <!-- DOCTOR REQUESTS -->
+    <div class="phone-wrap">
+      <div class="phone" role="img" aria-label="Doctor requests screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-req">
+            <header class="req-head">
+              <h1>Requests</h1>
+              <span class="count-pill">3 new</span>
+            </header>
+            <div class="chip-row">
+              <button class="chip on">All</button>
+              <button class="chip">New</button>
+              <button class="chip">Pending</button>
+            </div>
+            <div class="req-list">
+              <article class="req-card new">
+                <span class="req-tag">New request</span>
+                <div class="req-top">
+                  <div class="avatar av-4">AS</div>
+                  <div class="req-who"><h3>Anita Sharma</h3><p class="req-sub">General Physician · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 6:00 PM</span>
+                  <span class="price">₹800</span>
+                </div>
+                <p class="req-trip"><i data-lucide="map-pin"></i>2.4 km · Sector 17, Vashi</p>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-5">RI</div>
+                  <div class="req-who"><h3>Rakesh Iyer</h3><p class="req-sub">Cardiology · Online Consult</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Today, 7:30 PM</span>
+                  <span class="price">₹600</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+              <article class="req-card">
+                <div class="req-top">
+                  <div class="avatar av-6">MJ</div>
+                  <div class="req-who"><h3>Meera Joshi</h3><p class="req-sub">Physiotherapy · Home Visit</p></div>
+                </div>
+                <div class="req-row">
+                  <span class="req-when"><i data-lucide="clock"></i>Tomorrow, 10:00 AM</span>
+                  <span class="price">₹750</span>
+                </div>
+                <div class="req-actions"><button class="btn ghost">Decline</button><button class="btn primary">Review</button></div>
+              </article>
+            </div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Requests</p>
+    </div>
+
+    <!-- DOCTOR REQUEST DETAIL -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor request detail screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-detail">
+            <header class="dir-head">
+              <button class="iconbtn" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+              <div class="dir-title"><h1>Request</h1><p class="sub">Home Visit · Today, 6:00 PM</p></div>
+              <button class="iconbtn" aria-label="More"><i data-lucide="more-horizontal"></i></button>
+            </header>
+            <div class="pat-strip">
+              <div class="avatar av-4">AS</div>
+              <div class="pat-info">
+                <h3>Anita Sharma</h3>
+                <p class="doc-spec">Patient · 62 yrs · Female</p>
+              </div>
+              <div class="pat-right">
+                <span class="price">₹800</span>
+                <span class="badge">Home Visit</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">What the patient said</h2>
+              <div class="intake typed">
+                <p>My mother has had pain in both knees for about a week. It is worse in the morning. She is 62 and diabetic.</p>
+              </div>
+              <div class="intake voice">
+                <div class="vhead"><i data-lucide="mic"></i><span>Voice note · 0:42</span><span class="vtag">Transcribed</span></div>
+                <p class="vtranscript">"Also, she finished her BP medicine yesterday — please check if she needs a refill."</p>
+              </div>
+              <div class="intake photo">
+                <span class="ph-thumb"><i data-lucide="image"></i></span>
+                <span>1 photo attached</span>
+                <span class="ph-view">View</span>
+              </div>
+            </div>
+            <div class="d-section">
+              <h2 class="sec-title">Visit details</h2>
+              <div class="visit-row"><i data-lucide="clock"></i><span>Today, 6:00 PM · 45 min</span></div>
+              <div class="visit-row"><i data-lucide="map-pin"></i><span>Sector 17, Vashi · 2.4 km</span></div>
+            </div>
+            <button class="btn clarify"><i data-lucide="phone"></i>Request clarification call</button>
+            <div class="spacer"></div>
+          </div>
+          <div class="action-bar">
+            <button class="btn ghost">Decline</button>
+            <button class="btn primary">Accept</button>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item on"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Request Detail</p>
+    </div>
+
+    <!-- DOCTOR SCHEDULE -->
+    <div class="phone-wrap">
+      <div class="phone doctor" role="img" aria-label="Doctor schedule screen">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar"><span class="sb-time">9:41</span><span class="sb-icons"><i data-lucide="signal"></i><i data-lucide="wifi"></i><i data-lucide="battery-full"></i></span></div>
+          <div class="app p-sched">
+            <header class="req-head">
+              <h1>Schedule</h1>
+              <button class="btn block"><i data-lucide="plus"></i>Block time</button>
+            </header>
+            <div class="week-strip">
+              <button class="wday"><span class="wd-n">Mo</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Tu</span><span class="wd-c">14</span></button>
+              <button class="wday on"><span class="wd-n">We</span><span class="wd-c">8</span></button>
+              <button class="wday"><span class="wd-n">Th</span><span class="wd-c">10</span></button>
+              <button class="wday"><span class="wd-n">Fr</span><span class="wd-c">12</span></button>
+              <button class="wday"><span class="wd-n">Sa</span><span class="wd-c">6</span></button>
+              <button class="wday"><span class="wd-n">Su</span><span class="wd-c">–</span></button>
+            </div>
+            <div class="day-head">Today, Wednesday</div>
+            <div class="slot-row booked"><span class="slot-time">10:00</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">General · ₹500</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row open"><span class="slot-time">11:00</span><div class="slot-info"><p class="slot-title">Open slot</p><p class="slot-sub">Tap to block</p></div><span class="slot-state">Open</span></div>
+            <div class="slot-row booked home"><span class="slot-time">12:00</span><div class="slot-info"><p class="slot-title">Home Visit</p><p class="slot-sub">General · ₹800</p></div><span class="slot-state">Booked</span></div>
+            <div class="slot-row blocked"><span class="slot-time">16:00</span><div class="slot-info"><p class="slot-title">Blocked</p><p class="slot-sub">Personal time</p></div><span class="slot-state">Blocked</span></div>
+            <div class="slot-row booked"><span class="slot-time">17:30</span><div class="slot-info"><p class="slot-title">Online Consult</p><p class="slot-sub">Cardiology · ₹600</p></div><span class="slot-state">Booked</span></div>
+            <div class="spacer"></div>
+          </div>
+          <nav class="tabbar" aria-label="Doctor tabs">
+            <button class="tab-item"><i data-lucide="inbox"></i><span>Requests</span></button>
+            <button class="tab-item on"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+            <button class="tab-item"><i data-lucide="wallet"></i><span>Earnings</span></button>
+            <button class="tab-item"><i data-lucide="user"></i><span>Profile</span></button>
+          </nav>
+        </div>
+      </div>
+      <p class="cap">Doctor Schedule</p>
+    </div>
+  </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="pagefoot">
+  <p>Static direction exploration · next: pick a direction → full flow (all screens, animations, live-sync demo) built in it.</p>
+</footer>
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>
+  lucide.createIcons();
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.toggle('on', x === t));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === t.dataset.panel));
+  }));
+</script>
+</body>
+</html>

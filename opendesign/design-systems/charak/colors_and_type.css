@@ -1,0 +1,52 @@
+/* ============================================================
+   CHARAK Design System — tokens (V1)
+   Source: CHARAK_Prototype_Reference.md §1
+   Patient App & Doctor App share these; each app's shell differs.
+   ============================================================ */
+
+:root {
+  /* color */
+  --color-bg: #FFFFFF;
+  --color-bg-subtle: #F5F8FA;
+  --color-primary: #2F6FED;
+  --color-primary-soft: #EAF1FE;
+  --color-primary-deep: #1E4FBF;
+  --color-ink: #101828;
+  --color-ink-muted: #5B6472;
+  --color-border: #E4E8EE;
+  --color-success: #1FAA6D;
+  --color-warning: #E0930B;
+  --color-danger: #E0473E;
+
+  /* type scale (base 16) */
+  --type-display: 600 28px/1.2 'Inter', system-ui, sans-serif;
+  --type-h1: 600 22px/1.3 'Inter', system-ui, sans-serif;
+  --type-h2: 600 17px/1.4 'Inter', system-ui, sans-serif;
+  --type-body: 400 15px/1.5 'Inter', system-ui, sans-serif;
+  --type-body-medium: 500 15px/1.5 'Inter', system-ui, sans-serif;
+  --type-caption: 400 13px/1.4 'Inter', system-ui, sans-serif;
+  --type-micro: 500 11px/1.3 'Inter', system-ui, sans-serif;
+
+  /* shape & elevation */
+  --radius-card: 12px;
+  --radius-control: 10px;
+  --radius-pill: 100px;
+  --shadow-card: 0 2px 8px rgba(16, 24, 40, 0.06);
+  --shadow-sheet: 0 8px 24px rgba(16, 24, 40, 0.12);
+
+  /* spacing */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+
+  /* motion */
+  --dur-push: 280ms; --dur-sheet: 240ms; --dur-press: 100ms;
+  --dur-status: 600ms; --dur-success: 400ms; --dur-arrive: 320ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* tabular figures for price / time / OTP */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* press feedback */
+.pressable { transition: transform var(--dur-press) var(--ease-in-out), opacity var(--dur-press) var(--ease-in-out); }
+.pressable:active { transform: scale(0.97); opacity: 0.9; }

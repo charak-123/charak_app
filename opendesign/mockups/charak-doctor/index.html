@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CHARAK — Doctor App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../design-systems/charak/colors_and_type.css">
+<link rel="stylesheet" href="../charak-shared/core.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-app="doctor">
+
+<div class="host">
+  <aside class="host-info">
+    <h1>CHARAK — Doctor App</h1>
+    <span class="tag">V1 · Premium Banking · Partner shell</span>
+    <p>Same design system as the patient app — but this is a work tool: ink chrome, decisions front and centre. Requests arrive live and stay until you decide.</p>
+    <div class="flow">
+      <b>Core loop:</b> Onboarding → Verification → Channels → Pricing &amp; procedures<br>
+      → <i>request arrives live</i> → Review intake → Accept/Decline<br>
+      → Active visit (home: tick procedures done) → Complete<br>
+      → Senior review above threshold → Earnings
+    </div>
+  </aside>
+
+  <div class="phone">
+    <div class="island"></div>
+    <div class="screen">
+      <div class="statusbar">
+        <span class="sb-time tnum">9:41</span>
+        <span class="sb-group">
+          <i data-lucide="signal" style="display:inline-block"></i>
+          <i data-lucide="wifi" style="display:inline-block"></i>
+          <i data-lucide="battery-full" class="batt" style="display:inline-block"></i>
+        </span>
+      </div>
+      <div class="stage" id="stage"></div>
+      <nav class="tabbar" id="tabbar" style="background:var(--color-ink);border-top:0">
+        <button class="tab-item on" data-tab="requests"><i data-lucide="inbox"></i><span>Requests</span></button>
+        <button class="tab-item" data-tab="schedule"><i data-lucide="calendar-days"></i><span>Schedule</span></button>
+        <button class="tab-item" data-tab="earnings"><i data-lucide="wallet"></i><span>Earnings</span></button>
+        <button class="tab-item" data-tab="profile"><i data-lucide="user"></i><span>Profile</span></button>
+      </nav>
+    </div>
+  </div>
+</div>
+
+<div class="dock collapsed" id="dock">
+  <div class="dock-head"><span>Demo · Patient side</span><button onclick="Charak.toggleDock()">−</button></div>
+  <div class="dock-body">
+    <p class="dock-hint">Simulates the Patient App talking to yours.</p>
+    <button class="dock-btn" onclick="D.simNewRequest()"><svg data-lucide="inbox"></svg>New request arrives</button>
+    <button class="dock-btn" onclick="D.simPaid()"><svg data-lucide="banknote"></svg>Patient pays (payment received)</button>
+    <button class="dock-btn" onclick="D.simApproved()"><svg data-lucide="shield-check"></svg>Verification approved (ops)</button>
+    <button class="dock-btn" onclick="D.reset()"><svg data-lucide="rotate-ccw"></svg>Reset demo</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="../charak-shared/core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

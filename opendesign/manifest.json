@@ -1,0 +1,42 @@
+{
+  "generated": "2026-08-17T10:33:14Z",
+  "sections": [
+    {
+      "id": "mockups",
+      "label": "Mockups",
+      "groups": [
+        {
+          "slug": "charak-patient",
+          "files": [
+            { "label": "Patient App — interactive prototype", "path": "mockups/charak-patient/index.html" }
+          ]
+        },
+        {
+          "slug": "charak-doctor",
+          "files": [
+            { "label": "Doctor App — interactive prototype", "path": "mockups/charak-doctor/index.html" }
+          ]
+        },
+        {
+          "slug": "charak-direction-explore",
+          "files": [
+            { "label": "Direction Exploration (V1–V5 reference)", "path": "mockups/charak-direction-explore/index.html" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "design-systems",
+      "label": "Design Systems",
+      "groups": [
+        {
+          "slug": "charak",
+          "files": [
+            { "label": "Tokens (colors & type)", "path": "design-systems/charak/colors_and_type.css" },
+            { "label": "System guide", "path": "design-systems/charak/SKILL.md" }
+          ]
+        }
+      ]
+    }
+  ]
+}
