@@ -112,6 +112,7 @@ def list_history(user: dict = Depends(require_doctor)):
 # ── Patient: own bookings ─────────────────────────────────────────────────────
 
 @router.get("/patient/mine")
+@router.get("/patient/list")
 def patient_bookings(user: dict = Depends(get_current_user)):
     return (
         supabase.table("bookings")

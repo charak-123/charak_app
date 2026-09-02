@@ -34,6 +34,25 @@ def make_chain(data=None, list_data=None):
     return c
 
 
+def make_chain_seq(*execute_data_list):
+    """Chain whose execute() returns successive data values on each call."""
+    c = MagicMock()
+    c.select.return_value = c
+    c.insert.return_value = c
+    c.update.return_value = c
+    c.upsert.return_value = c
+    c.delete.return_value = c
+    c.eq.return_value = c
+    c.in_.return_value = c
+    c.gte.return_value = c
+    c.lte.return_value = c
+    c.lt.return_value = c
+    c.order.return_value = c
+    c.single.return_value = c
+    c.execute.side_effect = [MagicMock(data=d) for d in execute_data_list]
+    return c
+
+
 def make_supabase(table_map: dict) -> MagicMock:
     """
     Build a mock supabase client.
@@ -63,4 +82,7 @@ _ROUTER_SUPABASE_PATHS = [
     "app.routers.categories.supabase",
     "app.routers.schedules.supabase",
     "app.routers.slot_blocks.supabase",
+    "app.routers.ratings.supabase",
+    "app.routers.complaints.supabase",
+    "app.routers.payments.supabase",
 ]
