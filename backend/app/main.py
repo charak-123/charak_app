@@ -5,7 +5,7 @@ from .errors import AppError, app_error_handler
 from .routers import (
     auth, categories, doctors, schedules, slot_blocks,
     bookings, intake, calls, procedure_bills, earnings, push, payments,
-    ratings, complaints,
+    ratings, complaints, admin,
 )
 
 app = FastAPI(title="Charak API", version="0.1.0")
@@ -34,6 +34,7 @@ app.include_router(push.router,             prefix="/push",             tags=["p
 app.include_router(payments.router,         prefix="/payments",         tags=["payments"])
 app.include_router(ratings.router,          prefix="/bookings",         tags=["ratings"])
 app.include_router(complaints.router,       prefix="/bookings",         tags=["complaints"])
+app.include_router(admin.router,            prefix="/admin",            tags=["admin"])
 
 
 @app.get("/healthz", tags=["meta"])
