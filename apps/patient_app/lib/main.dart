@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:charak_core/charak_core.dart';
 import 'router.dart';
 
@@ -19,9 +20,10 @@ class PatientApp extends ConsumerWidget {
   const PatientApp({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return MaterialApp.router(
+    return ShadApp.router(
       title: 'Charak',
-      theme: charakTheme(),
+      theme: charakShadTheme(),
+      materialThemeBuilder: (context, theme) => charakMaterialTheme(),
       routerConfig: ref.watch(routerProvider),
       debugShowCheckedModeBanner: false,
     );

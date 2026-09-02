@@ -23,6 +23,11 @@ dependencies:
   pinput: ^3.0.1
   audioplayers: ^6.1.0
   record: ^5.2.0
+  shadcn_ui: ^0.17.2
+  path_provider: ^2.1.4
+  lucide_icons: ^0.3.0
+  flutter_animate: ^4.5.0
+  skeletonizer: ^1.4.2
 
 dev_dependencies:
   flutter_test:
