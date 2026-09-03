@@ -4,11 +4,10 @@ import { setToken } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function Login() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -18,7 +17,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const { access_token } = await api.post<{ access_token: string }>('/admin/login', { email, password })
+      const { access_token } = await api.post<{ access_token: string }>('/admin/login', { password })
       setToken(access_token)
       navigate('/', { replace: true })
     } catch (err: unknown) {
@@ -29,34 +28,30 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg-subtle">
-      <Card className="w-full max-w-sm p-8">
-        <div className="mb-6 text-center">
-          <span className="text-2xl font-semibold text-ink">charak</span>
-          <span className="ml-1 text-sm text-ink-muted">admin</span>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-          />
-          <Input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-          />
-          {error && <p className="text-sm text-danger">{error}</p>}
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Signing in…' : 'Sign in'}
-          </Button>
-        </form>
+    <div className="min-h-screen flex items-center justify-center bg-muted/30">
+      <Card className="w-[360px]">
+        <CardHeader>
+          <CardTitle>Charak Admin</CardTitle>
+          <p className="text-sm text-muted-foreground">Enter your admin password to continue</p>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Password</label>
+              <Input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+        </CardContent>
       </Card>
     </div>
   )

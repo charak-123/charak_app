@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { FileText, CheckCircle, XCircle } from 'lucide-react'
+import { Key, Calendar, CheckCircle } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 interface PendingDoctor {
   id: string
@@ -17,22 +19,34 @@ interface PendingDoctor {
 
 function SkeletonCard() {
   return (
-    <Card className="animate-pulse">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 space-y-2">
-          <div className="h-4 w-40 rounded bg-bg-subtle" />
-          <div className="h-3 w-28 rounded bg-bg-subtle" />
-          <div className="h-3 w-36 rounded bg-bg-subtle" />
-          <div className="h-3 w-24 rounded bg-bg-subtle" />
+    <Card>
+      <CardContent className="p-4 animate-pulse space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-full bg-muted" />
+          <div className="space-y-1 flex-1">
+            <div className="h-4 w-40 rounded bg-muted" />
+            <div className="h-3 w-28 rounded bg-muted" />
+          </div>
         </div>
+        <div className="h-3 w-36 rounded bg-muted" />
+        <div className="h-3 w-24 rounded bg-muted" />
         <div className="flex gap-2">
-          <div className="h-8 w-24 rounded-btn bg-bg-subtle" />
-          <div className="h-8 w-20 rounded-btn bg-bg-subtle" />
-          <div className="h-8 w-20 rounded-btn bg-bg-subtle" />
+          <div className="h-8 w-28 rounded bg-muted" />
+          <div className="h-8 w-20 rounded bg-muted" />
+          <div className="h-8 w-20 rounded bg-muted" />
         </div>
-      </div>
+      </CardContent>
     </Card>
   )
+}
+
+function getInitials(name: string) {
+  return name
+    .split(' ')
+    .map(w => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
 }
 
 function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
@@ -61,87 +75,100 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
 
   return (
     <Card>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        {/* Info */}
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-ink">{doctor.name}</p>
-          <p className="text-xs text-ink-muted">{doctor.phone}</p>
-          <p className="text-xs text-ink-muted">
-            License: <span className="font-medium text-ink">{doctor.license_number}</span>
-          </p>
-          <p className="text-xs text-ink-muted">
-            Submitted {format(new Date(doctor.created_at), 'd MMM yyyy')}
-          </p>
-          {verifyMutation.isError && (
-            <p className="text-xs text-danger">
-              {(verifyMutation.error as Error).message}
-            </p>
-          )}
+      <CardContent className="p-4 space-y-3">
+        {/* Top row: avatar + name + phone + badge */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Avatar>
+              <AvatarFallback>{getInitials(doctor.name)}</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="font-semibold text-sm">{doctor.name}</p>
+              <p className="text-sm text-muted-foreground">{doctor.phone}</p>
+            </div>
+          </div>
+          <Badge variant="outline" className="border-warning text-warning shrink-0">
+            Pending
+          </Badge>
         </div>
 
-        {/* Actions */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        {/* License row */}
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Key size={14} />
+          <span>{doctor.license_number}</span>
+        </div>
+
+        {/* Submitted date row */}
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Calendar size={14} />
+          <span>Submitted {format(new Date(doctor.created_at), 'd MMM yyyy')}</span>
+        </div>
+
+        {verifyMutation.isError && (
+          <p className="text-xs text-destructive">
+            {(verifyMutation.error as Error).message}
+          </p>
+        )}
+
+        {/* Action row */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
-            className="text-xs px-3 py-1.5 h-auto"
+            size="sm"
             disabled={!doctor.verification_document_url}
             onClick={() => window.open(doctor.verification_document_url!, '_blank')}
           >
-            <FileText size={14} />
             View Document
           </Button>
           <Button
-            variant="default"
-            className="text-xs px-3 py-1.5 h-auto bg-success hover:bg-success/90"
+            size="sm"
+            className="bg-success hover:bg-success/90 text-white"
             disabled={isLoading || rejectOpen}
             onClick={handleApprove}
           >
-            <CheckCircle size={14} />
             Approve
           </Button>
           <Button
-            variant="danger"
-            className="text-xs px-3 py-1.5 h-auto"
+            variant="destructive"
+            size="sm"
             disabled={isLoading}
             onClick={() => setRejectOpen(v => !v)}
           >
-            <XCircle size={14} />
             Reject
           </Button>
         </div>
-      </div>
 
-      {/* Inline reject form */}
-      {rejectOpen && (
-        <div className="mt-3 space-y-2 border-t border-border pt-3">
-          <textarea
-            className="w-full rounded-btn border border-border bg-bg-subtle px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
-            rows={3}
-            placeholder="Reason for rejection…"
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            disabled={isLoading}
-          />
-          <div className="flex gap-2">
-            <Button
-              variant="danger"
-              className="text-xs px-3 py-1.5 h-auto"
-              disabled={isLoading || !reason.trim()}
-              onClick={handleReject}
-            >
-              Confirm Rejection
-            </Button>
-            <Button
-              variant="ghost"
-              className="text-xs px-3 py-1.5 h-auto"
+        {/* Rejection area */}
+        {rejectOpen && (
+          <div className="space-y-2 border-t pt-3">
+            <textarea
+              className="w-full border border-border rounded-md p-2 text-sm min-h-[80px] mt-2 resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Reason for rejection…"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
               disabled={isLoading}
-              onClick={() => { setRejectOpen(false); setReason('') }}
-            >
-              Cancel
-            </Button>
+            />
+            <div className="flex gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={isLoading || !reason.trim()}
+                onClick={handleReject}
+              >
+                Confirm Rejection
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isLoading}
+                onClick={() => { setRejectOpen(false); setReason('') }}
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </CardContent>
     </Card>
   )
 }
@@ -153,45 +180,47 @@ export default function VerificationQueue() {
   })
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-ink">Verification Queue</h1>
-        <p className="text-sm text-ink-muted mt-0.5">
-          Review and action pending doctor verification requests.
-        </p>
+    <div>
+      <div className="p-6 border-b bg-background">
+        <h1 className="text-xl font-semibold">Verification Queue</h1>
+        <p className="text-sm text-muted-foreground">Doctors awaiting identity verification</p>
       </div>
 
-      {isLoading && (
-        <div className="space-y-3">
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
-      )}
+      <div className="p-6 space-y-4">
+        {isLoading && (
+          <>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </>
+        )}
 
-      {isError && (
-        <Card className="border-danger/30 bg-red-50">
-          <p className="text-sm text-danger">
-            Failed to load pending doctors: {(error as Error).message}
-          </p>
-        </Card>
-      )}
+        {isError && (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm text-destructive">
+                Failed to load pending doctors: {(error as Error).message}
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
-      {!isLoading && !isError && data && data.length === 0 && (
-        <Card className="py-12 text-center">
-          <CheckCircle size={32} className="mx-auto text-success mb-3" />
-          <p className="text-sm font-medium text-ink">No pending verifications</p>
-          <p className="text-xs text-ink-muted mt-1">All doctors have been reviewed.</p>
-        </Card>
-      )}
+        {!isLoading && !isError && data && data.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <CheckCircle size={48} className="text-success" />
+            <p className="text-base font-semibold">No pending verifications</p>
+            <p className="text-sm text-muted-foreground">All doctors have been reviewed.</p>
+          </div>
+        )}
 
-      {!isLoading && !isError && data && data.length > 0 && (
-        <div className="space-y-3">
-          {data.map(doctor => (
-            <DoctorCard key={doctor.id} doctor={doctor} />
-          ))}
-        </div>
-      )}
+        {!isLoading && !isError && data && data.length > 0 && (
+          <div className="space-y-3">
+            {data.map(doctor => (
+              <DoctorCard key={doctor.id} doctor={doctor} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

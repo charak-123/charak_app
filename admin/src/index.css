@@ -1,19 +1,50 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tw-animate-css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --primary: #2F6FED;
-  --ink: #101828;
-  --ink-muted: #5B6472;
-  --border: #E4E8EE;
-  --bg: #FFFFFF;
-  --bg-subtle: #F5F8FA;
-  --success: #1FAA6D;
-  --warning: #E0930B;
-  --danger: #E0473E;
-}
+@layer base {
+  :root {
+    /* Charak brand mapped to shadcn CSS vars (oklch) */
+    --background:        oklch(1 0 0);
+    --foreground:        oklch(0.145 0.02 251);
+    --card:              oklch(1 0 0);
+    --card-foreground:   oklch(0.145 0.02 251);
+    --popover:           oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0.02 251);
+    --primary:           oklch(0.567 0.19 258);
+    --primary-foreground: oklch(1 0 0);
+    --secondary:         oklch(0.975 0.005 220);
+    --secondary-foreground: oklch(0.145 0.02 251);
+    --muted:             oklch(0.975 0.005 220);
+    --muted-foreground:  oklch(0.46 0.02 240);
+    --accent:            oklch(0.93 0.06 258);
+    --accent-foreground: oklch(0.567 0.19 258);
+    --destructive:       oklch(0.577 0.22 27);
+    --destructive-foreground: oklch(1 0 0);
+    --border:            oklch(0.92 0.01 240);
+    --input:             oklch(0.92 0.01 240);
+    --ring:              oklch(0.567 0.19 258);
+    --radius:            0.625rem;
 
-* { box-sizing: border-box; }
-body { font-family: 'Inter', sans-serif; background: var(--bg-subtle); color: var(--ink); margin: 0; }
+    /* Semantic extras for pages */
+    --success:           oklch(0.6 0.15 158);
+    --warning:           oklch(0.7 0.17 65);
+
+    /* Sidebar */
+    --sidebar:           oklch(0.145 0.02 251);
+    --sidebar-foreground: oklch(1 0 0);
+    --sidebar-primary:   oklch(0.567 0.19 258);
+    --sidebar-primary-foreground: oklch(1 0 0);
+    --sidebar-accent:    oklch(0.2 0.02 251);
+    --sidebar-accent-foreground: oklch(0.9 0 0);
+    --sidebar-border:    oklch(0.22 0.02 251);
+    --sidebar-ring:      oklch(0.567 0.19 258);
+  }
+
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground font-sans; margin: 0; }
+  html { font-family: 'Inter', sans-serif; }
+}

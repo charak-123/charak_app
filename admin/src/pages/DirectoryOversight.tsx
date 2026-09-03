@@ -1,11 +1,20 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { Search, Star, Monitor, Home } from 'lucide-react'
+import { Search, Star } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 interface Doctor {
   id: string
@@ -20,16 +29,32 @@ interface Doctor {
   created_at: string
 }
 
-const statusVariant: Record<Doctor['verification_status'], 'success' | 'warning' | 'danger'> = {
-  verified: 'success',
-  pending: 'warning',
-  rejected: 'danger',
+function getInitials(name: string) {
+  return name
+    .split(' ')
+    .map(w => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
 }
 
-const statusLabel: Record<Doctor['verification_status'], string> = {
-  verified: 'Verified',
-  pending: 'Pending',
-  rejected: 'Rejected',
+function StatusBadge({ status }: { status: Doctor['verification_status'] }) {
+  switch (status) {
+    case 'verified':
+      return (
+        <Badge variant="outline" className="border-success text-success bg-success/10">
+          Verified
+        </Badge>
+      )
+    case 'pending':
+      return (
+        <Badge variant="outline" className="border-warning text-warning bg-warning/10">
+          Pending
+        </Badge>
+      )
+    case 'rejected':
+      return <Badge variant="destructive">Rejected</Badge>
+  }
 }
 
 export default function DirectoryOversight() {
@@ -54,7 +79,7 @@ export default function DirectoryOversight() {
 
   function handleSuspend(doctor: Doctor) {
     const confirmed = window.confirm(
-      `Suspend Dr. ${doctor.name}? This will mark their account as rejected and remove them from the public directory.`,
+      `Suspend Dr. ${doctor.name}? This will mark their account as rejected and remove them from the public directory.`
     )
     if (!confirmed) return
     suspendMutation.mutate(doctor.id)
@@ -67,175 +92,168 @@ export default function DirectoryOversight() {
   })
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-ink">Directory Oversight</h1>
-        <p className="text-sm text-ink-muted mt-0.5">
+    <div>
+      <div className="p-6 border-b bg-background">
+        <h1 className="text-xl font-semibold">Doctor Directory</h1>
+        <p className="text-sm text-muted-foreground">
           View and manage all doctors in the Charak directory.
         </p>
       </div>
 
-      {/* Search + count */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full max-w-sm">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
-          <Input
-            className="pl-9"
-            placeholder="Search by name or phone…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+      <div className="p-6 space-y-4">
+        {/* Search + count */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full max-w-sm">
+            <Search
+              size={15}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              className="pl-9"
+              placeholder="Search by name or phone…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          {!isLoading && !isError && data && (
+            <p className="text-sm text-muted-foreground shrink-0">
+              {filtered.length} doctor{filtered.length !== 1 ? 's' : ''}
+            </p>
+          )}
         </div>
-        {!isLoading && !isError && data && (
-          <p className="text-sm text-ink-muted shrink-0">
-            {filtered.length} of {data.length} doctor{data.length !== 1 ? 's' : ''}
-          </p>
-        )}
-      </div>
 
-      {/* Error state */}
-      {isError && (
-        <div className="rounded-card border border-danger/30 bg-red-50 px-4 py-3">
-          <p className="text-sm text-danger">
+        {/* Error state */}
+        {isError && (
+          <p className="text-sm text-destructive py-4">
             Failed to load doctors: {(error as Error).message}
           </p>
-        </div>
-      )}
+        )}
 
-      {/* Loading skeleton */}
-      {isLoading && (
-        <div className="overflow-hidden rounded-card border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-bg-subtle">
-              <tr>
-                {['Name', 'Phone', 'Specialty', 'Status', 'Channels', 'Rating', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-ink-muted">
-                    {h}
-                  </th>
+        {/* Loading skeleton */}
+        {isLoading && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {['Name', 'Phone', 'Status', 'Channels', 'Rating', 'Actions'].map(h => (
+                    <TableHead key={h}>{h}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i} className="animate-pulse">
+                    {Array.from({ length: 6 }).map((_, j) => (
+                      <TableCell key={j}>
+                        <div className="h-3 rounded bg-muted w-20" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
                 ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border bg-white">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="animate-pulse">
-                  {Array.from({ length: 7 }).map((_, j) => (
-                    <td key={j} className="px-4 py-3">
-                      <div className="h-3 rounded bg-bg-subtle w-20" />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
 
-      {/* Table */}
-      {!isLoading && !isError && (
-        <>
-          {filtered.length === 0 ? (
-            <div className="rounded-card border border-border bg-white px-4 py-12 text-center">
-              <p className="text-sm text-ink-muted">
-                {search ? 'No doctors match your search.' : 'No doctors found.'}
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-card border border-border">
-              <table className="w-full text-sm">
-                <thead className="bg-bg-subtle">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted">Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted">Phone</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted">Specialty</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted">Channels</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted">Rating</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border bg-white">
-                  {filtered.map(doctor => (
-                    <tr key={doctor.id} className="hover:bg-bg-subtle/50 transition-colors">
-                      {/* Name */}
-                      <td className="px-4 py-3">
-                        <div>
-                          <p className="font-medium text-ink">{doctor.name}</p>
-                          <p className="text-xs text-ink-muted">
-                            Since {format(new Date(doctor.created_at), 'd MMM yyyy')}
-                          </p>
-                        </div>
-                      </td>
+        {/* Table */}
+        {!isLoading && !isError && (
+          <>
+            {filtered.length === 0 ? (
+              <div className="rounded-md border px-4 py-12 text-center">
+                <p className="text-sm text-muted-foreground">
+                  {search ? 'No doctors match your search.' : 'No doctors found.'}
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Channels</TableHead>
+                      <TableHead>Rating</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map(doctor => (
+                      <TableRow key={doctor.id}>
+                        {/* Name + Avatar */}
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="text-xs">
+                                {getInitials(doctor.name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium text-sm">{doctor.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Since {format(new Date(doctor.created_at), 'd MMM yyyy')}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
 
-                      {/* Phone */}
-                      <td className="px-4 py-3 text-ink-muted">{doctor.phone}</td>
+                        {/* Phone */}
+                        <TableCell className="text-muted-foreground">{doctor.phone}</TableCell>
 
-                      {/* Specialty */}
-                      <td className="px-4 py-3 text-ink-muted">
-                        {doctor.category_name ?? '—'}
-                      </td>
+                        {/* Status */}
+                        <TableCell>
+                          <StatusBadge status={doctor.verification_status} />
+                        </TableCell>
 
-                      {/* Status */}
-                      <td className="px-4 py-3">
-                        <Badge
-                          label={statusLabel[doctor.verification_status]}
-                          variant={statusVariant[doctor.verification_status]}
-                        />
-                      </td>
+                        {/* Channels */}
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {doctor.offers_online_consult && (
+                              <Badge variant="secondary">Online</Badge>
+                            )}
+                            {doctor.offers_home_visit && (
+                              <Badge variant="secondary">Home</Badge>
+                            )}
+                            {!doctor.offers_online_consult && !doctor.offers_home_visit && (
+                              <span className="text-muted-foreground text-sm">—</span>
+                            )}
+                          </div>
+                        </TableCell>
 
-                      {/* Channels */}
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {doctor.offers_online_consult && (
-                            <span className="inline-flex items-center gap-1 rounded-pill bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary">
-                              <Monitor size={10} />
-                              Online
+                        {/* Rating */}
+                        <TableCell>
+                          {doctor.rating_avg != null ? (
+                            <span className="inline-flex items-center gap-1 text-sm">
+                              <Star size={12} className="text-warning fill-warning" />
+                              {doctor.rating_avg.toFixed(1)}
                             </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
                           )}
-                          {doctor.offers_home_visit && (
-                            <span className="inline-flex items-center gap-1 rounded-pill bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary">
-                              <Home size={10} />
-                              Home
-                            </span>
-                          )}
-                          {!doctor.offers_online_consult && !doctor.offers_home_visit && (
-                            <span className="text-ink-muted">—</span>
-                          )}
-                        </div>
-                      </td>
+                        </TableCell>
 
-                      {/* Rating */}
-                      <td className="px-4 py-3">
-                        {doctor.rating_avg != null ? (
-                          <span className="inline-flex items-center gap-1 text-ink">
-                            <Star size={12} className="text-warning fill-warning" />
-                            {doctor.rating_avg.toFixed(1)}
-                          </span>
-                        ) : (
-                          <span className="text-ink-muted">—</span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-4 py-3">
-                        {doctor.verification_status === 'verified' && (
-                          <Button
-                            variant="danger"
-                            className="text-xs px-3 py-1.5 h-auto"
-                            disabled={suspendMutation.isPending}
-                            onClick={() => handleSuspend(doctor)}
-                          >
-                            Suspend
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
+                        {/* Actions */}
+                        <TableCell>
+                          {doctor.verification_status === 'verified' && (
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={suspendMutation.isPending}
+                              onClick={() => handleSuspend(doctor)}
+                            >
+                              Suspend
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

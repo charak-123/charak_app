@@ -3,7 +3,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { api } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 type ComplaintStatus = 'open' | 'in_review' | 'resolved' | 'closed'
 
@@ -25,13 +33,6 @@ const STATUS_TABS: { label: string; value: StatusFilter }[] = [
   { label: 'Closed', value: 'closed' },
 ]
 
-const STATUS_BADGE: Record<ComplaintStatus, 'danger' | 'warning' | 'success' | 'muted'> = {
-  open: 'danger',
-  in_review: 'warning',
-  resolved: 'success',
-  closed: 'muted',
-}
-
 const STATUS_LABEL: Record<ComplaintStatus, string> = {
   open: 'Open',
   in_review: 'In Review',
@@ -40,6 +41,27 @@ const STATUS_LABEL: Record<ComplaintStatus, string> = {
 }
 
 const STATUS_OPTIONS: ComplaintStatus[] = ['open', 'in_review', 'resolved', 'closed']
+
+function ComplaintStatusBadge({ status }: { status: ComplaintStatus }) {
+  switch (status) {
+    case 'open':
+      return <Badge variant="destructive">Open</Badge>
+    case 'in_review':
+      return (
+        <Badge variant="outline" className="border-warning text-warning bg-warning/10">
+          In Review
+        </Badge>
+      )
+    case 'resolved':
+      return (
+        <Badge variant="outline" className="border-success text-success bg-success/10">
+          Resolved
+        </Badge>
+      )
+    case 'closed':
+      return <Badge variant="secondary">Closed</Badge>
+  }
+}
 
 function truncate(text: string, max = 120) {
   return text.length > max ? text.slice(0, max) + '…' : text
@@ -63,70 +85,87 @@ export default function ComplaintInbox() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-ink">Complaint Inbox</h1>
-
-      {/* Filter tabs */}
-      <div className="flex gap-1 border-b border-border">
-        {STATUS_TABS.map(({ label, value }) => (
-          <button
-            key={value}
-            onClick={() => setStatusFilter(value)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              statusFilter === value
-                ? 'border-primary text-primary'
-                : 'border-transparent text-ink-muted hover:text-ink'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+    <div>
+      <div className="p-6 border-b bg-background">
+        <h1 className="text-xl font-semibold">Complaint Inbox</h1>
+        <p className="text-sm text-muted-foreground">Manage and resolve patient complaints</p>
       </div>
 
-      {/* States */}
-      {isLoading ? (
-        <p className="text-sm text-ink-muted py-8 text-center">Loading complaints…</p>
-      ) : isError ? (
-        <p className="text-sm text-danger py-8 text-center">Failed to load complaints.</p>
-      ) : complaints.length === 0 ? (
-        <p className="text-sm text-ink-muted py-8 text-center">No complaints found.</p>
-      ) : (
-        <div className="space-y-3">
-          {complaints.map((c) => (
-            <Card key={c.id} className="flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex flex-col gap-1 min-w-0">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs text-ink-muted">
-                      Booking {c.bookings?.id?.slice(0, 8) ?? '—'}
-                    </span>
-                    <Badge label={STATUS_LABEL[c.status]} variant={STATUS_BADGE[c.status]} />
-                  </div>
-                  <p className="text-sm text-ink leading-relaxed">
-                    {truncate(c.description)}
-                  </p>
-                  <p className="text-xs text-ink-muted">
-                    {format(new Date(c.created_at), 'd MMM yyyy')}
-                  </p>
-                </div>
+      <div className="p-6 space-y-4">
+        <Tabs value={statusFilter} onValueChange={v => setStatusFilter(v as StatusFilter)}>
+          <TabsList>
+            {STATUS_TABS.map(({ label, value }) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-                {/* Status update */}
-                <select
-                  defaultValue={c.status}
-                  onChange={(e) => handleStatusChange(c.id, e.target.value as ComplaintStatus)}
-                  className="shrink-0 rounded-btn border border-border bg-bg px-2 py-1.5 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_LABEL[s]}
-                    </option>
+          {STATUS_TABS.map(({ value }) => (
+            <TabsContent key={value} value={value} className="mt-4">
+              {isLoading ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  Loading complaints…
+                </p>
+              ) : isError ? (
+                <p className="text-sm text-destructive py-8 text-center">
+                  Failed to load complaints.
+                </p>
+              ) : complaints.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  No complaints found.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {complaints.map(c => (
+                    <Card key={c.id}>
+                      <CardContent className="p-4 space-y-3">
+                        {/* Top row: booking ID chip + status badge + date */}
+                        <div className="flex items-center justify-between gap-4 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="secondary" className="font-mono text-xs">
+                              Booking {c.bookings?.id?.slice(0, 8) ?? '—'}
+                            </Badge>
+                            <ComplaintStatusBadge status={c.status} />
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(c.created_at), 'd MMM yyyy')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Description */}
+                        <p className="text-sm leading-relaxed">{truncate(c.description)}</p>
+
+                        {/* Status update select */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Update status:</span>
+                          <Select
+                            defaultValue={c.status}
+                            onValueChange={v =>
+                              handleStatusChange(c.id, v as ComplaintStatus)
+                            }
+                          >
+                            <SelectTrigger className="h-8 w-36 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {STATUS_OPTIONS.map(s => (
+                                <SelectItem key={s} value={s} className="text-xs">
+                                  {STATUS_LABEL[s]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </CardContent>
+                    </Card>
                   ))}
-                </select>
-              </div>
-            </Card>
+                </div>
+              )}
+            </TabsContent>
           ))}
-        </div>
-      )}
+        </Tabs>
+      </div>
     </div>
   )
 }

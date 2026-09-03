@@ -1,8 +1,18 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { PackageCheck } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 type BillItem = {
   name: string
@@ -42,100 +52,115 @@ export default function SeniorReviewQueue() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-ink">Senior Review Queue</h1>
+    <div>
+      <div className="p-6 border-b bg-background">
+        <h1 className="text-xl font-semibold">Senior Review</h1>
+        <p className="text-sm text-muted-foreground">
+          Procedure bills pending senior approval
+        </p>
+      </div>
 
-      {isLoading ? (
-        <p className="text-sm text-ink-muted py-8 text-center">Loading bills…</p>
-      ) : isError ? (
-        <p className="text-sm text-danger py-8 text-center">Failed to load procedure bills.</p>
-      ) : bills.length === 0 ? (
-        <p className="text-sm text-ink-muted py-8 text-center">No bills pending review 🎉</p>
-      ) : (
-        <div className="space-y-4">
-          {bills.map((bill) => {
-            const items: BillItem[] = Array.isArray(bill.items) ? bill.items : []
-            const doctorName = bill.bookings?.doctors?.name ?? '—'
-            const bookingShort = bill.bookings?.id?.slice(0, 8) ?? '—'
+      <div className="p-6 space-y-4">
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground py-8 text-center">Loading bills…</p>
+        ) : isError ? (
+          <p className="text-sm text-destructive py-8 text-center">
+            Failed to load procedure bills.
+          </p>
+        ) : bills.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <PackageCheck size={48} className="text-muted-foreground" />
+            <p className="text-base font-semibold">No bills pending review</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {bills.map(bill => {
+              const items: BillItem[] = Array.isArray(bill.items) ? bill.items : []
+              const doctorName = bill.bookings?.doctors?.name ?? '—'
 
-            return (
-              <Card key={bill.id} className="space-y-4">
-                {/* Header row */}
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-xs text-ink-muted">
-                        Bill {bill.id.slice(0, 8)}
+              return (
+                <Card key={bill.id}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-sm font-mono font-medium text-muted-foreground">
+                            Bill {bill.id.slice(0, 8)}
+                          </CardTitle>
+                          <Badge
+                            variant="outline"
+                            className="border-warning text-warning bg-warning/10"
+                          >
+                            Under Review
+                          </Badge>
+                        </div>
+                        <p className="text-sm font-semibold">{doctorName}</p>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex gap-2 shrink-0">
+                        <Button
+                          className="bg-success hover:bg-success/90 text-white"
+                          onClick={() => handleApprove(bill)}
+                        >
+                          Approve
+                        </Button>
+                        <Button variant="destructive" onClick={() => handleFlag(bill)}>
+                          Flag
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    {/* Line items table */}
+                    {items.length > 0 && (
+                      <div className="rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Name</TableHead>
+                              <TableHead className="text-right">Qty</TableHead>
+                              <TableHead className="text-right">Price</TableHead>
+                              <TableHead className="text-right">Subtotal</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {items.map((item, i) => (
+                              <TableRow key={i}>
+                                <TableCell>{item.name}</TableCell>
+                                <TableCell className="text-right text-muted-foreground">
+                                  {item.qty}
+                                </TableCell>
+                                <TableCell className="text-right text-muted-foreground">
+                                  ₹{item.price.toLocaleString('en-IN')}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  ₹{(item.qty * item.price).toLocaleString('en-IN')}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+
+                    <Separator />
+
+                    {/* Total row */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Total</span>
+                      <span className="text-sm font-bold">
+                        ₹{bill.total_amount.toLocaleString('en-IN')}
                       </span>
-                      <Badge label="Under Review" variant="warning" />
                     </div>
-                    <div className="text-sm text-ink">
-                      <span className="font-medium">{doctorName}</span>
-                      <span className="text-ink-muted"> · Booking </span>
-                      <span className="font-mono text-xs">{bookingShort}</span>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2 shrink-0">
-                    <Button
-                      variant="default"
-                      className="bg-success hover:bg-success/90 text-white"
-                      onClick={() => handleApprove(bill)}
-                    >
-                      Approve
-                    </Button>
-                    <Button variant="danger" onClick={() => handleFlag(bill)}>
-                      Flag
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Items table */}
-                {items.length > 0 && (
-                  <div className="rounded-card border border-border overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-bg-subtle text-xs text-ink-muted uppercase">
-                        <tr>
-                          {['Item', 'Qty', 'Price', 'Subtotal'].map((h) => (
-                            <th
-                              key={h}
-                              className={`px-3 py-2 font-medium ${h === 'Item' ? 'text-left' : 'text-right'}`}
-                            >
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border bg-white">
-                        {items.map((item, i) => (
-                          <tr key={i}>
-                            <td className="px-3 py-2 text-ink">{item.name}</td>
-                            <td className="px-3 py-2 text-right text-ink-muted">{item.qty}</td>
-                            <td className="px-3 py-2 text-right text-ink-muted">
-                              ₹{item.price.toLocaleString('en-IN')}
-                            </td>
-                            <td className="px-3 py-2 text-right text-ink">
-                              ₹{(item.qty * item.price).toLocaleString('en-IN')}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* Total */}
-                <div className="flex justify-end">
-                  <span className="text-sm font-bold text-ink">
-                    Total: ₹{bill.total_amount.toLocaleString('en-IN')}
-                  </span>
-                </div>
-              </Card>
-            )
-          })}
-        </div>
-      )}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
