@@ -1,5 +1,5 @@
 app = "charak-api"
-primary_region = "bom"   # Mumbai
+primary_region = "bom"   # Mumbai — closest to the Indian user base
 
 [build]
   dockerfile = "../../backend/Dockerfile"
@@ -12,7 +12,20 @@ primary_region = "bom"   # Mumbai
   force_https = true
   auto_stop_machines = true
   auto_start_machines = true
+  # Never scale to zero: /maintenance/release-expired-holds is called on a
+  # schedule, and a cold start would let an unpaid booking hold a doctor's slot
+  # past its window.
   min_machines_running = 1
+
+  # /readyz confirms Supabase actually answers. A machine that boots but cannot
+  # reach the database must not take traffic — the previous config had no check
+  # at all, so a bad SUPABASE_URL would have served 500s while looking healthy.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/readyz"
 
 [[vm]]
   memory = "512mb"
