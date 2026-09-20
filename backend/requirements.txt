@@ -8,3 +8,11 @@ pydantic==2.13.4
 pydantic[email]==2.13.4
 pytest==9.1.1
 pytest-asyncio==1.4.0
+
+# ── Optional, only needed once the matching credentials are configured ────────
+# Razorpay orders + webhooks (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET)
+razorpay==1.4.2
+# Agora RTC token minting (AGORA_APP_ID / AGORA_APP_CERTIFICATE)
+agora-token-builder==1.0.0
+# FCM HTTP v1 push (FCM_PROJECT_ID / GOOGLE_APPLICATION_CREDENTIALS)
+google-auth==2.41.1

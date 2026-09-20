@@ -1,19 +1,27 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .errors import AppError, app_error_handler
 from .routers import (
-    auth, categories, doctors, schedules, slot_blocks,
-    bookings, intake, calls, procedure_bills, earnings, push, payments,
-    ratings, complaints, admin,
+    admin, auth, bookings, calls, categories, complaints, doctors, earnings,
+    intake, maintenance, notifications, payments, payouts, procedure_bills,
+    push, ratings, schedules, slot_blocks, users,
 )
+from .services.notifications import push_enabled
 
-app = FastAPI(title="Charak API", version="0.1.0")
+app = FastAPI(title="Charak API", version="0.2.0")
+
+# The mobile apps are not browsers and send no Origin, so CORS only governs the
+# admin dashboard. ALLOWED_ORIGINS is a comma-separated list; the "*" default
+# keeps local development frictionless and should be set in production.
+_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # tighten in prod to admin domain + app deep-link origins
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_credentials="*" not in _origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -30,13 +38,49 @@ app.include_router(intake.router,           prefix="/bookings",         tags=["i
 app.include_router(calls.router,            prefix="/bookings",         tags=["calls"])
 app.include_router(procedure_bills.router,  prefix="/bookings",         tags=["procedure-bills"])
 app.include_router(earnings.router,         prefix="/earnings",         tags=["earnings"])
+app.include_router(payouts.router,          prefix="/payouts",          tags=["payouts"])
 app.include_router(push.router,             prefix="/push",             tags=["push"])
+app.include_router(notifications.router,    prefix="/notifications",    tags=["notifications"])
 app.include_router(payments.router,         prefix="/payments",         tags=["payments"])
 app.include_router(ratings.router,          prefix="/bookings",         tags=["ratings"])
 app.include_router(complaints.router,       prefix="/bookings",         tags=["complaints"])
 app.include_router(admin.router,            prefix="/admin",            tags=["admin"])
+app.include_router(users.router,            prefix="/users",            tags=["users"])
+app.include_router(maintenance.router,      prefix="/maintenance",      tags=["maintenance"])
 
 
 @app.get("/healthz", tags=["meta"])
 def health():
     return {"status": "ok"}
+
+
+@app.get("/readyz", tags=["meta"])
+def ready():
+    """
+    Deep health check for the load balancer: confirms the database actually
+    answers, and reports which external integrations are live. A deploy that can
+    boot but not reach Supabase should not receive traffic.
+    """
+    from .db import supabase
+    from .routers.calls import agora_configured
+    from .routers.payments import live_mode as razorpay_live
+    from .config import MSG91_API_KEY
+
+    try:
+        supabase.table("categories").select("id").limit(1).execute()
+        db_ok = True
+        db_error = None
+    except Exception as exc:
+        db_ok = False
+        db_error = str(exc)[:200]
+
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "database": {"ok": db_ok, "error": db_error},
+        "integrations": {
+            "sms_otp": bool(MSG91_API_KEY),
+            "payments": razorpay_live(),
+            "push": push_enabled(),
+            "video_calls": agora_configured(),
+        },
+    }
