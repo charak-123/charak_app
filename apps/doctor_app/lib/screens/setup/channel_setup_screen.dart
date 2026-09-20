@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
 
 class ChannelSetupScreen extends ConsumerStatefulWidget {
   const ChannelSetupScreen({super.key});
@@ -18,6 +17,12 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
   String? _error;
 
   Future<void> _submit() async {
+    if (!_online && !_home) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pick at least one channel')),
+      );
+      return;
+    }
     setState(() { _loading = true; _error = null; });
     try {
       await ApiClient.instance.patch('/doctors/me', {
@@ -25,8 +30,11 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
         'offers_home_visit': _home,
       });
       if (!mounted) return;
-      if (_online) context.go('/setup/online');
-      else context.go('/setup/home-visit', extra: true);
+      if (_online) {
+        context.go('/setup/online');
+      } else {
+        context.go('/setup/home-visit', extra: true);
+      }
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {
@@ -37,100 +45,51 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('How do you want to serve patients?')),
+      backgroundColor: CharakColors.bg,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(CharakSpacing.base),
-          child: Column(
-            children: [
-              const SizedBox(height: CharakSpacing.lg),
-              _ChannelCard(
-                icon: Icons.videocam_outlined,
-                title: 'Online Consult',
-                subtitle: 'Video appointments at scheduled times',
-                selected: _online,
-                onTap: () => setState(() => _online = !_online),
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const CharakStepDots(current: 2),
+                    const SizedBox(height: 10),
+                    const Text('How do you practice?', style: CharakText.h1),
+                    const SizedBox(height: 5),
+                    Text('Pick one or both. A cardiologist can simply skip Home Visit.',
+                        style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
+                    const SizedBox(height: 18),
+                    CharakToggleCard(
+                      icon: Icons.videocam_outlined,
+                      title: 'Online Consult',
+                      subtitle: 'Video consults on your scheduled hours.',
+                      value: _online,
+                      onChanged: (v) => setState(() => _online = v),
+                    ),
+                    CharakToggleCard(
+                      icon: Icons.home_outlined,
+                      title: 'Home Visit',
+                      subtitle: 'You travel to the patient, within your radius.',
+                      value: _home,
+                      onChanged: (v) => setState(() => _home = v),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: CharakSpacing.base),
+                      Text(_error!, style: CharakText.caption.copyWith(color: CharakColors.danger)),
+                    ],
+                  ],
+                ),
               ),
-              const SizedBox(height: CharakSpacing.md),
-              _ChannelCard(
-                icon: Icons.home_outlined,
-                title: 'Home Visit',
-                subtitle: 'Travel to patient\'s home within your service radius',
-                selected: _home,
-                onTap: () => setState(() => _home = !_home),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: CharakSpacing.base),
-                Text(_error!, style: CharakText.caption.copyWith(color: CharakColors.danger)),
-              ],
-              const Spacer(),
+            ),
+            CharakCtaBar.single(
               CharakButton(
                 label: 'Continue',
-                onPressed: (_online || _home) ? _submit : null,
+                onPressed: _submit,
                 isLoading: _loading,
               ),
-              const SizedBox(height: CharakSpacing.base),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ChannelCard extends StatelessWidget {
-  final IconData icon;
-  final String title, subtitle;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ChannelCard({
-    required this.icon, required this.title, required this.subtitle,
-    required this.selected, required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.all(CharakSpacing.base),
-        decoration: BoxDecoration(
-          color: selected ? CharakColors.primarySoft : CharakColors.bg,
-          borderRadius: BorderRadius.all(CharakRadius.card),
-          border: Border.all(color: selected ? CharakColors.primary : CharakColors.border, width: selected ? 1.5 : 1),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48, height: 48,
-              decoration: BoxDecoration(
-                color: selected ? CharakColors.primary : CharakColors.bgSubtle,
-                borderRadius: BorderRadius.all(CharakRadius.button),
-              ),
-              child: Icon(icon, color: selected ? Colors.white : CharakColors.inkMuted, size: 24),
-            ),
-            const SizedBox(width: CharakSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: CharakText.bodyMed.copyWith(color: CharakColors.ink)),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-                ],
-              ),
-            ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              width: 22, height: 22,
-              decoration: BoxDecoration(
-                color: selected ? CharakColors.primary : Colors.transparent,
-                shape: BoxShape.circle,
-                border: Border.all(color: selected ? CharakColors.primary : CharakColors.border),
-              ),
-              child: selected ? const Icon(Icons.check, color: Colors.white, size: 14) : null,
             ),
           ],
         ),

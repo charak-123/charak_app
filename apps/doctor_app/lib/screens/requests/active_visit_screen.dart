@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:charak_core/charak_core.dart';
+// intl is a direct dependency; don't rely on shadcn_ui re-exporting DateFormat.
+// ignore: unnecessary_import
 import 'package:intl/intl.dart';
-import '../shared/charak_button.dart';
 
 // ── Procedure checklist entry ─────────────────────────────────────────────────
 
@@ -11,12 +13,11 @@ class _ProcedureEntry {
   final String procedureId;
   final String name;
   final double unitPrice;
-  bool selected;
+  bool selected = false;
   _ProcedureEntry({
     required this.procedureId,
     required this.name,
     required this.unitPrice,
-    this.selected = false,
   });
 }
 
@@ -68,18 +69,16 @@ class _State extends ConsumerState<ActiveVisitScreen> {
       .toList();
 
   Future<void> _markComplete(Map<String, dynamic> booking) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showShadDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => ShadDialog(
         title: const Text('Mark visit complete?'),
-        content: _selectedItems.isEmpty
-            ? const Text('No procedures selected. Only the consult fee will be charged.')
-            : Text(
-                '${_selectedItems.length} procedure(s) totalling ₹${_total.toStringAsFixed(0)} will be billed.',
-              ),
+        description: Text(_selectedItems.isEmpty
+            ? 'No procedures selected. Only the consult fee will be charged.'
+            : '${_selectedItems.length} procedure(s) totalling ₹${_total.toStringAsFixed(0)} will be billed.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Complete')),
+          ShadButton.outline(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ShadButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Complete')),
         ],
       ),
     );
@@ -87,62 +86,62 @@ class _State extends ConsumerState<ActiveVisitScreen> {
 
     setState(() => _completing = true);
     try {
-      // 1. Mark booking as completed
       await ApiClient.instance.patch('/bookings/${widget.bookingId}/complete', {});
-
-      // 2. Submit procedure bill if any procedures selected
       if (_selectedItems.isNotEmpty) {
         await ApiClient.instance.post(
           '/bookings/${widget.bookingId}/procedure-bill',
           {'items': _selectedItems},
         );
       }
-
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Visit completed!'),
-            backgroundColor: CharakColors.success,
-          ),
-        );
+        showCharakToast(context, message: 'Visit completed — patient can now pay');
         context.go('/home');
       }
     } on ApiException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
-        );
+        showCharakToast(context, message: e.message, isError: true);
       }
     } finally {
       if (mounted) setState(() => _completing = false);
     }
   }
 
+  void _stub(String label) => showCharakToast(context, message: label);
+
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_activeVisitProvider(widget.bookingId));
     return Scaffold(
-      backgroundColor: CharakColors.bgSubtle,
-      appBar: AppBar(
-        title: const Text('Active Visit'),
-        backgroundColor: CharakColors.bg,
-        foregroundColor: CharakColors.ink,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.phone_outlined),
-            onPressed: () => context.push('/call/${widget.bookingId}'),
-            tooltip: 'Clarification call',
-          ),
-        ],
-      ),
+      backgroundColor: CharakColors.bg,
+      appBar: const CharakTopBar(title: 'Active visit'),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        // `.skel` blocks matching the real body — `.act-doctor-card`, the
+        // visit-lines card, the procedure checklist and the two actions.
+        loading: () => ListView(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+          children: const [
+            CharakSkeleton(height: 78, radius: 14),
+            SizedBox(height: 12),
+            CharakSkeleton(height: 104, radius: 14),
+            SizedBox(height: 14),
+            CharakSkeleton(height: 210, radius: 14),
+            SizedBox(height: 14),
+            CharakSkeleton(height: 50, radius: 12),
+            SizedBox(height: 10),
+            CharakSkeleton(height: 50, radius: 12),
+          ],
+        ),
+        error: (e, _) => Center(
+          child: Text('Failed to load visit',
+              style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
+        ),
         data: (data) {
           final booking = data['booking'] as Map<String, dynamic>;
           final procs   = data['procedures'] as List;
           _initProcedures(procs);
+          final isHome = booking['channel'] == 'home_visit';
+          final isPaid = booking['status'] == 'paid';
+          final price  = (booking['price_confirmed'] as num?)?.toStringAsFixed(0) ?? '—';
 
           final threshold = (booking['doctors'] as Map<String, dynamic>?)?['procedure_review_threshold'];
           final needsReview = threshold != null && _total > (threshold as num);
@@ -150,27 +149,66 @@ class _State extends ConsumerState<ActiveVisitScreen> {
           return Column(children: [
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.all(CharakSpacing.base),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
                 children: [
-                  _PatientInfoCard(booking: booking),
-                  const SizedBox(height: 12),
-                  _PaymentBanner(booking: booking),
-                  const SizedBox(height: 12),
-                  _ProcedureChecklist(
-                    procedures: _procedures,
-                    onToggle: (i) => setState(() => _procedures[i].selected = !_procedures[i].selected),
+                  // `.pulse` — the status block flashes when the booking's
+                  // status moves (accepted → paid → completed).
+                  CharakStatusPulse(
+                    trigger: booking['status'],
+                    child: _PatientInfoCard(booking: booking),
                   ),
                   const SizedBox(height: 12),
-                  _RunningTotal(total: _total),
-                  if (needsReview) ...[
+                  if (isPaid) ...[
+                    CharakNoteBanner(
+                      icon: Icons.payments_outlined,
+                      leadLabel: 'Payment received',
+                      message: '— ₹$price confirmed. Visit proceeds.',
+                      tone: CharakStatusTone.success,
+                    ),
                     const SizedBox(height: 12),
-                    _SeniorReviewBanner(total: _total, threshold: (threshold as num).toDouble()),
                   ],
-                  const SizedBox(height: 80),
+                  _VisitLinesCard(booking: booking),
+                  const SizedBox(height: 14),
+                  if (isHome) ...[
+                    // The bill crossing the senior-review threshold is a
+                    // status change too — pulse the card that reports it.
+                    CharakStatusPulse(
+                      trigger: needsReview,
+                      child: _ProcedureChecklist(
+                        procedures: _procedures,
+                        total: _total,
+                        threshold: threshold != null ? (threshold as num).toDouble() : null,
+                        needsReview: needsReview,
+                        onToggle: (i) =>
+                            setState(() => _procedures[i].selected = !_procedures[i].selected),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    CharakButton(label: 'Navigate to patient', icon: Icons.navigation_outlined, onPressed: () => _stub('Opens native maps')),
+                    const SizedBox(height: 10),
+                    CharakButton(label: 'Contact patient', outlined: true, icon: Icons.message_outlined, onPressed: () => _stub('Contact through app — no raw number')),
+                  ] else ...[
+                    CharakButton(label: 'Start call', icon: Icons.videocam_rounded, onPressed: () => context.push('/call/${widget.bookingId}')),
+                    const SizedBox(height: 10),
+                    CharakButton(label: 'Directions to patient', outlined: true, icon: Icons.navigation_outlined, onPressed: () => _stub('Opens native maps')),
+                  ],
+                  const SizedBox(height: 8),
+                  CharakHintLine(
+                    align: TextAlign.center,
+                    text: 'Consult fee ₹$price is confirmed from the request. '
+                        'Procedures are billed separately after the visit.',
+                  ),
                 ],
               ),
             ),
-            _CompleteBar(completing: _completing, onComplete: () => _markComplete(booking)),
+            CharakCtaBar.single(
+              CharakButton(
+                label: 'Mark as complete',
+                icon: Icons.flag_outlined,
+                isLoading: _completing,
+                onPressed: () => _markComplete(booking),
+              ),
+            ),
           ]);
         },
       ),
@@ -180,9 +218,12 @@ class _State extends ConsumerState<ActiveVisitScreen> {
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
 
+/// `.act-doctor-card` — 15px-padded card: avatar, 16px/600 name over a
+/// 12.5px muted channel · slot line, and a success status pill.
 class _PatientInfoCard extends StatelessWidget {
   final Map<String, dynamic> booking;
   const _PatientInfoCard({required this.booking});
+
   @override
   Widget build(BuildContext context) {
     final patient = booking['users'] as Map<String, dynamic>? ?? {};
@@ -190,77 +231,45 @@ class _PatientInfoCard extends StatelessWidget {
     final channel = booking['channel'] as String? ?? '';
     final start   = booking['scheduled_start'] as String? ?? '';
     final dt      = start.isNotEmpty ? DateTime.tryParse(start)?.toLocal() : null;
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(CharakRadius.card),
-        side: const BorderSide(color: CharakColors.border),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(CharakSpacing.base),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: CharakColors.primarySoft,
-              child: Text(name[0].toUpperCase(),
-                  style: CharakText.bodyMed.copyWith(color: CharakColors.primary)),
-            ),
-            const SizedBox(width: 10),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(name, style: CharakText.bodyMed),
-              Text(
-                channel == 'home_visit' ? 'Home Visit' : 'Online Consult',
-                style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
-              ),
-            ]),
-          ]),
-          if (dt != null) ...[
-            const Divider(height: 20, color: CharakColors.border),
-            Row(children: [
-              const Icon(Icons.access_time, size: 14, color: CharakColors.inkMuted),
-              const SizedBox(width: 6),
-              Text(DateFormat('EEE d MMM, h:mm a').format(dt),
-                  style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-            ]),
-          ],
-        ]),
-      ),
-    );
-  }
-}
+    final label   = channel == 'home_visit' ? 'Home Visit' : 'Online Consult';
 
-class _PaymentBanner extends StatelessWidget {
-  final Map<String, dynamic> booking;
-  const _PaymentBanner({required this.booking});
-  @override
-  Widget build(BuildContext context) {
-    final status = booking['status'] as String? ?? '';
-    final price  = booking['price_confirmed'];
-    final isPaid = status == 'paid';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: isPaid ? const Color(0xFFEAF7F1) : const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.all(CharakRadius.card),
-        border: Border.all(
-          color: isPaid ? CharakColors.success : CharakColors.warning,
-        ),
+        color: CharakColors.bg,
+        borderRadius: const BorderRadius.all(CharakRadius.card),
+        border: Border.all(color: CharakColors.border),
       ),
       child: Row(children: [
-        Icon(
-          isPaid ? Icons.check_circle_outline : Icons.payment_outlined,
-          color: isPaid ? CharakColors.success : CharakColors.warning,
-          size: 18,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          isPaid
-              ? 'Consult fee paid${price != null ? ' (₹${(price as num).toStringAsFixed(0)})' : ''}'
-              : 'Awaiting payment${price != null ? ' — ₹${(price as num).toStringAsFixed(0)}' : ''}',
-          style: CharakText.caption.copyWith(
-            color: isPaid ? CharakColors.success : CharakColors.warning,
-            fontWeight: FontWeight.w600,
+        CharakAvatar(name: name, radius: 24),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(name,
+              style: CharakText.h2.copyWith(fontSize: 16),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 1),
+          Text(
+            dt != null ? '$label · ${_slotFormat.format(dt)}' : label,
+            style: const TextStyle(
+              fontFamily: CharakText.fontFamily,
+              fontSize: 12.5,
+              height: 1.4,
+              color: CharakColors.inkMuted,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ])),
+        const SizedBox(width: 10),
+        // `.fade-swap` — keyed on the status so the pill lifts and
+        // cross-fades whenever the booking moves on.
+        CharakFadeSwap(
+          child: CharakStatusPill(
+            key: ValueKey(booking['status']),
+            label: 'Accepted',
+            tone: CharakStatusTone.success,
           ),
         ),
       ]),
@@ -268,101 +277,170 @@ class _PaymentBanner extends StatelessWidget {
   }
 }
 
+final _slotFormat = DateFormat('EEE d MMM, h:mm a');
+
+/// `.card` with the 6px/14px inset wrapping the visit's `.visit-line` rows.
+class _VisitLinesCard extends StatelessWidget {
+  final Map<String, dynamic> booking;
+  const _VisitLinesCard({required this.booking});
+
+  @override
+  Widget build(BuildContext context) {
+    final isHome  = booking['channel'] == 'home_visit';
+    final start   = booking['scheduled_start'] as String? ?? '';
+    final dt      = start.isNotEmpty ? DateTime.tryParse(start)?.toLocal() : null;
+    final address = booking['patient_address'] as String?;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: CharakColors.bg,
+        borderRadius: const BorderRadius.all(CharakRadius.card),
+        border: Border.all(color: CharakColors.border),
+      ),
+      child: Column(children: [
+        CharakVisitLine(
+          icon: Icons.access_time_rounded,
+          value: dt != null ? _slotFormat.format(dt) : '—',
+        ),
+        if (isHome)
+          CharakVisitLine(
+            icon: Icons.place_outlined,
+            value: (address != null && address.isNotEmpty) ? address : 'Address in the booking',
+          )
+        else
+          const CharakVisitLine(
+            icon: Icons.videocam_outlined,
+            value: 'Video consult',
+            trailing: 'start the call at slot time',
+          ),
+      ]),
+    );
+  }
+}
+
+/// Procedures card — `.proc-check` rows (11px, hairline-separated, 18px
+/// checkbox, muted tabular price), a `.proc-total` footer, and either the
+/// senior-review banner or the threshold `.hint-line`.
 class _ProcedureChecklist extends StatelessWidget {
   final List<_ProcedureEntry> procedures;
+  final double total;
+  final double? threshold;
+  final bool needsReview;
   final void Function(int) onToggle;
-  const _ProcedureChecklist({required this.procedures, required this.onToggle});
-  @override
-  Widget build(BuildContext context) => Card(
-    elevation: 0,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(CharakRadius.card),
-      side: const BorderSide(color: CharakColors.border),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.all(CharakSpacing.base),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Procedures Performed', style: CharakText.h2),
-        const SizedBox(height: 8),
-        if (procedures.isEmpty)
-          Text('No procedures configured.\nAdd procedures in Profile → Pricing.',
-              style: CharakText.caption.copyWith(color: CharakColors.inkMuted))
-        else
-          ...procedures.asMap().entries.map((e) {
-            final i = e.key;
-            final p = e.value;
-            return CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(p.name, style: CharakText.body),
-              subtitle: Text('₹${p.unitPrice.toStringAsFixed(0)}',
-                  style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-              value: p.selected,
-              activeColor: CharakColors.primary,
-              onChanged: (_) => onToggle(i),
-            );
-          }),
-      ]),
-    ),
-  );
-}
+  const _ProcedureChecklist({
+    required this.procedures,
+    required this.total,
+    required this.threshold,
+    required this.needsReview,
+    required this.onToggle,
+  });
 
-class _RunningTotal extends StatelessWidget {
-  final double total;
-  const _RunningTotal({required this.total});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
-      color: CharakColors.primarySoft,
-      borderRadius: BorderRadius.all(CharakRadius.card),
-    ),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text('Procedure Total', style: CharakText.bodyMed.copyWith(color: CharakColors.primary)),
-      Text('₹${total.toStringAsFixed(0)}',
-          style: CharakText.h2.copyWith(color: CharakColors.primary)),
-    ]),
-  );
-}
-
-class _SeniorReviewBanner extends StatelessWidget {
-  final double total;
-  final double threshold;
-  const _SeniorReviewBanner({required this.total, required this.threshold});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: const Color(0xFFFFF3CD),
-      borderRadius: BorderRadius.all(CharakRadius.card),
-      border: Border.all(color: CharakColors.warning),
-    ),
-    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Icon(Icons.warning_amber_rounded, color: CharakColors.warning, size: 18),
-      const SizedBox(width: 8),
-      Expanded(child: Text(
-        'Total ₹${total.toStringAsFixed(0)} exceeds your review threshold of '
-        '₹${threshold.toStringAsFixed(0)}. This bill will require senior approval before the patient can pay.',
-        style: CharakText.caption.copyWith(color: CharakColors.warning),
-      )),
-    ]),
-  );
-}
-
-class _CompleteBar extends StatelessWidget {
-  final bool completing;
-  final VoidCallback onComplete;
-  const _CompleteBar({required this.completing, required this.onComplete});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(CharakSpacing.base, 12, CharakSpacing.base, 24),
-    decoration: const BoxDecoration(
       color: CharakColors.bg,
-      border: Border(top: BorderSide(color: CharakColors.border)),
+      borderRadius: const BorderRadius.all(CharakRadius.card),
+      border: Border.all(color: CharakColors.border),
     ),
-    child: CharakButton(
-      label: 'Mark Visit Complete',
-      isLoading: completing,
-      onPressed: onComplete,
-    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const CharakSectionTitle(label: 'Procedures performed'),
+      const SizedBox(height: 2),
+      const Text(
+        'Tap the procedures done this visit — fixed rates apply. Patient is billed '
+        'after the visit.',
+        style: TextStyle(
+          fontFamily: CharakText.fontFamily,
+          fontSize: 12.5,
+          height: 1.5,
+          color: CharakColors.inkMuted,
+        ),
+      ),
+      const SizedBox(height: 10),
+      if (procedures.isEmpty)
+        Text('No procedures configured.\nAdd procedures in Profile → Pricing.',
+            style: CharakText.caption.copyWith(color: CharakColors.inkMuted))
+      else
+        ...procedures.asMap().entries.map((e) {
+          final i = e.key;
+          final p = e.value;
+          return GestureDetector(
+            onTap: () => onToggle(i),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              decoration: BoxDecoration(
+                border: i == procedures.length - 1
+                    ? null
+                    : const Border(bottom: BorderSide(color: CharakColors.border)),
+              ),
+              child: Row(children: [
+                Expanded(child: Text(p.name, style: CharakText.body.copyWith(fontSize: 14))),
+                Text(
+                  '₹${p.unitPrice.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    fontFamily: CharakText.fontFamily,
+                    fontSize: 14,
+                    height: 1.4,
+                    color: CharakColors.inkMuted,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // `.proc-check input` — 18px, primary accent.
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: Checkbox(
+                    value: p.selected,
+                    activeColor: CharakColors.primary,
+                    side: const BorderSide(color: CharakColors.border, width: 1.5),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    onChanged: (_) => onToggle(i),
+                  ),
+                ),
+              ]),
+            ),
+          );
+        }),
+      // `.proc-total` — 12px top gap, 13.5px muted label, 16px ink figure.
+      Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text(
+            'Procedures total',
+            style: TextStyle(
+              fontFamily: CharakText.fontFamily,
+              fontSize: 13.5,
+              height: 1.4,
+              color: CharakColors.inkMuted,
+            ),
+          ),
+          Text(
+            '₹${total.toStringAsFixed(0)}',
+            style: CharakText.h2.copyWith(
+              fontSize: 16,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ]),
+      ),
+      if (needsReview && threshold != null) ...[
+        const SizedBox(height: 10),
+        CharakNoteBanner(
+          icon: Icons.gpp_maybe_outlined,
+          leadLabel: 'Senior review needed',
+          message: '— this bill is above ₹${threshold!.toStringAsFixed(0)}. '
+              'A senior doctor verifies it before the patient pays.',
+        ),
+      ] else if (threshold != null) ...[
+        const SizedBox(height: 8),
+        CharakHintLine(
+          text: 'Bills above ₹${threshold!.toStringAsFixed(0)} are auto-sent for senior review.',
+        ),
+      ],
+    ]),
   );
 }

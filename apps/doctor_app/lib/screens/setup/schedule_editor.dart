@@ -61,56 +61,121 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     return Column(
       children: List.generate(7, (i) {
         final dayBlocks = _blocks.where((b) => b.dayOfWeek == i).toList();
-        return Padding(
-          padding: const EdgeInsets.only(bottom: CharakSpacing.sm),
+        // `.day-row` — 11px vertical padding, hairline divider except the last.
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          decoration: BoxDecoration(
+            border: i == 6
+                ? null
+                : const Border(bottom: BorderSide(color: CharakColors.border)),
+          ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // `.day` — 34px column; muted/500 when the day has no hours.
               SizedBox(
-                width: 36,
-                child: Text(_days[i], style: CharakText.caption.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600)),
-              ),
-              const SizedBox(width: CharakSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ...dayBlocks.map((b) => Padding(
-                      padding: const EdgeInsets.only(bottom: CharakSpacing.xs),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: CharakColors.primarySoft,
-                                borderRadius: BorderRadius.all(CharakRadius.pill),
-                              ),
-                              child: Text('${_fmt(b.start)} – ${_fmt(b.end)}',
-                                  style: CharakText.caption.copyWith(color: CharakColors.primaryDeep)),
-                            ),
-                          ),
-                          const SizedBox(width: CharakSpacing.xs),
-                          GestureDetector(
-                            onTap: () => _remove(b),
-                            child: const Icon(Icons.close, size: 16, color: CharakColors.inkMuted),
-                          ),
-                        ],
-                      ),
-                    )),
-                    GestureDetector(
-                      onTap: () => _add(i),
-                      child: Text('+ Add block',
-                          style: CharakText.caption.copyWith(color: CharakColors.primary,
-                              decoration: TextDecoration.underline)),
-                    ),
-                  ],
+                width: 34,
+                child: Text(
+                  _days[i],
+                  style: TextStyle(
+                    fontFamily: CharakText.fontFamily,
+                    fontSize: 13,
+                    height: 1.4,
+                    fontWeight: dayBlocks.isEmpty ? FontWeight.w500 : FontWeight.w600,
+                    color: dayBlocks.isEmpty ? CharakColors.inkMuted : CharakColors.ink,
+                  ),
                 ),
               ),
+              const SizedBox(width: 10),
+              // `.block-chips` — wrapping 6px grid that takes the free space.
+              Expanded(
+                child: dayBlocks.isEmpty
+                    ? const Text(
+                        'No hours',
+                        style: TextStyle(
+                          fontFamily: CharakText.fontFamily,
+                          fontSize: 12.5,
+                          height: 1.4,
+                          color: CharakColors.inkMuted,
+                        ),
+                      )
+                    : Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: dayBlocks
+                            .map((b) => _BlockChip(
+                                  label: '${_fmt(b.start)}–${_fmt(b.end)}',
+                                  onRemove: () => _remove(b),
+                                ))
+                            .toList(),
+                      ),
+              ),
+              const SizedBox(width: 10),
+              _BlockAdd(onTap: () => _add(i)),
             ],
           ),
         );
       }),
     );
   }
+}
+
+/// `.block-chip` — primarySoft pill, 12px/500 primaryDeep label, 11px dismiss.
+class _BlockChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onRemove;
+  const _BlockChip({required this.label, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: const BoxDecoration(
+      color: CharakColors.primarySoft,
+      borderRadius: BorderRadius.all(CharakRadius.pill),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: CharakText.fontFamily,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            height: 1.3,
+            color: CharakColors.primaryDeep,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+        const SizedBox(width: 5),
+        GestureDetector(
+          onTap: onRemove,
+          child: const Icon(Icons.close, size: 11, color: CharakColors.primaryDeep),
+        ),
+      ],
+    ),
+  );
+}
+
+/// `.block-add` — 30px dashed square with a 14px plus.
+class _BlockAdd extends StatelessWidget {
+  final VoidCallback onTap;
+  const _BlockAdd({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: CustomPaint(
+      painter: CharakDashedBorderPainter(
+        color: CharakColors.border,
+        dashed: true,
+        radius: 8,
+        strokeWidth: 1,
+      ),
+      child: const SizedBox(
+        width: 30,
+        height: 30,
+        child: Icon(Icons.add, size: 14, color: CharakColors.inkMuted),
+      ),
+    ),
+  );
 }

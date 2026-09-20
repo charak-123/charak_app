@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'schedule_editor.dart';
-import '../shared/charak_button.dart';
 
 class OnlineConsultSetupScreen extends ConsumerStatefulWidget {
   const OnlineConsultSetupScreen({super.key});
@@ -28,6 +27,7 @@ class _OnlineConsultSetupScreenState extends ConsumerState<OnlineConsultSetupScr
       if (!mounted) return;
       // Check if home visit is also selected
       final me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+      if (!mounted) return;
       if (me['offers_home_visit'] == true) {
         context.go('/setup/home-visit', extra: true);
       } else {
@@ -43,36 +43,41 @@ class _OnlineConsultSetupScreenState extends ConsumerState<OnlineConsultSetupScr
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Online Consult Schedule')),
+      backgroundColor: CharakColors.bg,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(CharakSpacing.base),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Set when you\'re available for video calls. Patients book into these time slots.',
-                  style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
-              const SizedBox(height: CharakSpacing.sm),
-              Text('Scheduled slots only in V1 — "Available now" mode is not yet available.',
-                  style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-              const SizedBox(height: CharakSpacing.lg),
-              ScheduleEditor(
-                blocks: _blocks,
-                onChanged: (b) => setState(() => _blocks = b),
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Online consult hours', style: CharakText.h1),
+                    const SizedBox(height: 5),
+                    Text('Weekly template — patients book into these slots.',
+                        style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
+                    const SizedBox(height: 18),
+                    ScheduleEditor(
+                      blocks: _blocks,
+                      onChanged: (b) => setState(() => _blocks = b),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: CharakSpacing.md),
+                      Text(_error!, style: CharakText.caption.copyWith(color: CharakColors.danger)),
+                    ],
+                  ],
+                ),
               ),
-              if (_error != null) ...[
-                const SizedBox(height: CharakSpacing.sm),
-                Text(_error!, style: CharakText.caption.copyWith(color: CharakColors.danger)),
-              ],
-              const SizedBox(height: CharakSpacing.lg),
+            ),
+            CharakCtaBar.single(
               CharakButton(
                 label: 'Continue',
                 onPressed: _submit,
                 isLoading: _loading,
               ),
-              const SizedBox(height: CharakSpacing.base),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

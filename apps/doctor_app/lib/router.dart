@@ -17,44 +17,79 @@ import 'screens/requests/request_detail_screen.dart';
 import 'screens/requests/clarification_call_screen.dart';
 import 'screens/requests/active_visit_screen.dart';
 
+/// Wraps a screen in the wireframe's 280ms horizontal push
+/// (`.scr.entering` / `.scr.leaving`).
+CustomTransitionPage<void> _push(Widget child) => CustomTransitionPage<void>(
+  child: child,
+  transitionDuration: CharakDurations.screenPush,
+  reverseTransitionDuration: CharakDurations.screenPush,
+  transitionsBuilder: charakPushTransition,
+);
+
+/// Rise-and-fade, for surfaces that shouldn't slide in from the side:
+/// the splash, the shell, and the full-screen call.
+CustomTransitionPage<void> _rise(Widget child) => CustomTransitionPage<void>(
+  child: child,
+  transitionDuration: CharakDurations.sheetOpen,
+  reverseTransitionDuration: CharakDurations.sheetOpen,
+  transitionsBuilder: charakRiseTransition,
+);
+
 final routerProvider = Provider<GoRouter>((ref) {
-  final auth = ref.watch(authProvider);
-  return GoRouter(
+  late final GoRouter router;
+
+  // A rejected token (expired, or signed with a rotated JWT_SECRET) must send
+  // the user back to login rather than stranding them on an error.
+  ApiClient.onUnauthorized = () {
+    ref.read(authProvider.notifier).logout();
+    router.go('/auth/phone');
+  };
+
+  // Deliberately `ref.read`, not `ref.watch`: this provider must build the
+  // GoRouter exactly once. Watching authProvider here would rebuild — and
+  // hand ShadApp.router a brand-new GoRouter instance — on every auth change,
+  // which resets navigation back to initialLocation mid-flow (e.g. right
+  // after OTP verify, wiping out the in-flight `context.go('/onboarding/...')`
+  // before it lands). `redirect` below reads fresh auth state per navigation
+  // instead, which is all GoRouter needs.
+  router = GoRouter(
     initialLocation: '/',
     redirect: (context, state) {
+      final auth     = ref.read(authProvider);
       final isAuth   = state.matchedLocation.startsWith('/auth');
       final isSplash = state.matchedLocation == '/';
       if (!auth.isAuthenticated && !isAuth && !isSplash) return '/auth/phone';
       return null;
     },
     routes: [
-      GoRoute(path: '/',                      builder: (_, __) => const SplashScreen()),
-      GoRoute(path: '/auth/phone',            builder: (_, __) => const PhoneEntryScreen()),
+      GoRoute(path: '/',                      pageBuilder: (_, __) => _rise(const SplashScreen())),
+      GoRoute(path: '/auth/phone',            pageBuilder: (_, __) => _push(const PhoneEntryScreen())),
       GoRoute(path: '/auth/otp',
-          builder: (_, state) => OtpScreen(phone: state.extra as String)),
-      GoRoute(path: '/onboarding/profile',    builder: (_, __) => const ProfileSetupScreen()),
-      GoRoute(path: '/onboarding/verification', builder: (_, __) => const VerificationScreen()),
-      GoRoute(path: '/onboarding/verification-pending', builder: (_, __) => const VerificationPendingScreen()),
-      GoRoute(path: '/setup/channels',        builder: (_, __) => const ChannelSetupScreen()),
-      GoRoute(path: '/setup/online',          builder: (_, __) => const OnlineConsultSetupScreen()),
+          pageBuilder: (_, state) => _push(OtpScreen(phone: state.extra as String))),
+      GoRoute(path: '/onboarding/profile',    pageBuilder: (_, __) => _push(const ProfileSetupScreen())),
+      GoRoute(path: '/onboarding/verification', pageBuilder: (_, __) => _push(const VerificationScreen())),
+      GoRoute(path: '/onboarding/verification-pending', pageBuilder: (_, __) => _rise(const VerificationPendingScreen())),
+      GoRoute(path: '/setup/channels',        pageBuilder: (_, __) => _push(const ChannelSetupScreen())),
+      GoRoute(path: '/setup/online',          pageBuilder: (_, __) => _push(const OnlineConsultSetupScreen())),
       GoRoute(path: '/setup/home-visit',
-          builder: (_, state) => HomeVisitSetupScreen(fromSetup: state.extra as bool? ?? false)),
-      GoRoute(path: '/setup/pricing',         builder: (_, __) => const PricingSetupScreen()),
-      GoRoute(path: '/home',                  builder: (_, __) => const HomeShell()),
+          pageBuilder: (_, state) => _push(HomeVisitSetupScreen(fromSetup: state.extra as bool? ?? false))),
+      GoRoute(path: '/setup/pricing',         pageBuilder: (_, __) => _push(const PricingSetupScreen())),
+      GoRoute(path: '/home',                  pageBuilder: (_, __) => _rise(const HomeShell())),
 
       // ── Phase 2: Requests & Fulfillment ───────────────────────────────────
       GoRoute(
         path: '/request/:id',
-        builder: (_, state) => RequestDetailScreen(bookingId: state.pathParameters['id']!),
+        pageBuilder: (_, state) => _push(RequestDetailScreen(bookingId: state.pathParameters['id']!)),
       ),
       GoRoute(
         path: '/call/:bookingId',
-        builder: (_, state) => ClarificationCallScreen(bookingId: state.pathParameters['bookingId']!),
+        pageBuilder: (_, state) => _rise(ClarificationCallScreen(bookingId: state.pathParameters['bookingId']!)),
       ),
       GoRoute(
         path: '/visit/:bookingId',
-        builder: (_, state) => ActiveVisitScreen(bookingId: state.pathParameters['bookingId']!),
+        pageBuilder: (_, state) => _push(ActiveVisitScreen(bookingId: state.pathParameters['bookingId']!)),
       ),
     ],
   );
+  return router;
 });

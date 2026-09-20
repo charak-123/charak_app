@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
 
 class VerificationPendingScreen extends ConsumerStatefulWidget {
   const VerificationPendingScreen({super.key});
@@ -48,41 +47,54 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
   @override
   Widget build(BuildContext context) {
     final isRejected = _status == 'rejected';
+    final (badgeBg, badgeFg) = isRejected
+        ? charakToneColors(CharakStatusTone.danger)
+        : (CharakColors.bgSubtle, CharakColors.inkMuted);
 
     return Scaffold(
+      backgroundColor: CharakColors.bg,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(CharakSpacing.base),
+        // `.ok-state` — 40px top padding, 24px gutters, centred column.
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Illustration
+              // `.ok-state .wait-ic` — 88px circle, 40px glyph.
               Container(
-                width: 80, height: 80,
-                decoration: BoxDecoration(
-                  color: isRejected ? const Color(0xFFFEECEB) : CharakColors.primarySoft,
-                  shape: BoxShape.circle,
-                ),
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(color: badgeBg, shape: BoxShape.circle),
+                alignment: Alignment.center,
                 child: Icon(
-                  isRejected ? Icons.cancel_outlined : Icons.hourglass_top_rounded,
+                  isRejected ? Icons.cancel_outlined : Icons.assignment_turned_in_outlined,
                   size: 40,
-                  color: isRejected ? CharakColors.danger : CharakColors.primary,
+                  color: badgeFg,
                 ),
               ),
-              const SizedBox(height: CharakSpacing.lg),
-
+              const SizedBox(height: 20),
+              // `.ok-state .title` at the screen's 21px override.
               Text(
                 isRejected ? 'Verification declined' : 'Under review',
-                style: CharakText.h1.copyWith(color: CharakColors.ink),
-              ),
-              const SizedBox(height: CharakSpacing.sm),
-
-              Text(
-                isRejected
-                    ? 'We could not verify your credentials. Please check and resubmit.'
-                    : 'We\'re reviewing your credentials.\nThis typically takes 24-48 hours.',
-                style: CharakText.body.copyWith(color: CharakColors.inkMuted),
                 textAlign: TextAlign.center,
+                style: CharakText.display.copyWith(fontSize: 21, letterSpacing: -0.21),
+              ),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Text(
+                  isRejected
+                      ? 'We could not verify your credentials. Please check and resubmit.'
+                      : "Our team is verifying your license. You can set up your practice now — "
+                          "you'll appear in the directory the moment you're approved.",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: CharakText.fontFamily,
+                    fontSize: 14.5,
+                    height: 1.6,
+                    color: CharakColors.inkMuted,
+                  ),
+                ),
               ),
 
               if (isRejected && _rejectionReason != null) ...[
@@ -90,8 +102,9 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
                 Container(
                   padding: const EdgeInsets.all(CharakSpacing.md),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFEECEB),
-                    borderRadius: BorderRadius.all(CharakRadius.card),
+                    // Spec danger tint — translucent, not an opaque pink.
+                    color: charakToneColors(CharakStatusTone.danger).$1,
+                    borderRadius: const BorderRadius.all(CharakRadius.card),
                   ),
                   child: Text(
                     'Reason: $_rejectionReason',
@@ -101,54 +114,39 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
               ],
 
               if (!isRejected) ...[
-                const SizedBox(height: CharakSpacing.xl),
-                // Pulsing indicator
-                _PulsingDot(),
-                const SizedBox(height: CharakSpacing.sm),
-                Text('Waiting for verification…',
-                    style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+                const SizedBox(height: 18),
+                const CharakStatusPill(
+                  label: 'Under review',
+                  tone: CharakStatusTone.warning,
+                  pulsingDot: true,
+                ),
+                const SizedBox(height: 22),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 220),
+                  child: CharakButton(
+                    label: 'Explore the app',
+                    outlined: true,
+                    onPressed: () => context.go('/setup/channels'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const CharakHintLine(
+                  text: 'Nothing goes live until ops approves your license.',
+                  align: TextAlign.center,
+                ),
               ],
 
-              const SizedBox(height: CharakSpacing.xl),
-
-              if (isRejected)
+              if (isRejected) ...[
+                const SizedBox(height: CharakSpacing.xl),
                 CharakButton(
-                  label: 'Resubmit Credentials',
+                  label: 'Resubmit credentials',
                   onPressed: () => context.go('/onboarding/verification'),
                 ),
+              ],
             ],
           ),
         ),
       ),
     );
   }
-}
-
-class _PulsingDot extends StatefulWidget {
-  @override
-  State<_PulsingDot> createState() => _PulsingDotState();
-}
-
-class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl  = AnimationController(vsync: this, duration: const Duration(seconds: 1))..repeat(reverse: true);
-    _anim  = Tween<double>(begin: 0.4, end: 1.0).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) => FadeTransition(
-    opacity: _anim,
-    child: Container(
-      width: 12, height: 12,
-      decoration: const BoxDecoration(color: CharakColors.warning, shape: BoxShape.circle),
-    ),
-  );
 }

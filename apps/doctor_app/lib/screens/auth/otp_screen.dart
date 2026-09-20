@@ -1,10 +1,10 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pinput/pinput.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String phone;
@@ -67,68 +67,113 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // `.otp-cell` — 46×54, 1px border on the control radius, 22px/600.
     final defaultPinTheme = PinTheme(
-      width: 52, height: 56,
-      textStyle: CharakText.h1.copyWith(color: CharakColors.ink),
+      width: 46,
+      height: 54,
+      textStyle: const TextStyle(
+        fontFamily: CharakText.fontFamily,
+        fontSize: 22,
+        fontWeight: FontWeight.w600,
+        height: 1.2,
+        color: CharakColors.ink,
+        fontFeatures: [FontFeature.tabularFigures()],
+      ),
       decoration: BoxDecoration(
-        color: CharakColors.bgSubtle,
-        borderRadius: BorderRadius.all(CharakRadius.button),
+        color: CharakColors.bg,
+        borderRadius: const BorderRadius.all(CharakRadius.button),
         border: Border.all(color: CharakColors.border),
       ),
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Verify phone')),
+      backgroundColor: CharakColors.bg,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(CharakSpacing.base),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: CharakSpacing.lg),
-              Text('Enter the 6-digit code sent to\n${widget.phone}',
-                  style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
-              const SizedBox(height: CharakSpacing.lg),
-              Center(
-                child: Pinput(
-                  controller: _ctrl,
-                  length: 6,
-                  autofocus: true,
-                  defaultTheme: defaultPinTheme,
-                  focusedPinTheme: defaultPinTheme.copyWith(
-                    decoration: defaultPinTheme.decoration!.copyWith(
-                      border: Border.all(color: CharakColors.primary, width: 1.5),
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Enter the code', style: CharakText.h1),
+                    const SizedBox(height: 5),
+                    Text('Sent to ${widget.phone}',
+                        style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
+                    // `.otp-row` — margin: 26px 0 14px, 10px gap, centred.
+                    const SizedBox(height: 26),
+                    Center(
+                      child: Pinput(
+                        controller: _ctrl,
+                        length: 6,
+                        autofocus: true,
+                        separatorBuilder: (_) => const SizedBox(width: 10),
+                        defaultPinTheme: defaultPinTheme,
+                        focusedPinTheme: defaultPinTheme.copyWith(
+                          decoration: defaultPinTheme.decoration!.copyWith(
+                            border: Border.all(color: CharakColors.primary),
+                            // `.otp-cell:focus` ring.
+                            boxShadow: const [
+                              BoxShadow(color: Color(0x1F376CD5), blurRadius: 0, spreadRadius: 3),
+                            ],
+                          ),
+                        ),
+                        errorPinTheme: defaultPinTheme.copyWith(
+                          decoration: defaultPinTheme.decoration!.copyWith(
+                            border: Border.all(color: CharakColors.danger),
+                          ),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onCompleted: _loading ? null : _verify,
+                      ),
                     ),
-                  ),
-                  errorPinTheme: defaultPinTheme.copyWith(
-                    decoration: defaultPinTheme.decoration!.copyWith(
-                      border: Border.all(color: CharakColors.danger),
+                    const SizedBox(height: 14),
+                    // `.countdown` — centred 13px muted, ink/600 tabular value.
+                    Center(
+                      child: _resendSecs > 0
+                          ? Text.rich(
+                              TextSpan(
+                                style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+                                children: [
+                                  const TextSpan(text: 'Resend code in '),
+                                  TextSpan(
+                                    text: '0:${_resendSecs.toString().padLeft(2, '0')}',
+                                    style: CharakText.caption.copyWith(
+                                      color: CharakColors.ink,
+                                      fontWeight: FontWeight.w600,
+                                      fontFeatures: const [FontFeature.tabularFigures()],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : GestureDetector(
+                              onTap: _resend,
+                              child: Text('Resend code',
+                                  style: CharakText.caption.copyWith(
+                                      color: CharakColors.primary, fontWeight: FontWeight.w600)),
+                            ),
                     ),
-                  ),
-                  onCompleted: _loading ? null : _verify,
+                    if (_error != null) ...[
+                      const SizedBox(height: 10),
+                      Center(
+                        child: Text(_error!,
+                            style: CharakText.caption.copyWith(color: CharakColors.danger)),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              if (_error != null) ...[
-                const SizedBox(height: CharakSpacing.sm),
-                Text(_error!, style: CharakText.caption.copyWith(color: CharakColors.danger)),
-              ],
-              const SizedBox(height: CharakSpacing.lg),
-              Center(
-                child: _resendSecs > 0
-                    ? Text('Resend in 0:${_resendSecs.toString().padLeft(2, '0')}',
-                        style: CharakText.caption.copyWith(color: CharakColors.inkMuted))
-                    : GestureDetector(
-                        onTap: _resend,
-                        child: Text('Resend OTP',
-                            style: CharakText.caption.copyWith(color: CharakColors.primary,
-                                decoration: TextDecoration.underline)),
-                      ),
+            ),
+            CharakCtaBar.single(
+              CharakButton(
+                label: 'Verify',
+                isLoading: _loading,
+                onPressed: _ctrl.text.length == 6 && !_loading ? () => _verify(_ctrl.text) : null,
               ),
-              const Spacer(),
-              if (_loading) const Center(child: CircularProgressIndicator()),
-              const SizedBox(height: CharakSpacing.base),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

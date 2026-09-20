@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:charak_core/charak_core.dart';
+import 'shell_providers.dart';
 
 final _doctorProfileProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   return await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
@@ -15,157 +17,218 @@ class ProfileTab extends ConsumerWidget {
     final profile = ref.watch(_doctorProfileProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
-      body: profile.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error:   (e, _) => Center(child: Text(e.toString())),
-        data: (me) => ListView(
-          padding: const EdgeInsets.all(CharakSpacing.base),
-          children: [
-            // Profile card
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(CharakSpacing.base),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 32,
-                      backgroundColor: CharakColors.bgSubtle,
-                      backgroundImage: me['photo_url'] != null
-                          ? NetworkImage(me['photo_url'] as String)
-                          : null,
-                      child: me['photo_url'] == null
-                          ? const Icon(Icons.person, color: CharakColors.inkMuted)
-                          : null,
-                    ),
-                    const SizedBox(width: CharakSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(me['name'] as String? ?? '—', style: CharakText.h2),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              _VerificationBadge(status: me['verification_status'] as String),
-                            ],
-                          ),
+      backgroundColor: CharakColors.bg,
+      body: SafeArea(
+        bottom: false,
+        child: profile.when(
+          // `.skel` blocks tracing the identity card, the `.verif-card` and the
+          // `.listrow` stack, so nothing shifts when the profile lands.
+          loading: () => ListView(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+            children: [
+              // Identity card — 18px padding, 48px avatar, 14px gap.
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: CharakColors.bg,
+                  borderRadius: const BorderRadius.all(CharakRadius.card),
+                  border: Border.all(color: CharakColors.border),
+                ),
+                child: const Row(children: [
+                  CharakSkeleton(width: 48, height: 48, radius: 24),
+                  SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      CharakSkeleton(width: 150, height: 16),
+                      SizedBox(height: 6),
+                      CharakSkeleton(width: 190, height: 13),
+                    ]),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 10),
+              const CharakSkeleton(height: 74, radius: 14),
+              const SizedBox(height: 14),
+              for (var i = 0; i < 6; i++) const _ListRowSkeleton(),
+            ],
+          ),
+          error: (e, _) => Center(
+            child: Text('Failed to load profile',
+                style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
+          ),
+          data: (me) {
+            final name    = me['name'] as String? ?? '—';
+            final status  = me['verification_status'] as String? ?? 'pending';
+            final online  = me['offers_online_consult'] as bool? ?? false;
+            final home    = me['offers_home_visit'] as bool? ?? false;
+            final radius  = me['service_radius_km'];
+            final spec    = (me['categories'] as Map<String, dynamic>?)?['name'] as String?;
+            final phone   = me['phone'] as String? ?? '';
+            final pricing = List<Map<String, dynamic>>.from(me['doctor_pricing'] as List? ?? []);
+            final onlineP = pricing.where((p) => p['channel'] == 'online_consult').firstOrNull;
+            final onlinePrice = (onlineP?['price'] as num?)?.toStringAsFixed(0);
+            final onlineExtra = (onlineP?['extra_rate_per_15min'] as num?)?.toStringAsFixed(0);
+
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+              children: [
+                // Identity card — 18px padding, 14px gap, 17px/600 name.
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: CharakColors.bg,
+                    borderRadius: const BorderRadius.all(CharakRadius.card),
+                    border: Border.all(color: CharakColors.border),
+                  ),
+                  child: Row(children: [
+                    CharakAvatar(name: name, radius: 24, imageUrl: me['photo_url'] as String?),
+                    const SizedBox(width: 14),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(name, style: CharakText.h2, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 2),
+                      Text(
+                        [if (spec != null) spec, if (phone.isNotEmpty) phone].join(' · '),
+                        style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ])),
+                  ]),
+                ),
+                const SizedBox(height: 10),
+                _VerifCard(status: status),
+                const SizedBox(height: 14),
+
+                CharakListRow(
+                  icon: Icons.settings_input_antenna_rounded,
+                  title: 'Channels & modes',
+                  trailingText: [if (online) 'Online', if (home) 'Home Visit'].join(' · '),
+                  onTap: () => context.push('/setup/channels'),
+                ),
+                CharakListRow(
+                  icon: Icons.currency_rupee_rounded,
+                  title: 'Pricing & procedures',
+                  trailingText: onlinePrice != null ? '₹$onlinePrice/15m · +₹$onlineExtra/15m' : null,
+                  onTap: () => context.push('/setup/pricing'),
+                ),
+                CharakListRow(
+                  icon: Icons.place_outlined,
+                  title: 'Schedule & radius',
+                  trailingText: radius != null ? '$radius km' : null,
+                  onTap: () => context.push('/setup/home-visit'),
+                ),
+                CharakListRow(
+                  icon: Icons.calendar_month_outlined,
+                  title: 'Slot blocking',
+                  onTap: () {
+                    ref.read(doctorTabIndexProvider.notifier).state = 1;
+                    context.go('/home');
+                  },
+                ),
+                CharakListRow(
+                  icon: Icons.support_outlined,
+                  title: 'Help',
+                  onTap: () => showCharakToast(context,
+                      message: 'Help centre — coming in full build'),
+                ),
+                CharakListRow(
+                  icon: Icons.logout,
+                  title: 'Logout',
+                  titleColor: CharakColors.danger,
+                  showChevron: false,
+                  last: true,
+                  onTap: () async {
+                    final confirm = await showShadDialog<bool>(
+                      context: context,
+                      builder: (ctx) => ShadDialog.alert(
+                        title: const Text('Log out?'),
+                        actions: [
+                          ShadButton.outline(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                          ShadButton.destructive(onPressed: () => Navigator.pop(ctx, true), child: const Text('Log out')),
                         ],
                       ),
-                    ),
-                  ],
+                    );
+                    if (confirm == true && context.mounted) {
+                      await ref.read(authProvider.notifier).logout();
+                      if (context.mounted) context.go('/auth/phone');
+                    }
+                  },
                 ),
-              ),
-            ),
-            const SizedBox(height: CharakSpacing.base),
-
-            // Menu
-            _MenuItem(
-              icon: Icons.tune,
-              label: 'Channels & Schedule',
-              onTap: () => context.push('/setup/channels'),
-            ),
-            _MenuItem(
-              icon: Icons.payments_outlined,
-              label: 'Pricing & Procedures',
-              onTap: () => context.push('/setup/pricing'),
-            ),
-            _MenuItem(
-              icon: Icons.my_location,
-              label: 'Service Radius',
-              onTap: () => context.push('/setup/home-visit'),
-            ),
-            const Divider(height: CharakSpacing.xl),
-            _MenuItem(
-              icon: Icons.help_outline,
-              label: 'Help & Support',
-              onTap: () {},
-            ),
-            _MenuItem(
-              icon: Icons.logout,
-              label: 'Logout',
-              danger: true,
-              onTap: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Log out?'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                      TextButton(onPressed: () => Navigator.pop(context, true),  child: const Text('Log out', style: TextStyle(color: CharakColors.danger))),
-                    ],
-                  ),
-                );
-                if (confirm == true && context.mounted) {
-                  await ref.read(authProvider.notifier).logout();
-                  context.go('/auth/phone');
-                }
-              },
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
   }
 }
 
-class _VerificationBadge extends StatelessWidget {
+/// Loading placeholder for one `.listrow`: the 20px leading glyph, the title
+/// line and a trailing value, on the row's hairline divider.
+class _ListRowSkeleton extends StatelessWidget {
+  const _ListRowSkeleton();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(vertical: 14),
+    decoration: const BoxDecoration(
+      border: Border(bottom: BorderSide(color: CharakColors.border)),
+    ),
+    child: const Row(children: [
+      CharakSkeleton(width: 20, height: 20, radius: 6),
+      SizedBox(width: 13),
+      CharakSkeleton(width: 140, height: 14),
+      Spacer(),
+      CharakSkeleton(width: 64, height: 12),
+    ]),
+  );
+}
+
+/// `.verif-card` — 14px padding, a 42px circular tone badge, 15px/600 title
+/// and a 12.5px muted line. Tones come from the spec's translucent pairs.
+class _VerifCard extends StatelessWidget {
   final String status;
-  const _VerificationBadge({required this.status});
+  const _VerifCard({required this.status});
 
   @override
   Widget build(BuildContext context) {
-    Color bg; Color fg; String label; IconData icon;
-    switch (status) {
-      case 'verified':
-        bg = const Color(0xFFEAF7F1); fg = CharakColors.success; label = 'Verified'; icon = Icons.verified;
-        break;
-      case 'rejected':
-        bg = const Color(0xFFFEECEB); fg = CharakColors.danger; label = 'Rejected'; icon = Icons.cancel;
-        break;
-      default:
-        bg = const Color(0xFFFFF8EB); fg = CharakColors.warning; label = 'Pending review'; icon = Icons.hourglass_top;
-    }
+    final verified = status == 'verified';
+    final (bg, fg) = charakToneColors(
+        verified ? CharakStatusTone.success : CharakStatusTone.warning);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: CharakSpacing.sm, vertical: 3),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.all(CharakRadius.pill)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: fg),
-          const SizedBox(width: 4),
-          Text(label, style: CharakText.micro.copyWith(color: fg)),
-        ],
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CharakColors.bg,
+        borderRadius: const BorderRadius.all(CharakRadius.card),
+        border: Border.all(color: CharakColors.border),
       ),
-    );
-  }
-}
-
-class _MenuItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool danger;
-
-  const _MenuItem({required this.icon, required this.label, required this.onTap, this.danger = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = danger ? CharakColors.danger : CharakColors.ink;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.all(CharakRadius.button),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: CharakSpacing.md, horizontal: CharakSpacing.sm),
-        child: Row(
-          children: [
-            Icon(icon, color: danger ? CharakColors.danger : CharakColors.inkMuted, size: 20),
-            const SizedBox(width: CharakSpacing.md),
-            Expanded(child: Text(label, style: CharakText.body.copyWith(color: color))),
-            Icon(Icons.chevron_right, color: CharakColors.border, size: 20),
-          ],
+      child: Row(children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+          alignment: Alignment.center,
+          child: Icon(verified ? Icons.verified_user_rounded : Icons.shield_outlined,
+              size: 20, color: fg),
         ),
-      ),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(verified ? 'Verified doctor' : 'Verification pending',
+              style: CharakText.bodyMed.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 1),
+          Text(
+            verified
+                ? 'License checked · listed in directory'
+                : "You'll be listed the moment ops approves",
+            style: const TextStyle(
+              fontFamily: CharakText.fontFamily,
+              fontSize: 12.5,
+              height: 1.4,
+              color: CharakColors.inkMuted,
+            ),
+          ),
+        ])),
+      ]),
     );
   }
 }

@@ -33,10 +33,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       if (!mounted) return;
 
       final status = me['verification_status'] as String?;
+      final hasProfile = (me['name'] as String?)?.isNotEmpty == true;
+      final hasSubmittedVerification = (me['license_number'] as String?)?.isNotEmpty == true;
       final offersOnline = me['offers_online_consult'] as bool? ?? false;
       final offersHome   = me['offers_home_visit']    as bool? ?? false;
 
-      if (status == null || status == 'pending') {
+      if (!hasProfile) {
+        context.go('/onboarding/profile');
+      } else if (!hasSubmittedVerification) {
+        context.go('/onboarding/verification');
+      } else if (status == null || status == 'pending') {
         context.go('/onboarding/verification-pending');
       } else if (status == 'rejected') {
         context.go('/onboarding/verification');
@@ -55,20 +61,74 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: CharakColors.bg,
     body: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'charak',
-            style: CharakText.display.copyWith(
-              color: CharakColors.primary,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
+      child: Padding(
+        // `.body.center-col` with `padding-bottom:80px` — the mark sits
+        // slightly above the optical centre.
+        padding: const EdgeInsets.only(bottom: 80),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: CharakColors.ink,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.add, size: 30, color: Colors.white),
             ),
-          ),
-          const SizedBox(height: CharakSpacing.sm),
-          Text('Doctor', style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-        ],
+            const SizedBox(height: 18),
+            // `.brand-mark` — 26px/700, -0.02em, with the trailing "k" in
+            // primary, then the 14px/500 muted "Partner" suffix.
+            Text.rich(
+              TextSpan(
+                style: const TextStyle(
+                  fontFamily: CharakText.fontFamily,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.52,
+                  height: 1.2,
+                  color: CharakColors.ink,
+                ),
+                children: [
+                  const TextSpan(text: 'Chara'),
+                  const TextSpan(text: 'k', style: TextStyle(color: CharakColors.primary)),
+                  TextSpan(
+                    text: '  Partner',
+                    style: CharakText.bodyMed.copyWith(
+                      fontSize: 14,
+                      color: CharakColors.inkMuted,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Your practice, your schedule, your price',
+              style: TextStyle(
+                fontFamily: CharakText.fontFamily,
+                fontSize: 13.5,
+                height: 1.4,
+                color: CharakColors.inkMuted,
+              ),
+            ),
+            const SizedBox(height: 36),
+            const SizedBox(
+              width: 220,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  CharakSkeleton(height: 12),
+                  SizedBox(height: 8),
+                  CharakSkeleton(width: 160, height: 12),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );

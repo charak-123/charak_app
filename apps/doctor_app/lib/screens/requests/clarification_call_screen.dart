@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
 
 class ClarificationCallScreen extends ConsumerStatefulWidget {
   final String bookingId;
@@ -13,10 +12,14 @@ class ClarificationCallScreen extends ConsumerStatefulWidget {
 
 class _State extends ConsumerState<ClarificationCallScreen> {
   String? _callId;
-  String? _agoraToken;
+  // Retained for the pending Agora SDK wiring below.
+  // ignore: unused_field
   String? _agoraChannel;
+  String _peerName = 'Patient';
   bool _callActive = false;
   bool _loading = false;
+  bool _muted = false;
+  bool _cameraOff = false;
   final _notesController = TextEditingController();
 
   @override
@@ -39,17 +42,15 @@ class _State extends ConsumerState<ClarificationCallScreen> {
       ) as Map<String, dynamic>;
       setState(() {
         _callId       = res['id'] as String?;
-        _agoraToken   = res['agora_token'] as String?;
         _agoraChannel = res['agora_channel'] as String?;
+        _peerName     = res['patient_name'] as String? ?? _peerName;
         _callActive   = true;
       });
-      // TODO: initialize Agora SDK with _agoraToken + _agoraChannel
-      // AgoraRtcEngine.joinChannel(_agoraToken, _agoraChannel, null, 0);
+      // TODO: initialize Agora SDK with the returned token + _agoraChannel
+      // AgoraRtcEngine.joinChannel(token, _agoraChannel, null, 0);
     } on ApiException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
-        );
+        showCharakToast(context, message: e.message, isError: true);
         context.pop();
       }
     } finally {
@@ -64,16 +65,18 @@ class _State extends ConsumerState<ClarificationCallScreen> {
       final endpoint = missed
           ? '/bookings/${widget.bookingId}/clarification-call/$_callId/missed'
           : '/bookings/${widget.bookingId}/clarification-call/$_callId/complete';
-      await ApiClient.instance.patch(
-        endpoint,
-        missed ? {} : {'notes': _notesController.text.trim()},
-      );
-      if (mounted) context.pop();
+      final notes = _notesController.text.trim();
+      await ApiClient.instance.patch(endpoint, missed ? {} : {'notes': notes});
+      if (mounted) {
+        showCharakToast(context,
+            message: missed
+                ? 'Marked as missed'
+                : (notes.isNotEmpty ? 'Call note saved' : 'Clarification call ended'));
+        context.pop();
+      }
     } on ApiException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
-        );
+        showCharakToast(context, message: e.message, isError: true);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -83,92 +86,80 @@ class _State extends ConsumerState<ClarificationCallScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading && !_callActive) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: CharakCallColors.field,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
     }
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A2E),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A2E),
-        foregroundColor: Colors.white,
-        title: const Text('Clarification Call'),
-        actions: [
-          TextButton(
-            onPressed: _loading ? null : () => _endCall(missed: true),
-            child: const Text('Mark Missed', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-      body: Column(children: [
-        // Video placeholder (Agora SDK renders here when integrated)
-        Expanded(
-          child: Container(
-            margin: const EdgeInsets.all(CharakSpacing.base),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0D0D1A),
-              borderRadius: BorderRadius.all(CharakRadius.card),
-            ),
-            child: Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.video_call, size: 64, color: Colors.white38),
-                const SizedBox(height: 12),
-                Text(
-                  _callActive
-                      ? 'Call in progress\n(Agora SDK — wire in Day 49)'
-                      : 'Connecting...',
-                  style: const TextStyle(color: Colors.white54),
-                  textAlign: TextAlign.center,
-                ),
-                if (_agoraChannel != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Channel: $_agoraChannel',
-                      style: const TextStyle(color: Colors.white24, fontSize: 11),
-                    ),
-                  ),
-              ]),
-            ),
-          ),
-        ),
 
-        // Notes + end call
-        Container(
-          color: const Color(0xFF1A1A2E),
-          padding: const EdgeInsets.fromLTRB(
-              CharakSpacing.base, 0, CharakSpacing.base, 24),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TextField(
-              controller: _notesController,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Notes from the call...',
-                hintStyle: const TextStyle(color: Colors.white38),
-                filled: true,
-                fillColor: const Color(0xFF0D0D1A),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(CharakRadius.button),
-                  borderSide: BorderSide.none,
+    return Stack(
+      children: [
+        CharakCallScaffold(
+          peerName: _peerName,
+          peerSubtitle: 'Clarification call · before you decide',
+          // `.call-top` — recording dot beside the call's label.
+          statusText: _callActive ? 'Clarification call' : 'Connecting…',
+          recording: _callActive,
+          showSelfView: !_cameraOff,
+          // `.call-notes` — translucent blurred field kept for this booking.
+          notes: TextField(
+            controller: _notesController,
+            style: CharakText.caption.copyWith(fontSize: 13, color: Colors.white),
+            cursorColor: Colors.white,
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+              hintText: 'Equipment needed, prep notes… (kept for this booking)',
+              hintStyle: CharakText.caption.copyWith(
+                fontSize: 13,
+                color: const Color(0x80FFFFFF),
+              ),
+            ),
+          ),
+          controls: [
+            CharakCallButton(
+              icon: _muted ? Icons.mic_off : Icons.mic,
+              active: _muted,
+              semanticLabel: _muted ? 'Unmute' : 'Mute',
+              onPressed: () => setState(() => _muted = !_muted),
+            ),
+            CharakCallButton(
+              icon: _cameraOff ? Icons.videocam_off : Icons.videocam,
+              active: _cameraOff,
+              semanticLabel: _cameraOff ? 'Turn camera on' : 'Turn camera off',
+              onPressed: () => setState(() => _cameraOff = !_cameraOff),
+            ),
+            CharakCallButton(
+              icon: Icons.call_end,
+              end: true,
+              semanticLabel: 'End call',
+              onPressed: _loading ? null : () => _endCall(),
+            ),
+          ],
+        ),
+        // Ops escape hatch: close the call out as unanswered. Sits clear of
+        // the centred `.call-top` strip.
+        Positioned(
+          right: 6,
+          top: 0,
+          child: SafeArea(
+            bottom: false,
+            child: TextButton(
+              onPressed: _loading ? null : () => _endCall(missed: true),
+              child: Text(
+                'Mark missed',
+                style: CharakText.caption.copyWith(
+                  color: CharakCallColors.peerSub,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              maxLines: 3,
             ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: _loading ? null : () => _endCall(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: CharakColors.danger,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 52),
-                shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.all(CharakRadius.button)),
-              ),
-              child: _loading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('End Call & Save Notes'),
-            ),
-          ]),
+          ),
         ),
-      ]),
+      ],
     );
   }
 }
