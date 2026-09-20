@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CHARAK — Polish Prototype (blue × curves × type)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../design-systems/charak/colors_and_type.css">
+<style>
+  :root {
+    --radius-control: 10px; --radius-card: 12px;
+  }
+  /* blue variants (applied on .phone via data-blue) */
+  .phone[data-blue="control"] { --color-primary: #2F6FED; --color-primary-soft: #EAF1FE; --color-primary-deep: #1E4FBF; }
+  .phone[data-blue="teal"] { --color-primary: #0F7FA8; --color-primary-soft: #E2F2F8; --color-primary-deep: #0A5A78; }
+  .phone[data-blue="lake"] { --color-primary: #376CD5; --color-primary-soft: #E9EFFB; --color-primary-deep: #24478F; }
+  /* curve variants (applied on .phone via data-curve) */
+  .phone[data-curve="current"] { --radius-control: 10px; --radius-card: 12px; --radius-input: 10px; }
+  .phone[data-curve="soft"] { --radius-control: 16px; --radius-card: 18px; --radius-input: 14px; }
+  .phone[data-curve="pill"] { --radius-control: 999px; --radius-card: 20px; --radius-input: 14px; }
+  /* type tweaks shared across variants (Apple 17 / Revolut-Monzo 16 pattern) */
+  .phone .t-display { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+  .phone .t-h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.25; }
+  .phone .t-h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+  .phone .t-body { font-size: 16px; font-weight: 400; line-height: 1.55; }
+  .phone .t-cap { font-size: 14px; font-weight: 400; line-height: 1.45; color: var(--color-ink-muted); }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: #EDF0F4; color: var(--color-ink);
+    display: flex; gap: 32px; justify-content: center; align-items: flex-start; padding: 32px 20px; flex-wrap: wrap;
+    -webkit-font-smoothing: antialiased; }
+  .panel { max-width: 300px; background: #fff; border: 1px solid var(--color-border); border-radius: 16px; padding: 20px; }
+  .panel h1 { font-size: 17px; letter-spacing: -0.01em; }
+  .panel .sub { font-size: 13px; color: var(--color-ink-muted); margin: 6px 0 14px; line-height: 1.5; }
+  .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-ink-muted); margin: 16px 0 8px; }
+  .opt { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 12px;
+    border: 1px solid var(--color-border); border-radius: 12px; margin-bottom: 8px; background: #fff; font-size: 13.5px; }
+  .opt.on { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+  .opt .sw { width: 22px; height: 22px; border-radius: 50%; flex: none; border: 1px solid rgba(0,0,0,0.12); }
+  .opt small { display: block; color: var(--color-ink-muted); font-size: 12px; }
+  .ref { font-size: 12px; color: var(--color-ink-muted); line-height: 1.6; margin-top: 14px;
+    border-top: 1px solid var(--color-border); padding-top: 12px; }
+  .ref b { color: var(--color-ink); }
+
+  .phone { width: 360px; flex: none; background: #fff; border: 7px solid #1B1F27; border-radius: 48px;
+    overflow: hidden; box-shadow: 0 18px 48px rgba(16,24,40,0.18); }
+  .screen { display: flex; flex-direction: column; height: 780px; overflow: hidden; }
+  .statusbar { height: 44px; flex: none; display: flex; justify-content: space-between; align-items: flex-end;
+    padding: 0 28px 0 24px; font-size: 14px; font-weight: 600; }
+  .body { flex: 1; overflow-y: auto; padding: 10px 18px 20px; scrollbar-width: none; }
+  .body::-webkit-scrollbar { display: none; }
+  .greet { margin: 4px 0 2px; }
+  .card { background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-card);
+    padding: 14px; margin-top: 12px; }
+  .docrow { display: flex; gap: 12px; align-items: center; }
+  .avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--color-primary-soft);
+    display: grid; place-items: center; font-weight: 700; color: var(--color-primary-deep); flex: none; }
+  .btn { display: flex; align-items: center; justify-content: center; height: 52px; width: 100%;
+    border-radius: var(--radius-control); font-weight: 600; font-size: 16px; border: 0; cursor: pointer; }
+  .btn.primary { background: var(--color-primary); color: #fff; box-shadow: 0 2px 10px rgba(16,24,40,0.22); }
+  .btn.ghost { background: transparent; border: 1.5px solid var(--color-border); color: var(--color-ink); margin-top: 10px; }
+  .btn:active { transform: scale(0.97); opacity: 0.9; }
+  .chiprow { display: flex; gap: 8px; margin-top: 12px; }
+  .chip { height: 38px; padding: 0 18px; border-radius: 999px; border: 0; background: #F1F4F8;
+    color: var(--color-ink-muted); font-size: 14px; font-weight: 500; cursor: pointer; }
+  .chip.on { background: var(--color-ink); color: #fff; font-weight: 600; }
+  .badge { display: inline-flex; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase; background: var(--color-primary-soft); color: var(--color-primary-deep); }
+  .input { height: 52px; border: 1.5px solid var(--color-border); border-radius: var(--radius-input);
+    display: flex; align-items: center; padding: 0 14px; color: var(--color-ink-muted); font-size: 15px; margin-top: 12px; }
+  .tabbar { flex: none; display: flex; border-top: 1px solid var(--color-border); background: #fff; }
+  .tabbar span { flex: 1; text-align: center; font-size: 11px; font-weight: 500; color: var(--color-ink-muted); padding: 10px 0 16px; }
+  .tabbar span.on { color: var(--color-primary); font-weight: 700; }
+  .meta { font-size: 12px; color: var(--color-ink-muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  #combo-label { font-size: 12.5px; color: var(--color-ink-muted); text-align: center; margin-top: 10px; }
+  #combo-label b { color: var(--color-ink); }
+</style>
+</head>
+<body>
+
+<aside class="panel">
+  <h1>CHARAK polish prototype</h1>
+  <p class="sub">Toggle live on the phone. Nothing is final until you pick a combo.</p>
+  <h2>Blue (primary / soft / deep)</h2>
+  <button class="opt on" data-k="blue" data-v="control"><span class="sw" style="background:#2F6FED"></span><span>Control — Fintech blue<small>Current #2F6FED · baseline</small></span></button>
+  <button class="opt" data-k="blue" data-v="teal"><span class="sw" style="background:#0F7FA8"></span><span>Healing teal-blue <b>(recommended)</b><small>#0F7FA8 · clinical-calm family</small></span></button>
+  <button class="opt" data-k="blue" data-v="lake"><span class="sw" style="background:#376CD5"></span><span>Soft lake blue<small>#376CD5 · calmer fintech blue</small></span></button>
+  <h2>Curves (buttons / cards / inputs)</h2>
+  <button class="opt on" data-k="curve" data-v="current"><span><b>Current</b> — 10 / 12<small>Sharp, dated vs Apple/Samsung</small></span></button>
+  <button class="opt" data-k="curve" data-v="soft"><span><b>Soft curve</b> — 16 / 18 / 14<small>Apple large + Samsung focus-block family</small></span></button>
+  <button class="opt" data-k="curve" data-v="pill"><span><b>Pill CTA</b> — pill / 20 / 14 <b>(recommended)</b><small>Revolut + Monzo + Apple capsule pattern</small></span></button>
+  <div class="ref">
+    <b>Patterns referenced:</b><br>
+    · Pill primary CTAs — Revolut (pill-everything), Monzo (pill CTA/chips), Apple capsule button style, Samsung 18dp contained buttons.<br>
+    · 18–20px cards — Samsung focus-block 20–26dp, Revolut card 20px.<br>
+    · Body 16 — Revolut/Monzo Inter 16, Apple body 17 (ours was 15, below all three).<br>
+    · Tight heading tracking −0.01–−0.02em — Revolut display pattern.<br>
+    · Teal-blue calm — healthcare clinical-blue family (calm/trust), vs generic fintech blue shared with Revolut #2563FF / Google Pay #1A73E8.
+  </div>
+</aside>
+
+<div>
+  <div class="phone" id="phone" data-blue="control" data-curve="current">
+    <div class="screen">
+      <div class="statusbar"><span>9:41</span><span>●●●</span></div>
+      <div class="body">
+        <div class="t-display greet">Good morning, Aarav</div>
+        <div class="t-cap">Home visit or video consult — doctor decides.</div>
+        <div class="chiprow">
+          <button class="chip on">All</button><button class="chip">Online</button><button class="chip">Home visit</button>
+        </div>
+        <div class="card">
+          <span class="badge">★ 4.8 · 12 yrs</span>
+          <div class="docrow" style="margin-top:10px">
+            <div class="avatar">SM</div>
+            <div><div class="t-h2">Dr. S. Mehta</div><div class="meta">General Physician · ₹499 · Today 4:30 PM</div></div>
+          </div>
+          <div style="margin-top:12px"><button class="btn primary">Book visit</button><button class="btn ghost">View profile</button></div>
+        </div>
+        <div class="card">
+          <div class="t-h1">Request status</div>
+          <div class="t-body" style="margin-top:4px">Doctor accepted — pay the consult fee to confirm.</div>
+          <div class="input">+91 ·····  ···21 &nbsp;·&nbsp; UPI</div>
+          <div style="margin-top:12px"><button class="btn primary">Pay ₹499</button></div>
+        </div>
+        <div class="card">
+          <div class="t-h2">Type scale (new)</div>
+          <div class="t-body" style="margin-top:6px">Body 16/1.55 — matches Revolut + Monzo app body.</div>
+          <div class="t-cap" style="margin-top:4px">Caption 14/1.45 for secondary info like this line.</div>
+        </div>
+      </div>
+      <div class="tabbar"><span class="on">Home</span><span>Bookings</span><span>History</span><span>Profile</span></div>
+    </div>
+  </div>
+  <p id="combo-label">Viewing: <b>Control blue</b> + <b>Current curves</b> (today's app)</p>
+</div>
+
+<script>
+  var phone = document.getElementById('phone');
+  var label = document.getElementById('combo-label');
+  var names = { control: 'Control blue', teal: 'Healing teal-blue', lake: 'Soft lake blue',
+    current: 'Current curves', soft: 'Soft curve', pill: 'Pill CTA' };
+  document.querySelectorAll('.opt').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var k = b.dataset.k;
+      document.querySelectorAll('.opt[data-k="' + k + '"]').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      if (k === 'blue') phone.dataset.blue = b.dataset.v; else phone.dataset.curve = b.dataset.v;
+      label.innerHTML = 'Viewing: <b>' + names[phone.dataset.blue] + '</b> + <b>' + names[phone.dataset.curve] + '</b>';
+    });
+  });
+</script>
+</body>
+</html>

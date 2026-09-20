@@ -48,7 +48,7 @@
   display: flex; align-items: flex-start; gap: 13px; padding: 16px; margin-bottom: 12px;
   width: 100%; text-align: left; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-card);
 }
-.tog-card .tog-ic { width: 42px; height: 42px; border-radius: 11px; background: var(--color-bg-subtle); color: var(--color-ink-muted); display: grid; place-items: center; flex: none; }
+.tog-card .tog-ic { width: 42px; height: 42px; border-radius: var(--radius-input); background: var(--color-bg-subtle); color: var(--color-ink-muted); display: grid; place-items: center; flex: none; }
 .tog-card .tog-ic svg { width: 19px; height: 19px; }
 .tog-card h3 { font-size: 15.5px; font-weight: 600; }
 .tog-card p { font-size: 13px; color: var(--color-ink-muted); margin-top: 3px; line-height: 1.5; }
@@ -69,12 +69,12 @@
   padding: 5px 10px; border-radius: 100px; display: inline-flex; align-items: center; gap: 5px;
 }
 .block-chip svg { width: 11px; height: 11px; }
-.block-add { width: 30px; height: 30px; border-radius: 8px; border: 1px dashed var(--color-border); color: var(--color-ink-muted); display: grid; place-items: center; flex: none; }
+.block-add { width: 30px; height: 30px; border-radius: var(--radius-input); border: 1px dashed var(--color-border); color: var(--color-ink-muted); display: grid; place-items: center; flex: none; }
 .block-add svg { width: 14px; height: 14px; }
 
 .rad-chips { display: flex; gap: 10px; }
 .rad-chip {
-  flex: 1; height: 52px; border-radius: var(--radius-control); border: 1px solid var(--color-border);
+  flex: 1; height: 52px; border-radius: var(--radius-input); border: 1px solid var(--color-border);
   font-size: 14px; font-weight: 600; background: #fff;
 }
 .rad-chip.on { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary-deep); }
@@ -90,7 +90,7 @@
 .price-preview { background: var(--color-bg-subtle); border-radius: var(--radius-card); padding: 12px 14px; font-size: 13px; line-height: 1.55; color: var(--color-ink-muted); }
 .price-preview b { color: var(--color-ink); }
 .price-suffix { font-size: 12.5px; color: var(--color-ink-muted); }
-.proc-price-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border: 1px solid var(--color-border); border-radius: 10px; margin-bottom: 8px; font-size: 14px; background: #fff; }
+.proc-price-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-input); margin-bottom: 8px; font-size: 14px; background: #fff; }
 .proc-price-row .proc-in { width: 78px; height: 38px; padding: 0 10px; text-align: right; }
 .proc-check { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--color-border); font-size: 14px; }
 .proc-check:last-child { border-bottom: 0; }
@@ -103,8 +103,8 @@
 
 /* ---------- schedule ---------- */
 .sched-head { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 14px; }
-.sched-head h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
-.sched-head .btn { width: auto; height: 38px; padding: 0 14px; font-size: 13px; border-radius: var(--radius-control); }
+.sched-head h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.015em; }
+.sched-head .btn { width: auto; height: 38px; padding: 0 14px; font-size: 13px; border-radius: var(--radius-pill); }
 .slot-row { display: grid; grid-template-columns: 54px 1fr auto; gap: 10px; align-items: center; padding: 11px 13px; margin-bottom: 9px; border-radius: var(--radius-card); background: #fff; border: 1px solid var(--color-border); }
 .slot-row .t { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .slot-row .tt { font-size: 13.5px; font-weight: 600; }
@@ -119,7 +119,7 @@
 .slot-row.blocked { opacity: 0.6; }
 .slot-row.blocked .st { color: var(--color-danger); }
 .week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 16px; }
-.wday { padding: 8px 0 7px; border-radius: var(--radius-control); background: var(--color-bg-subtle); display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.wday { padding: 8px 0 7px; border-radius: var(--radius-input); background: var(--color-bg-subtle); display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .wday .d { font-size: 10.5px; color: var(--color-ink-muted); font-weight: 500; }
 .wday .n { font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wday.on { background: var(--color-ink); }

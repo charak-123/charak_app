@@ -18,6 +18,12 @@
           ]
         },
         {
+          "slug": "charak-polish",
+          "files": [
+            { "label": "Polish prototype — blue x curves x type", "path": "mockups/charak-polish/index.html" }
+          ]
+        },
+        {
           "slug": "charak-direction-explore",
           "files": [
             { "label": "Direction Exploration (V1–V5 reference)", "path": "mockups/charak-direction-explore/index.html" }
