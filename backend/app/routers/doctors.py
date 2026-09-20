@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from ..db import fetch_one, supabase
-from ..deps import require_doctor
+from ..deps import get_current_user, require_doctor
 from ..errors import AppError
+from ..services import geo
 
 router = APIRouter()
 
@@ -140,15 +141,41 @@ def search_doctors(
     channel: str = "",        # "online_consult" | "home_visit"
     min_rating: float = 0,
     max_price: float = 0,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    max_distance_km: Optional[float] = None,
+    serviceable_only: bool = False,
+    sort: str = "rating",     # "rating" | "distance" | "price"
     limit: int = 20,
     offset: int = 0,
 ):
+    """
+    Public directory search.
+
+    Pass the patient's lat/lng to get distance on every result and to sort or
+    filter by it — the spec's "sort by price/rating/distance". Without a location
+    the endpoint behaves exactly as before, so a patient who declines the location
+    permission still gets a usable directory.
+
+    ``serviceable_only`` keeps only doctors whose home-visit radius actually
+    covers the given point, which is what makes the home-visit tab honest: a
+    doctor 40km away was previously listed as bookable.
+
+    Price, category and distance are filtered in Python because pricing lives in
+    a join and distance is computed — see services/geo.py on when that stops
+    being the right trade.
+    """
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
-    """
-    Public search endpoint. Returns verified doctors matching the filters.
-    Price filtering is post-query (done in Python) since pricing is in a join.
-    """
+
+    if sort not in ("rating", "distance", "price"):
+        raise AppError("sort must be rating, distance or price", 400)
+    if (lat is None) != (lng is None):
+        raise AppError("lat and lng must be provided together", 400)
+    if sort == "distance" and lat is None:
+        raise AppError("sort=distance requires lat and lng", 400)
+    if serviceable_only and lat is None:
+        raise AppError("serviceable_only requires lat and lng", 400)
     query = (
         supabase.table("doctors")
         .select("*, categories(name), doctor_pricing(*)")
@@ -179,11 +206,28 @@ def search_doctors(
 
     # Post-filter by max price
     if max_price > 0:
-        def _min_price(doc):
-            pricing = doc.get("doctor_pricing") or []
-            prices = [p["price"] for p in pricing if channel == "" or p["channel"] == channel]
-            return min(prices) if prices else float("inf")
-        results = [d for d in results if _min_price(d) <= max_price]
+        results = [d for d in results if _cheapest(d, channel) <= max_price]
+
+    # Distance annotation, filtering and sorting
+    results = geo.annotate_distance(results, lat, lng)
+
+    if max_distance_km is not None:
+        # An unknown distance is excluded when a limit was asked for: the caller
+        # asked for doctors within N km, and "we don't know" is not within N km.
+        results = [
+            d for d in results
+            if d["distance_km"] is not None and d["distance_km"] <= max_distance_km
+        ]
+
+    if serviceable_only:
+        results = [d for d in results if d.get("in_service_area")]
+
+    if sort == "distance":
+        results.sort(key=geo.sort_key_distance)
+    elif sort == "price":
+        results.sort(key=lambda d: _cheapest(d, channel))
+    else:
+        results.sort(key=lambda d: float(d.get("rating_avg") or 0), reverse=True)
 
     page = results[offset: offset + limit]
     return {
@@ -191,8 +235,18 @@ def search_doctors(
         "limit": limit,
         "offset": offset,
         "has_more": offset + len(page) < len(results),
+        "sort": sort,
+        "located": lat is not None,
         "items": page,
     }
+
+
+def _cheapest(doctor: dict, channel: str) -> float:
+    """Lowest price across the doctor's pricing rows, restricted to a channel when
+    one was requested. Doctors with no pricing sort last rather than free."""
+    pricing = doctor.get("doctor_pricing") or []
+    prices = [p["price"] for p in pricing if not channel or p["channel"] == channel]
+    return min(prices) if prices else float("inf")
 
 
 # ── Directory (public, for patients) ─────────────────────────────────────────
@@ -209,6 +263,70 @@ def get_doctor_public(doctor_id: str):
     if not doctor:
         raise AppError("Doctor not found or not verified", 404)
     return doctor
+
+
+@router.get("/{doctor_id}/service-area")
+def check_service_area(
+    doctor_id: str,
+    address_id: Optional[str] = None,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Whether a home visit to this address is within the doctor's radius.
+
+    Backs the channel-confirm screen, which the spec says should confirm "the
+    patient's address falls within the doctor's radius" before booking. Callers
+    pass either one of their saved address_ids or a raw lat/lng.
+
+    Booking re-checks this server-side regardless — this endpoint exists so the
+    patient finds out before choosing a slot, not after.
+    """
+    if not address_id and (lat is None or lng is None):
+        raise AppError("Provide either address_id or both lat and lng", 400)
+
+    if address_id:
+        address = fetch_one(
+            supabase.table("patient_addresses").select("*").eq("id", address_id)
+        )
+        if not address:
+            raise AppError("Address not found", 404)
+        if address["patient_id"] != user["sub"]:
+            raise AppError("Forbidden", 403)
+        lat, lng = address["lat"], address["lng"]
+
+    doctor = fetch_one(
+        supabase.table("doctors")
+        .select("id, base_lat, base_lng, service_radius_km, offers_home_visit")
+        .eq("id", doctor_id).eq("verification_status", "verified").eq("suspended", False)
+    )
+    if not doctor:
+        raise AppError("Doctor not found or not verified", 404)
+    if not doctor.get("offers_home_visit"):
+        return {
+            "in_service_area": False,
+            "distance_km": None,
+            "service_radius_km": None,
+            "reason": "This doctor does not offer home visits",
+        }
+
+    in_area, distance = geo.within_service_area(doctor, lat, lng)
+    reason = None
+    if not in_area:
+        reason = (
+            "This doctor has not finished setting up their home-visit area yet"
+            if distance is None
+            else f"That address is {distance:.1f}km away, outside their "
+                 f"{doctor['service_radius_km']}km service area"
+        )
+
+    return {
+        "in_service_area": in_area,
+        "distance_km": distance,
+        "service_radius_km": doctor.get("service_radius_km"),
+        "reason": reason,
+    }
 
 
 @router.get("/{doctor_id}/slots")
