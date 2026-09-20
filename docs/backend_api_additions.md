@@ -1,4 +1,4 @@
-# New backend endpoints (Phase 4)
+# New backend endpoints (Phase 4 + V1 gap closure)
 
 Reference for the UI work that resumes once the backend is signed off. 78 routes
 total; these are the ones that did not exist before. Every response shape below is
@@ -167,3 +167,127 @@ Fly health check.
 - `POST /push/register` returns `push_enabled`.
 - Procedure bills are created with their line items in a single write, so
   `items` is never briefly empty on read.
+
+
+---
+
+# Home visits, uploads and transcription
+
+The four V1 gaps that were unbuilt rather than unconfigured. Requires migration
+`0009_addresses_uploads_media.sql`.
+
+## Patient addresses
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/addresses/` | Default first, then newest |
+| `POST` | `/addresses/` | `{label, line1, line2?, landmark?, city, pincode, lat, lng, is_default?}` |
+| `PATCH` | `/addresses/{id}` | Partial edit |
+| `DELETE` | `/addresses/{id}` | Promotes another address to default if this was it |
+
+UI notes:
+
+- **`lat`/`lng` are required.** The radius check and the distance sort both depend
+  on them, so the address form needs a map pin or a geocode — a typed address
+  alone is not enough.
+- `pincode` is validated as six digits, no leading zero (422 otherwise).
+- The first address saved becomes the default automatically, whatever the box says.
+- Deleting an address never changes a past booking: each booking keeps its own
+  snapshot of where the doctor was actually sent.
+
+## Home-visit booking
+
+`POST /bookings/` now takes **`address_id`, required when `channel` is
+`home_visit`**. The booking is refused if:
+
+| Response | Meaning |
+|---|---|
+| `400` | `address_id is required for a home visit` |
+| `409` | `That address is 8.4km away, outside this doctor's 3km service area` |
+| `409` | `This doctor has not finished setting up their home-visit area yet` |
+| `400` | `This doctor does not offer home visits` |
+| `403` | The address belongs to another patient |
+
+The 409 message is written to be shown to the patient as-is.
+
+Check before the patient picks a slot, so they find out early:
+
+```
+GET /doctors/{id}/service-area?address_id=addr-1
+    -> {in_service_area, distance_km, service_radius_km, reason}
+```
+
+Backs the channel-confirm screen's "confirming the patient's address falls within
+the doctor's radius". Accepts `lat`/`lng` instead of `address_id`. Booking
+re-checks server-side regardless.
+
+## Address privacy — affects the doctor app
+
+The doctor sees the **city, PIN and `distance_km` but not the street address**
+until they accept. Both apps already promise this ("Address shared on accept");
+it is now enforced server-side.
+
+Before accept, doctor-facing responses carry:
+
+```json
+{"patient_address": null, "patient_address_lat": null, "address_withheld": true}
+```
+
+So `requests_tab.dart` should show distance and area on the request card, and
+`active_visit_screen.dart` gets the full `patient_address` plus
+`patient_address_lat`/`lng` for the native-maps hand-off once accepted. The
+patient always sees their own address in full.
+
+## Directory distance
+
+`GET /doctors/search` gains:
+
+| Param | Effect |
+|---|---|
+| `lat`, `lng` | Adds `distance_km` and `in_service_area` to every result |
+| `sort` | `rating` (default), `distance`, `price` |
+| `max_distance_km` | Hard distance filter |
+| `serviceable_only` | Only doctors whose radius covers the point |
+
+Response adds `sort` and `located`. Without a location the directory behaves
+exactly as before, so declining the location permission degrades gracefully —
+but `sort=distance` and `serviceable_only` then return 400 rather than a
+misleading order. `in_service_area` is `null` for doctors who do not offer home
+visits, which is different from `false`.
+
+## Uploads
+
+All uploads are `multipart/form-data` with a single `file` field, through the
+backend. Client-side Supabase Storage writes cannot work — the apps hold this
+API's JWT, not a Supabase Auth session — which is why the existing attempts
+silently failed.
+
+| Method | Path | Limits |
+|---|---|---|
+| `POST` | `/uploads/doctor/photo` | jpg/png/webp/heic, 5MB |
+| `POST` | `/uploads/doctor/verification-document` | + pdf, 15MB |
+| `GET` | `/uploads/doctor/{id}/verification-document` | Signed URL — ops, or that doctor |
+| `POST` | `/uploads/bookings/{id}/intake?media_type=image\|voice\|video` | 10 / 25 / 50MB |
+| `GET` | `/uploads/intake/{media_id}` | Signed URL — booking participants only |
+
+UI notes:
+
+- **The doctor verification screen can restore its `&& _doc != null` guard** — a
+  document upload now works, so onboarding no longer has to proceed without one.
+- Submitting a document sets `verification_status` back to `pending` and clears
+  any rejection reason, so re-submitting after a rejection re-enters the queue.
+- Rejections are specific and worth surfacing: `415` unsupported type (lists what
+  is accepted), `413` too large ("that file is 62MB — the limit is 50MB").
+- Signed URLs expire in 5 minutes. Fetch on open; do not cache them.
+- The admin verification queue now also returns `verification_document_path` and
+  `verification_document_mime`, then calls the signed-URL endpoint to preview.
+
+## Voice transcription
+
+Uploading a voice note queues transcription and returns immediately. Poll the
+intake list for `transcript_status`: `pending` → `done` (`transcript_text` filled)
+or `failed` (`transcript_error` says why). The spec wants the transcript shown
+inline and editable, so the patient can correct it.
+
+Speech-to-text only — no summarising or triage, per the "never analyzed by AI"
+promise.

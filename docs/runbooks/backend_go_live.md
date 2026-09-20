@@ -18,6 +18,7 @@ by hand:
 1. Open the Supabase dashboard → **SQL Editor**
 2. Paste and run `supabase/migrations/0007_phase4_backend.sql`
 3. Paste and run `supabase/migrations/0008_phase4_rls.sql`
+4. Paste and run `supabase/migrations/0009_addresses_uploads_media.sql`
 
 Both are idempotent (`create table if not exists`, `add column if not exists`),
 so re-running them is harmless.
@@ -33,6 +34,11 @@ curl -s https://charak-api.fly.dev/readyz | jq
 `doctor_ledger_entries`; the `no_show` booking status; payment-hold columns; and
 doctor `suspended` / `commission_pct`.
 `0008` revokes anon access to all five new tables.
+`0009` adds `patient_addresses`, the booking address snapshot and
+`address_released_at`, plus Storage path columns and transcription status on
+`intake_media`. **Home visits do not work at all until 0009 is applied** — the
+doctor app reads `booking.patient_address`, and until this runs that column does
+not exist.
 
 ---
 
@@ -122,7 +128,46 @@ never called `/push/register`.
 
 ---
 
-## 4. Video calls — Agora
+## 3b. Storage buckets (one-time)
+
+Three buckets are needed: `doctor-photos` (public), `verification-docs` and
+`intake-media` (both private). All three now exist. To recreate them on a fresh
+project:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer <ops token>" \
+  https://charak-api.fly.dev/uploads/buckets/ensure
+```
+
+Uploads go **through the backend**, never from the app. The apps authenticate with
+a JWT this API issues rather than a Supabase Auth session, so `auth.uid()` is null
+inside any Storage policy and no RLS rule can authorise them — which is why
+client-side uploads silently failed and doctors could not submit licence
+documents. No Storage policies are needed: the backend holds the service-role key
+and authorises each request itself. Private objects are read through 5-minute
+signed URLs minted per request.
+
+---
+
+## 4. Voice transcription — OpenAI Whisper
+
+```
+OPENAI_API_KEY=sk-...
+```
+
+Until set, a voice note still uploads and is still playable by the doctor; the
+`intake_media` row records `transcript_status='failed'` with the reason, so the
+gap is visible rather than looking like a patient who said nothing.
+
+**Scope is deliberately narrow.** This is speech-to-text only — no summarising, no
+triage, no symptom extraction — because the product promises intake is "reviewed
+by your doctor directly, never analyzed by AI". The request carries no prompt, and
+a test asserts that. Adding anything interpretive here is a product decision about
+that promise, not a code change.
+
+---
+
+## 5. Video calls — Agora
 
 ```
 AGORA_APP_ID=...
@@ -140,7 +185,7 @@ Both sides get a token: the doctor from
 
 ---
 
-## 5. Scheduled jobs (required — not optional)
+## 6. Scheduled jobs (required — not optional)
 
 ```
 CRON_SECRET=<64 random hex chars>
@@ -165,7 +210,7 @@ curl -fsS -X POST -H "X-Cron-Secret: $CRON_SECRET" \
 
 ---
 
-## 6. Ops and hardening
+## 7. Ops and hardening
 
 ```
 ADMIN_PASSWORD=<strong value>              # default is 'charak-admin-2024' — change it
@@ -180,7 +225,7 @@ but `*` with credentials is worth closing regardless.
 
 ---
 
-## 7. Money flow reference
+## 8. Money flow reference
 
 Money is recognised in exactly one place: `_confirm_payment` in
 `app/routers/payments.py`. Both the Razorpay webhook and the dev shortcut route
@@ -209,7 +254,7 @@ Safety properties, all covered by tests:
 
 ---
 
-## 8. Payout cycle (ops, weekly)
+## 9. Payout cycle (ops, weekly)
 
 ```bash
 # 1. Who is owed what
@@ -237,7 +282,7 @@ change.
 
 ---
 
-## 9. Post-deploy smoke test
+## 10. Post-deploy smoke test
 
 ```bash
 curl -s https://charak-api.fly.dev/readyz | jq
@@ -251,7 +296,8 @@ curl -s https://charak-api.fly.dev/readyz | jq
     "sms_otp": true,
     "payments": true,
     "push": true,
-    "video_calls": true
+    "video_calls": true,
+    "transcription": true
   }
 }
 ```
