@@ -12,9 +12,9 @@ void showCharakToast(
 }) {
   ShadToaster.of(context).show(
     ShadToast(
-      description: Text(message),
+      description: Text(message,
+          style: isError ? const TextStyle(color: Colors.white) : null),
       backgroundColor: isError ? CharakColors.danger : null,
-      foregroundColor: isError ? Colors.white : null,
       action: action != null
           ? ShadButton.ghost(
               onPressed: onAction,

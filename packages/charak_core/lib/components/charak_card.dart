@@ -5,7 +5,7 @@ import '../design/tokens.dart';
 /// Standard content card with optional title and padding.
 class CharakCard extends StatelessWidget {
   final Widget child;
-  final EdgeInsetsGeometry? padding;
+  final EdgeInsets? padding;
   final String? title;
   final String? description;
   final Widget? trailing;
@@ -38,6 +38,7 @@ class CharakTileCard extends StatelessWidget {
   final String? subtitle;
   final Widget? trailing;
   final VoidCallback? onTap;
+  final Color? titleColor;
 
   const CharakTileCard({
     super.key,
@@ -46,6 +47,7 @@ class CharakTileCard extends StatelessWidget {
     this.subtitle,
     this.trailing,
     this.onTap,
+    this.titleColor,
   });
 
   @override
@@ -58,7 +60,7 @@ class CharakTileCard extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: CharakText.bodyMed),
+            Text(title, style: CharakText.bodyMed.copyWith(color: titleColor)),
             if (subtitle != null)
               Text(subtitle!,
                   style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),

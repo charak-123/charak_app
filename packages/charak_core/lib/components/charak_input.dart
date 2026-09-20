@@ -53,5 +53,10 @@ class CharakInput extends StatelessWidget {
     trailing: trailing,
     enabled: enabled,
     validator: error != null ? (_) => error : null,
+    // Inputs stay at the 14px input radius even though the Shad theme
+    // radius follows the 20px card radius.
+    decoration: const ShadDecoration(
+      border: ShadBorder(radius: BorderRadius.all(CharakRadius.input)),
+    ),
   );
 }

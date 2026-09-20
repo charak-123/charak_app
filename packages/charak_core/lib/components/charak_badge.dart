@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import '../design/tokens.dart';
+import 'charak_controls.dart';
 
 enum CharakBadgeVariant { primary, success, warning, danger, muted }
 
@@ -20,27 +21,33 @@ class CharakBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (bg, fg) = _colors();
+    // `.badge` — 3×10 padding, 11px/600, 0.04em tracking, uppercase.
     return ShadBadge(
       backgroundColor: bg,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
             Icon(icon, size: 12, color: fg),
-            const SizedBox(width: 4),
+            const SizedBox(width: 5),
           ],
-          Text(label,
-              style: CharakText.micro.copyWith(color: fg, letterSpacing: 0.02)),
+          Text(
+            label.toUpperCase(),
+            style: CharakText.micro.copyWith(color: fg, letterSpacing: 11 * 0.04),
+          ),
         ],
       ),
     );
   }
 
-  (Color, Color) _colors() => switch (variant) {
-    CharakBadgeVariant.primary => (CharakColors.primarySoft, CharakColors.primary),
-    CharakBadgeVariant.success => (const Color(0xFFEAF7F1), CharakColors.success),
-    CharakBadgeVariant.warning => (const Color(0xFFFEF3C7), CharakColors.warning),
-    CharakBadgeVariant.danger  => (const Color(0xFFFFEEED), CharakColors.danger),
-    CharakBadgeVariant.muted   => (CharakColors.bgSubtle, CharakColors.inkMuted),
-  };
+  // Tone pairs are shared with CharakStatusPill so badges and pills never
+  // drift apart; values come straight from `core.css`.
+  (Color, Color) _colors() => charakToneColors(switch (variant) {
+    CharakBadgeVariant.primary => CharakStatusTone.primary,
+    CharakBadgeVariant.success => CharakStatusTone.success,
+    CharakBadgeVariant.warning => CharakStatusTone.warning,
+    CharakBadgeVariant.danger  => CharakStatusTone.danger,
+    CharakBadgeVariant.muted   => CharakStatusTone.muted,
+  });
 }
