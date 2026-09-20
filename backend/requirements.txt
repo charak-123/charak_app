@@ -6,6 +6,8 @@ python-dotenv==1.2.3
 httpx==0.28.1
 pydantic==2.13.4
 pydantic[email]==2.13.4
+# Required for multipart file uploads (app/routers/uploads.py)
+python-multipart==0.0.32
 pytest==9.1.1
 pytest-asyncio==1.4.0
 
