@@ -56,7 +56,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> updateName(String name) async {
-    await _api.patch('/doctors/me', {'name': name});
+    await _api.patch('/users/me', {'name': name});
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_name', name);
     state = state.copyWith(user: {...?state.user, 'name': name});

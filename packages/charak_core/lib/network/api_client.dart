@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +10,23 @@ const String _kBaseUrl = String.fromEnvironment(
 class ApiClient {
   ApiClient._();
   static final ApiClient instance = ApiClient._();
+
+  /// Called once when the server rejects our credentials (401), after the
+  /// stored session has been cleared. Apps wire this to send the user back to
+  /// the login screen — without it a token that has expired, or that was
+  /// signed with a rotated `JWT_SECRET`, leaves every screen stuck on an
+  /// "Invalid or expired token" error with no way out.
+  static void Function()? onUnauthorized;
+
+  /// Guards against a burst of concurrent 401s each firing the callback.
+  static bool _handlingUnauthorized = false;
+
+  Future<void> _clearSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
+    await prefs.remove('user_id');
+    await prefs.remove('user_name');
+  }
 
   Future<String?> _token() async {
     final prefs = await SharedPreferences.getInstance();
@@ -68,14 +84,62 @@ class ApiClient {
     _handle(res);
   }
 
+  /// Turns an error body into something a human can read.
+  ///
+  /// FastAPI reports its own `AppError`s as a plain `detail` string, but
+  /// *validation* failures (422) return `detail` as a list of
+  /// `{loc, msg, type}` objects. Blindly casting that to String threw
+  /// "List<dynamic> is not a subtype of String", which hid the actual
+  /// validation message behind a type error.
+  static String _message(dynamic body, int statusCode) {
+    final fallback = 'Request failed ($statusCode)';
+    if (body is! Map) return fallback;
+
+    final raw = body['error'] ?? body['detail'];
+    if (raw == null) return fallback;
+    if (raw is String) return raw;
+
+    if (raw is List) {
+      final parts = <String>[];
+      for (final item in raw) {
+        if (item is Map) {
+          final field = (item['loc'] is List)
+              // drop the leading "body"/"query" scope segment
+              ? (item['loc'] as List).skip(1).join('.')
+              : null;
+          final detail = item['msg']?.toString() ?? 'invalid';
+          parts.add(field == null || field.isEmpty ? detail : '$field: $detail');
+        } else {
+          parts.add(item.toString());
+        }
+      }
+      if (parts.isNotEmpty) return parts.join('\n');
+    }
+
+    return raw.toString();
+  }
+
   dynamic _handle(http.Response res) {
     if (res.statusCode >= 200 && res.statusCode < 300) {
       if (res.body.isEmpty) return null;
       return jsonDecode(res.body);
     }
     final body = res.body.isNotEmpty ? jsonDecode(res.body) : {};
-    final msg = body['error'] ?? body['detail'] ?? 'Request failed (${res.statusCode})';
-    throw ApiException(msg as String, res.statusCode);
+    final msg = _message(body, res.statusCode);
+
+    if (res.statusCode == 401 && !_handlingUnauthorized) {
+      _handlingUnauthorized = true;
+      // Fire-and-forget: drop the dead credentials, then let the app redirect.
+      _clearSession().whenComplete(() {
+        try {
+          onUnauthorized?.call();
+        } finally {
+          _handlingUnauthorized = false;
+        }
+      });
+    }
+
+    throw ApiException(msg, res.statusCode);
   }
 }
 
