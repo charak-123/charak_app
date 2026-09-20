@@ -5,9 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .errors import AppError, app_error_handler
 from .routers import (
-    admin, auth, bookings, calls, categories, complaints, doctors, earnings,
-    intake, maintenance, notifications, payments, payouts, procedure_bills,
-    push, ratings, schedules, slot_blocks, users,
+    addresses, admin, auth, bookings, calls, categories, complaints, doctors,
+    earnings, intake, maintenance, notifications, payments, payouts,
+    procedure_bills, push, ratings, schedules, slot_blocks, uploads, users,
 )
 from .services.notifications import push_enabled
 
@@ -46,6 +46,8 @@ app.include_router(ratings.router,          prefix="/bookings",         tags=["r
 app.include_router(complaints.router,       prefix="/bookings",         tags=["complaints"])
 app.include_router(admin.router,            prefix="/admin",            tags=["admin"])
 app.include_router(users.router,            prefix="/users",            tags=["users"])
+app.include_router(addresses.router,        prefix="/addresses",        tags=["addresses"])
+app.include_router(uploads.router,          prefix="/uploads",          tags=["uploads"])
 app.include_router(maintenance.router,      prefix="/maintenance",      tags=["maintenance"])
 
 
@@ -65,6 +67,7 @@ def ready():
     from .routers.calls import agora_configured
     from .routers.payments import live_mode as razorpay_live
     from .config import MSG91_API_KEY
+    from .services.transcription import enabled as transcription_enabled
 
     try:
         supabase.table("categories").select("id").limit(1).execute()
@@ -82,5 +85,6 @@ def ready():
             "payments": razorpay_live(),
             "push": push_enabled(),
             "video_calls": agora_configured(),
+            "transcription": transcription_enabled(),
         },
     }

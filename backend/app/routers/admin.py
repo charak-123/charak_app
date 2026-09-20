@@ -54,7 +54,7 @@ def admin_login(body: AdminLoginRequest):
 def list_pending_doctors(user: dict = Depends(require_ops)):
     result = (
         supabase.table("doctors")
-        .select("id, name, phone, license_number, verification_document_url, created_at")
+        .select("id, name, phone, license_number, verification_document_url, verification_document_path, verification_document_mime, photo_url, created_at")
         .eq("verification_status", "pending")
         .order("created_at", desc=False)
         .execute()

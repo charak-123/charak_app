@@ -107,6 +107,10 @@ _ROUTER_SUPABASE_PATHS = [
     "app.services.payouts.supabase",
     "app.services.otp_store.supabase",
     "app.services.availability.supabase",
+    "app.routers.addresses.supabase",
+    "app.routers.uploads.supabase",
+    "app.services.storage.supabase",
+    "app.services.transcription.supabase",
 ]
 
 
