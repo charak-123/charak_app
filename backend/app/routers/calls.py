@@ -1,36 +1,58 @@
 """
 Clarification calls router.
 
-Agora RTC token generation is stubbed here (returns a placeholder token).
-Wire in a real Agora App ID + App Certificate in Day 49 when credentials are available.
+Agora RTC tokens are minted for real as soon as AGORA_APP_ID and
+AGORA_APP_CERTIFICATE are set; until then a clearly-labelled stub token is
+returned so the call UI is testable end to end without credentials.
 """
-import os
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, Depends
+from pydantic import BaseModel, Field
 
-from ..db import supabase
+from ..config import AGORA_APP_CERTIFICATE, AGORA_APP_ID
+from ..db import fetch_one, supabase
 from ..deps import require_doctor, get_current_user
 from ..errors import AppError
+from ..services import notifications
 
 router = APIRouter()
+
+TOKEN_TTL_SECONDS = 3600
+
+
+def agora_configured() -> bool:
+    return bool(AGORA_APP_ID and AGORA_APP_CERTIFICATE)
 
 
 def _generate_agora_token(channel: str, uid: int) -> str:
     """
-    Stub: returns a placeholder token.
-    Replace with agora-token package once AGORA_APP_ID / AGORA_APP_CERT are set.
+    Mint an RTC token valid for one hour.
+
+    ``agora-token-builder`` is imported lazily so it stays an optional dependency
+    until credentials exist. If the package is missing while credentials *are*
+    set, that is a deployment error worth surfacing rather than silently handing
+    the app a token that cannot join a channel.
     """
-    app_id = os.getenv("AGORA_APP_ID", "")
-    if not app_id:
+    if not agora_configured():
         return f"stub_token_{channel}_{uid}_{int(time.time())}"
-    # Real implementation (uncomment when agora-token is installed):
-    # from agora_token_builder import RtcTokenBuilder, Role_Publisher
-    # expire = int(time.time()) + 3600
-    # return RtcTokenBuilder.buildTokenWithUid(app_id, os.environ["AGORA_APP_CERT"], channel, uid, Role_Publisher, expire)
-    return f"stub_token_{channel}_{uid}_{int(time.time())}"
+
+    try:
+        from agora_token_builder import RtcTokenBuilder  # type: ignore
+    except ImportError:
+        raise AppError(
+            "Agora credentials are set but agora-token-builder is not installed", 500
+        )
+
+    return RtcTokenBuilder.buildTokenWithUid(
+        AGORA_APP_ID,
+        AGORA_APP_CERTIFICATE,
+        channel,
+        uid,
+        1,                                    # 1 = publisher
+        int(time.time()) + TOKEN_TTL_SECONDS,
+    )
 
 
 class CallComplete(BaseModel):
@@ -38,12 +60,15 @@ class CallComplete(BaseModel):
 
 
 @router.post("/{booking_id}/clarification-call", status_code=201)
-def initiate_call(booking_id: str, user: dict = Depends(require_doctor)):
+def initiate_call(
+    booking_id: str,
+    background: BackgroundTasks,
+    user: dict = Depends(require_doctor),
+):
     """Doctor initiates a clarification call. Returns Agora token + channel name."""
-    result = supabase.table("bookings").select("*").eq("id", booking_id).single().execute()
-    if not result.data:
+    b = fetch_one(supabase.table("bookings").select("*").eq("id", booking_id))
+    if not b:
         raise AppError("Booking not found", 404)
-    b = result.data
     if b["doctor_id"] != user["sub"]:
         raise AppError("Forbidden", 403)
     if b["status"] not in ("requested", "accepted"):
@@ -68,7 +93,62 @@ def initiate_call(booking_id: str, user: dict = Depends(require_doctor)):
     channel_name = f"charak_{booking_id[:8]}"
     token = _generate_agora_token(channel_name, 0)
 
-    return {**row, "agora_channel": channel_name, "agora_token": token}
+    notifications.clarification_call_started(b, background)
+
+    return {
+        **row,
+        "agora_channel": channel_name,
+        "agora_token": token,
+        "agora_app_id": AGORA_APP_ID,
+        "live": agora_configured(),
+        "expires_in": TOKEN_TTL_SECONDS,
+    }
+
+
+class JoinRequest(BaseModel):
+    uid: int = Field(default=0, ge=0)
+
+
+@router.post("/{booking_id}/clarification-call/{call_id}/token")
+def patient_join_token(
+    booking_id: str,
+    call_id: str,
+    body: Optional[JoinRequest] = None,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Token for the patient side of an in-progress call.
+
+    The doctor gets theirs from the initiate response; without this the patient
+    app had no way to join the channel it was being called on.
+    """
+    booking = fetch_one(
+        supabase.table("bookings").select("patient_id, doctor_id").eq("id", booking_id)
+    )
+    if not booking:
+        raise AppError("Booking not found", 404)
+    if user["sub"] not in (booking["patient_id"], booking["doctor_id"]):
+        raise AppError("Forbidden", 403)
+
+    call = (
+        supabase.table("clarification_calls").select("*")
+        .eq("id", call_id).eq("booking_id", booking_id).execute().data or []
+    )
+    if not call:
+        raise AppError("Call not found", 404)
+    if call[0]["call_status"] != "initiated":
+        raise AppError("Call is no longer in progress", 400)
+
+    channel_name = f"charak_{booking_id[:8]}"
+    uid = (body or JoinRequest()).uid
+    return {
+        "agora_channel": channel_name,
+        "agora_token": _generate_agora_token(channel_name, uid),
+        "agora_app_id": AGORA_APP_ID,
+        "uid": uid,
+        "live": agora_configured(),
+        "expires_in": TOKEN_TTL_SECONDS,
+    }
 
 
 @router.patch("/{booking_id}/clarification-call/{call_id}/complete")
@@ -96,10 +176,9 @@ def mark_missed(booking_id: str, call_id: str, user: dict = Depends(require_doct
 
 @router.get("/{booking_id}/clarification-calls")
 def list_calls(booking_id: str, user: dict = Depends(get_current_user)):
-    result = supabase.table("bookings").select("patient_id, doctor_id").eq("id", booking_id).single().execute()
-    if not result.data:
+    b = fetch_one(supabase.table("bookings").select("patient_id, doctor_id").eq("id", booking_id))
+    if not b:
         raise AppError("Booking not found", 404)
-    b = result.data
     if b["patient_id"] != user["sub"] and b["doctor_id"] != user["sub"]:
         raise AppError("Forbidden", 403)
     return (
@@ -113,10 +192,12 @@ def list_calls(booking_id: str, user: dict = Depends(get_current_user)):
 
 
 def _get_call(call_id: str, booking_id: str, doctor_id: str) -> dict:
-    result = supabase.table("clarification_calls").select("*, bookings(doctor_id)") \
-        .eq("id", call_id).eq("booking_id", booking_id).single().execute()
-    if not result.data:
+    call = fetch_one(
+        supabase.table("clarification_calls").select("*, bookings(doctor_id)")
+        .eq("id", call_id).eq("booking_id", booking_id)
+    )
+    if not call:
         raise AppError("Call not found", 404)
-    if result.data["bookings"]["doctor_id"] != doctor_id:
+    if call["bookings"]["doctor_id"] != doctor_id:
         raise AppError("Forbidden", 403)
-    return result.data
+    return call

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
 
-from ..db import supabase
+from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_ops
 from ..errors import AppError
+from ..services import notifications
 
 router = APIRouter()
 
@@ -20,12 +21,17 @@ VALID_STATUSES = {"open", "in_review", "resolved", "closed"}
 
 
 @router.post("/{booking_id}/complaint", status_code=201)
-def file_complaint(booking_id: str, body: ComplaintCreate, user: dict = Depends(get_current_user)):
+def file_complaint(
+    booking_id: str,
+    body: ComplaintCreate,
+    background: BackgroundTasks,
+    user: dict = Depends(get_current_user),
+):
     if not body.description.strip():
         raise AppError("Description is required", 400)
 
-    booking = supabase.table("bookings").select("patient_id,status") \
-        .eq("id", booking_id).single().execute().data
+    booking = fetch_one(supabase.table("bookings").select("patient_id,status") \
+        .eq("id", booking_id))
     if not booking:
         raise AppError("Booking not found", 404)
     if booking["patient_id"] != user["sub"]:
@@ -36,13 +42,16 @@ def file_complaint(booking_id: str, body: ComplaintCreate, user: dict = Depends(
         "description": body.description.strip(),
         "status": "open",
     }).execute()
+
+    notifications.complaint_filed({"id": booking_id}, background)
+
     return result.data[0]
 
 
 @router.get("/{booking_id}/complaint")
 def get_complaints(booking_id: str, user: dict = Depends(get_current_user)):
-    booking = supabase.table("bookings").select("patient_id,doctor_id") \
-        .eq("id", booking_id).single().execute().data
+    booking = fetch_one(supabase.table("bookings").select("patient_id,doctor_id") \
+        .eq("id", booking_id))
     if not booking:
         raise AppError("Booking not found", 404)
     if booking["patient_id"] != user["sub"] and booking["doctor_id"] != user["sub"]:

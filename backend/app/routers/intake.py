@@ -3,8 +3,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ..db import supabase
-from ..deps import get_current_user, require_doctor
+from ..db import fetch_one, supabase
+from ..deps import get_current_user
 from ..errors import AppError
 
 router = APIRouter()
@@ -19,10 +19,9 @@ class IntakeMediaCreate(BaseModel):
 
 
 def _assert_booking_access(booking_id: str, user: dict) -> dict:
-    result = supabase.table("bookings").select("*").eq("id", booking_id).single().execute()
-    if not result.data:
+    b = fetch_one(supabase.table("bookings").select("*").eq("id", booking_id))
+    if not b:
         raise AppError("Booking not found", 404)
-    b = result.data
     if b["patient_id"] != user["sub"] and b["doctor_id"] != user["sub"]:
         raise AppError("Forbidden", 403)
     return b
