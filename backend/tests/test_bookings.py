@@ -27,7 +27,8 @@ def _client(jwt_payload, mock_db):
 # ── create_booking ─────────────────────────────────────────────────────────────
 
 def test_create_booking_success():
-    verified_doc = make_chain(data={"id": "doc-1", "verification_status": "verified"})
+    verified_doc = make_chain(data={"id": "doc-1", "verification_status": "verified",
+                                     "offers_online_consult": True, "offers_home_visit": False})
     created_row  = {
         "id": "bk-1", "patient_id": "pat-1", "doctor_id": "doc-1",
         "channel": "online_consult", "scheduled_start": "2026-08-25T09:00:00+00:00",
@@ -75,7 +76,8 @@ def test_create_booking_invalid_channel():
 
 
 def test_create_booking_slot_conflict():
-    verified_doc    = make_chain(data={"id": "doc-1", "verification_status": "verified"})
+    verified_doc    = make_chain(data={"id": "doc-1", "verification_status": "verified",
+                                     "offers_online_consult": True, "offers_home_visit": False})
     conflict_chain  = make_chain(list_data=[{"id": "existing"}])
 
     mock_db = make_supabase({"doctors": verified_doc, "bookings": conflict_chain})

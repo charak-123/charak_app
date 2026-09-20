@@ -47,7 +47,18 @@ def _booking(status="requested"):
 # ── Step 1: Patient creates booking ──────────────────────────────────────────
 
 def test_step1_patient_creates_booking():
-    verified_doc  = make_chain(data={"id": "doc-1", "verification_status": "verified"})
+    # A home visit now requires the doctor to offer it, to have a base location
+    # and radius, and the patient to name an address inside that radius.
+    verified_doc  = make_chain(data={
+        "id": "doc-1", "verification_status": "verified", "suspended": False,
+        "offers_online_consult": True, "offers_home_visit": True,
+        "base_lat": 28.6139, "base_lng": 77.2090, "service_radius_km": 5,
+    })
+    address = make_chain(data={
+        "id": "addr-1", "patient_id": "pat-1", "line1": "12 Rose Lane",
+        "line2": None, "landmark": "City Park", "city": "New Delhi",
+        "pincode": "110001", "lat": 28.6315, "lng": 77.2167,
+    })
     no_conflict   = make_chain(list_data=[])
     created       = make_chain(list_data=[_booking("requested")])
 
@@ -60,7 +71,12 @@ def test_step1_patient_creates_booking():
         return MagicMock(data=[_booking("requested")])  # insert
     bookings_chain.execute.side_effect = bk_execute
 
-    mock_db = make_supabase({"doctors": verified_doc, "bookings": bookings_chain})
+    mock_db = make_supabase({
+        "doctors": verified_doc,
+        "bookings": bookings_chain,
+        "patient_addresses": address,
+        "users": make_chain(list_data=[{"name": "Asha"}]),
+    })
 
     with patch("app.routers.bookings.supabase", mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = PAT_PAYLOAD
@@ -70,10 +86,17 @@ def test_step1_patient_creates_booking():
             "channel": "home_visit",
             "scheduled_start": "2026-08-26T10:00:00+00:00",
             "price_confirmed": 800.0,
+            "address_id": "addr-1",
         }, headers={"Authorization": PATIENT_TOKEN})
 
     assert resp.status_code == 201
     assert resp.json()["status"] == "requested"
+
+    # The address is snapshotted onto the booking, with the computed distance.
+    written = bookings_chain.insert.call_args[0][0]
+    assert written["address_id"] == "addr-1"
+    assert "12 Rose Lane" in written["patient_address"]
+    assert written["distance_km"] == 2.1
 
 
 # ── Step 2: Doctor lists incoming ────────────────────────────────────────────

@@ -8,7 +8,7 @@ from ..config import PAYMENT_HOLD_MINUTES
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
-from ..services import notifications
+from ..services import geo, notifications
 
 router = APIRouter()
 
@@ -37,6 +37,9 @@ class BookingCreate(BaseModel):
     scheduled_start: str         # ISO datetime "2026-08-25T09:00:00+05:30"
     category_id: Optional[str]   = None
     price_confirmed: Optional[float] = None
+    # Required for home_visit: which of the patient's saved addresses to visit.
+    # Ignored for online_consult, which has no destination.
+    address_id: Optional[str]    = None
 
 
 @router.post("/", status_code=201)
@@ -51,7 +54,7 @@ def create_booking(
     # Doctor must exist, be verified, and not be suspended.
     doc = fetch_one(
         supabase.table("doctors")
-        .select("id, name, verification_status, suspended")
+        .select("id, name, verification_status, suspended, offers_home_visit, offers_online_consult, base_lat, base_lng, service_radius_km")
         .eq("id", body.doctor_id)
     )
     if not doc or doc["verification_status"] != "verified":
@@ -59,10 +62,19 @@ def create_booking(
     if doc.get("suspended"):
         raise AppError("This doctor is not currently accepting bookings", 409)
 
+    if body.channel == "home_visit" and not doc.get("offers_home_visit"):
+        raise AppError("This doctor does not offer home visits", 400)
+    if body.channel == "online_consult" and not doc.get("offers_online_consult"):
+        raise AppError("This doctor does not offer online consults", 400)
+
     try:
         datetime.fromisoformat(body.scheduled_start.replace("Z", "+00:00"))
     except ValueError:
         raise AppError("Invalid scheduled_start format", 400)
+
+    # A home visit needs somewhere to go, and that somewhere has to be inside the
+    # radius the doctor agreed to cover.
+    address_fields = _resolve_home_visit_address(body, doc, user["sub"])
 
     existing = (
         supabase.table("bookings")
@@ -83,6 +95,7 @@ def create_booking(
         "category_id": body.category_id,
         "price_confirmed": body.price_confirmed,
         "status": "requested",
+        **address_fields,
     }).execute().data[0]
 
     patient = supabase.table("users").select("name").eq("id", user["sub"]).execute().data or []
@@ -96,8 +109,13 @@ def create_booking(
 
 @router.get("/doctor/incoming")
 def list_incoming(user: dict = Depends(require_doctor)):
-    """All requested bookings for this doctor, newest first."""
-    return (
+    """
+    All requested bookings for this doctor, newest first.
+
+    Street addresses are withheld here — these are requests the doctor has not
+    accepted yet. City, PIN and distance still come through.
+    """
+    rows = (
         supabase.table("bookings")
         .select("*, users(name, phone)")
         .eq("doctor_id", user["sub"])
@@ -105,13 +123,15 @@ def list_incoming(user: dict = Depends(require_doctor)):
         .order("created_at", desc=True)
         .execute()
         .data
+        or []
     )
+    return [_redact_address_for_doctor(r) for r in rows]
 
 
 @router.get("/doctor/active")
 def list_active(user: dict = Depends(require_doctor)):
     """Accepted/paid bookings — current queue."""
-    return (
+    rows = (
         supabase.table("bookings")
         .select("*, users(name, phone)")
         .eq("doctor_id", user["sub"])
@@ -119,13 +139,15 @@ def list_active(user: dict = Depends(require_doctor)):
         .order("scheduled_start")
         .execute()
         .data
+        or []
     )
+    return [_redact_address_for_doctor(r) for r in rows]
 
 
 @router.get("/doctor/history")
 def list_history(user: dict = Depends(require_doctor)):
     """Terminal bookings — everything no longer actionable."""
-    return (
+    rows = (
         supabase.table("bookings")
         .select("*, users(name, phone)")
         .eq("doctor_id", user["sub"])
@@ -133,7 +155,9 @@ def list_history(user: dict = Depends(require_doctor)):
         .order("scheduled_start", desc=True)
         .execute()
         .data
+        or []
     )
+    return [_redact_address_for_doctor(r) for r in rows]
 
 
 # ── Patient: own bookings ─────────────────────────────────────────────────────
@@ -164,6 +188,10 @@ def get_booking(booking_id: str, user: dict = Depends(get_current_user)):
         raise AppError("Booking not found", 404)
     if b["patient_id"] != user["sub"] and b["doctor_id"] != user["sub"]:
         raise AppError("Forbidden", 403)
+
+    # The patient always sees their own address; the doctor only after accepting.
+    if b["doctor_id"] == user["sub"] and b["patient_id"] != user["sub"]:
+        return _redact_address_for_doctor(b)
     return b
 
 
@@ -185,6 +213,9 @@ def accept_booking(
 
     updated = _update_status(booking_id, "accepted", {
         "hold_expires_at": (_now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)).isoformat(),
+        # Accepting is what entitles the doctor to the patient's full address.
+        # Until now they saw only the area and distance.
+        "address_released_at": _now_iso() if b["channel"] == "home_visit" else None,
     })
 
     doctor = supabase.table("doctors").select("name").eq("id", user["sub"]).execute().data or []
@@ -308,6 +339,86 @@ def cancel_booking(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _resolve_home_visit_address(body: "BookingCreate", doctor: dict,
+                                patient_id: str) -> dict:
+    """
+    Validate the chosen address against the doctor's service area and return the
+    booking columns to persist.
+
+    The address is snapshotted onto the booking, not merely referenced. The
+    patient may later edit or delete the address, and a record of where a doctor
+    was actually sent must not change underneath it.
+
+    Returns {} for online consults, which have no destination.
+    """
+    if body.channel != "home_visit":
+        return {}
+
+    if not body.address_id:
+        raise AppError("address_id is required for a home visit", 400)
+
+    address = fetch_one(
+        supabase.table("patient_addresses").select("*").eq("id", body.address_id)
+    )
+    if not address:
+        raise AppError("Address not found", 404)
+    if address["patient_id"] != patient_id:
+        raise AppError("Forbidden", 403)
+
+    allowed, distance = geo.within_service_area(doctor, address["lat"], address["lng"])
+    if not allowed:
+        if distance is None:
+            raise AppError(
+                "This doctor has not finished setting up their home-visit area yet", 409
+            )
+        raise AppError(
+            f"That address is {distance:.1f}km away, outside this doctor's "
+            f"{doctor['service_radius_km']}km service area",
+            409,
+        )
+
+    return {
+        "address_id": address["id"],
+        "patient_address": _format_address(address),
+        "patient_address_lat": address["lat"],
+        "patient_address_lng": address["lng"],
+        "distance_km": distance,
+    }
+
+
+def _format_address(address: dict) -> str:
+    """One-line address, in the order someone would read it aloud to a driver."""
+    parts = [
+        address.get("line1"),
+        address.get("line2"),
+        f"near {address['landmark']}" if address.get("landmark") else None,
+        address.get("city"),
+        address.get("pincode"),
+    ]
+    return ", ".join(p for p in parts if p)
+
+
+def _redact_address_for_doctor(booking: dict) -> dict:
+    """
+    Hide the street address from the doctor until they have accepted.
+
+    Both apps already tell the patient the address is "shared on accept"; this is
+    what makes that true rather than a caption. The doctor still sees the city,
+    PIN and distance before deciding — enough to judge whether the visit is
+    practical, without handing a stranger's home address to someone who may
+    decline.
+    """
+    if booking.get("channel") != "home_visit" or booking.get("address_released_at"):
+        return booking
+
+    redacted = dict(booking)
+    redacted["patient_address"] = None
+    redacted["patient_address_lat"] = None
+    redacted["patient_address_lng"] = None
+    redacted["address_withheld"] = True
+    return redacted
+
 
 def _get_booking_for_doctor(booking_id: str, doctor_id: str) -> dict:
     booking = fetch_one(supabase.table("bookings").select("*").eq("id", booking_id))
