@@ -47,10 +47,7 @@ ShadThemeData charakShadTheme() => ShadThemeData(
     destructive: CharakColors.danger,
     destructiveForeground: Colors.white,
   ),
-  textTheme: ShadTextTheme.fromGoogleFont(
-    (name, {textStyle}) => textStyle ?? const TextStyle(),
-    family: CharakText.fontFamily,
-  ),
+  brightness: Brightness.light,
   radius: BorderRadius.all(CharakRadius.card),
 );
 

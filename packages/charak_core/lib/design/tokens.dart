@@ -4,9 +4,9 @@ class CharakColors {
   CharakColors._();
   static const bg          = Color(0xFFFFFFFF);
   static const bgSubtle    = Color(0xFFF5F8FA);
-  static const primary     = Color(0xFF2F6FED);
-  static const primarySoft = Color(0xFFEAF1FE);
-  static const primaryDeep = Color(0xFF1E4FBF);
+  static const primary     = Color(0xFF376CD5);
+  static const primarySoft = Color(0xFFE9EFFB);
+  static const primaryDeep = Color(0xFF24478F);
   static const ink         = Color(0xFF101828);
   static const inkMuted    = Color(0xFF5B6472);
   static const border      = Color(0xFFE4E8EE);
@@ -18,19 +18,20 @@ class CharakColors {
 class CharakText {
   CharakText._();
   static const fontFamily = 'Inter';
-  static const display = TextStyle(fontFamily: fontFamily, fontSize: 28, fontWeight: FontWeight.w600, height: 1.2);
-  static const h1      = TextStyle(fontFamily: fontFamily, fontSize: 22, fontWeight: FontWeight.w600, height: 1.3);
-  static const h2      = TextStyle(fontFamily: fontFamily, fontSize: 17, fontWeight: FontWeight.w600, height: 1.4);
-  static const body    = TextStyle(fontFamily: fontFamily, fontSize: 15, fontWeight: FontWeight.w400, height: 1.5);
-  static const bodyMed = TextStyle(fontFamily: fontFamily, fontSize: 15, fontWeight: FontWeight.w500, height: 1.5);
-  static const caption = TextStyle(fontFamily: fontFamily, fontSize: 13, fontWeight: FontWeight.w400, height: 1.4);
+  static const display = TextStyle(fontFamily: fontFamily, fontSize: 30, fontWeight: FontWeight.w600, height: 1.15, letterSpacing: -0.6);
+  static const h1      = TextStyle(fontFamily: fontFamily, fontSize: 22, fontWeight: FontWeight.w600, height: 1.3, letterSpacing: -0.33);
+  static const h2      = TextStyle(fontFamily: fontFamily, fontSize: 18, fontWeight: FontWeight.w600, height: 1.3, letterSpacing: -0.18);
+  static const body    = TextStyle(fontFamily: fontFamily, fontSize: 16, fontWeight: FontWeight.w400, height: 1.55);
+  static const bodyMed = TextStyle(fontFamily: fontFamily, fontSize: 16, fontWeight: FontWeight.w500, height: 1.55);
+  static const caption = TextStyle(fontFamily: fontFamily, fontSize: 14, fontWeight: FontWeight.w400, height: 1.45);
   static const micro   = TextStyle(fontFamily: fontFamily, fontSize: 11, fontWeight: FontWeight.w500, height: 1.3, letterSpacing: 0.04);
 }
 
 class CharakRadius {
   CharakRadius._();
-  static const card   = Radius.circular(12);
-  static const button = Radius.circular(10);
+  static const card   = Radius.circular(20);
+  static const button = Radius.circular(100);
+  static const input  = Radius.circular(14);
   static const pill   = Radius.circular(100);
 }
 
