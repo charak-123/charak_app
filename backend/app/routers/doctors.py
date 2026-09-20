@@ -2,7 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ..db import supabase
+from ..db import fetch_one, supabase
 from ..deps import require_doctor
 from ..errors import AppError
 
@@ -26,10 +26,10 @@ class DoctorProfileUpdate(BaseModel):
 
 @router.get("/me")
 def get_me(user: dict = Depends(require_doctor)):
-    result = supabase.table("doctors").select("*").eq("id", user["sub"]).single().execute()
-    if not result.data:
+    doctor = fetch_one(supabase.table("doctors").select("*").eq("id", user["sub"]))
+    if not doctor:
         raise AppError("Doctor profile not found", 404)
-    return result.data
+    return doctor
 
 
 @router.patch("/me")
@@ -47,16 +47,22 @@ def update_profile(body: DoctorProfileUpdate, user: dict = Depends(require_docto
 
 class VerificationSubmit(BaseModel):
     license_number: str
-    document_url: str
+    # Optional: client-side Storage uploads are not yet authorised, so the app
+    # may submit a licence number without an attached document. Restore as
+    # required once uploads move behind a backend endpoint.
+    document_url: Optional[str] = None
 
 
 @router.post("/me/verification")
 def submit_verification(body: VerificationSubmit, user: dict = Depends(require_doctor)):
-    result = supabase.table("doctors").update({
+    update = {
         "license_number": body.license_number,
-        "verification_document_url": body.document_url,
         "verification_status": "pending",
-    }).eq("id", user["sub"]).execute()
+    }
+    # Don't null out a document that a previous submission already attached.
+    if body.document_url is not None:
+        update["verification_document_url"] = body.document_url
+    result = supabase.table("doctors").update(update).eq("id", user["sub"]).execute()
     return result.data[0]
 
 
@@ -125,21 +131,84 @@ def remove_procedure(proc_id: str, user: dict = Depends(require_doctor)):
     return {"ok": True}
 
 
+# ── Directory search (public, for patients) ───────────────────────────────────
+
+@router.get("/search")
+def search_doctors(
+    q: str = "",
+    category: str = "",
+    channel: str = "",        # "online_consult" | "home_visit"
+    min_rating: float = 0,
+    max_price: float = 0,
+    limit: int = 20,
+    offset: int = 0,
+):
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    """
+    Public search endpoint. Returns verified doctors matching the filters.
+    Price filtering is post-query (done in Python) since pricing is in a join.
+    """
+    query = (
+        supabase.table("doctors")
+        .select("*, categories(name), doctor_pricing(*)")
+        .eq("verification_status", "verified")
+        .eq("suspended", False)
+    )
+
+    if q:
+        # Supabase full-text or ilike on name
+        query = query.ilike("name", f"%{q}%")
+
+    if channel == "online_consult":
+        query = query.eq("offers_online_consult", True)
+    elif channel == "home_visit":
+        query = query.eq("offers_home_visit", True)
+
+    if min_rating > 0:
+        query = query.gte("rating_avg", min_rating)
+
+    results = query.order("rating_avg", desc=True).execute().data
+
+    # Post-filter by category name (Supabase join filter is limited in python SDK)
+    if category:
+        results = [
+            d for d in results
+            if (d.get("categories") or {}).get("name", "").lower() == category.lower()
+        ]
+
+    # Post-filter by max price
+    if max_price > 0:
+        def _min_price(doc):
+            pricing = doc.get("doctor_pricing") or []
+            prices = [p["price"] for p in pricing if channel == "" or p["channel"] == channel]
+            return min(prices) if prices else float("inf")
+        results = [d for d in results if _min_price(d) <= max_price]
+
+    page = results[offset: offset + limit]
+    return {
+        "total": len(results),
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(page) < len(results),
+        "items": page,
+    }
+
+
 # ── Directory (public, for patients) ─────────────────────────────────────────
 
 @router.get("/{doctor_id}")
 def get_doctor_public(doctor_id: str):
-    result = (
+    doctor = fetch_one(
         supabase.table("doctors")
         .select("*, doctor_pricing(*), doctor_procedures(*), categories(name)")
         .eq("id", doctor_id)
         .eq("verification_status", "verified")
-        .single()
-        .execute()
+        .eq("suspended", False)
     )
-    if not result.data:
+    if not doctor:
         raise AppError("Doctor not found or not verified", 404)
-    return result.data
+    return doctor
 
 
 @router.get("/{doctor_id}/slots")
