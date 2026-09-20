@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
-import '../shared/charak_button.dart';
 
 final _bookingProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
@@ -19,107 +18,197 @@ class BookingStatusScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_bookingProvider(bookingId));
     return Scaffold(
-      backgroundColor: CharakColors.bgSubtle,
-      appBar: AppBar(
-        title: const Text('Booking Status'),
-        backgroundColor: CharakColors.bg,
-        foregroundColor: CharakColors.ink,
-        elevation: 0,
-      ),
+      backgroundColor: CharakColors.bg,
+      appBar: const CharakTopBar(title: 'Booking status'),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const _StatusLoading(),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (booking) {
-          final status = booking['status'] as String? ?? 'requested';
-          return _StatusBody(booking: booking, status: status, bookingId: bookingId);
-        },
+        data: (booking) => _StatusBody(booking: booking, bookingId: bookingId),
       ),
     );
   }
 }
 
+/// The wireframe's `accepted` and `declined` screens, plus the remaining
+/// lifecycle states, all rendered through `.ok-state` + `.bsum`.
 class _StatusBody extends StatelessWidget {
   final Map<String, dynamic> booking;
-  final String status;
   final String bookingId;
-  const _StatusBody({required this.booking, required this.status, required this.bookingId});
+  const _StatusBody({required this.booking, required this.bookingId});
 
   @override
   Widget build(BuildContext context) {
-    Color statusColor;
-    IconData statusIcon;
-    String statusLabel;
-    String statusDesc;
+    final status  = booking['status'] as String? ?? 'requested';
+    final channel = booking['channel'] as String? ?? '';
+    final docName = (booking['doctors'] as Map?)?['name'] as String?;
+    final start   = booking['scheduled_start'] as String?;
 
-    switch (status) {
-      case 'accepted':
-        statusColor = CharakColors.success; statusIcon = Icons.check_circle_outline;
-        statusLabel = 'Accepted!'; statusDesc = 'Doctor has accepted your request. Please complete payment.';
-        break;
-      case 'declined':
-        statusColor = CharakColors.danger; statusIcon = Icons.cancel_outlined;
-        statusLabel = 'Declined'; statusDesc = 'The doctor is unavailable for this slot. Try another doctor or time.';
-        break;
-      case 'paid':
-        statusColor = CharakColors.success; statusIcon = Icons.payments_outlined;
-        statusLabel = 'Confirmed'; statusDesc = 'Payment received. Your appointment is confirmed!';
-        break;
-      case 'completed':
-        statusColor = CharakColors.primary; statusIcon = Icons.done_all;
-        statusLabel = 'Completed'; statusDesc = 'Your visit has been completed.';
-        break;
-      case 'cancelled':
-        statusColor = CharakColors.inkMuted; statusIcon = Icons.remove_circle_outline;
-        statusLabel = 'Cancelled'; statusDesc = 'This booking was cancelled.';
-        break;
-      default: // requested
-        statusColor = CharakColors.warning; statusIcon = Icons.hourglass_top;
-        statusLabel = 'Awaiting Response'; statusDesc = 'Waiting for the doctor to accept your request.';
+    final pricing = List<Map<String, dynamic>>.from(
+        (booking['doctors'] as Map?)?['doctor_pricing'] as List? ?? []);
+    final priceRow = pricing.where((p) => p['channel'] == channel).firstOrNull;
+    final price = (booking['price_confirmed'] as num?)?.toDouble() ??
+        (priceRow?['price'] as num?)?.toDouble();
+
+    String when = '';
+    if (start != null) {
+      final dt = DateTime.tryParse(start);
+      if (dt != null) when = DateFormat('EEE, d MMM, h:mm a').format(dt.toLocal());
     }
+    final channelLabel = channel == 'home_visit' ? 'Home Visit' : 'Online Consult';
+    final doctor = docName != null ? 'Dr. $docName' : 'The doctor';
+
+    final (tone, icon, title, message) = switch (status) {
+      'accepted' => (
+        CharakOutcomeTone.success,
+        null,
+        'Booking accepted!',
+        '$doctor accepted your request. Pay to confirm the slot — the price '
+            'stays exactly as shown.',
+      ),
+      'declined' => (
+        CharakOutcomeTone.neutral,
+        Icons.info_outline,
+        'Request declined',
+        "$doctor couldn't take this request — it happens for all sorts of "
+            'reasons, none of them about you. Plenty of other doctors are '
+            'available.',
+      ),
+      'paid' => (
+        CharakOutcomeTone.success,
+        null,
+        'Booking confirmed',
+        "You're set with $doctor${when.isNotEmpty ? ' on $when' : ''} "
+            '($channelLabel).',
+      ),
+      'completed' => (
+        CharakOutcomeTone.success,
+        null,
+        'Visit complete',
+        'This visit is done. A quick rating helps other patients choose well.',
+      ),
+      'cancelled' => (
+        CharakOutcomeTone.neutral,
+        Icons.remove_circle_outline,
+        'Booking cancelled',
+        'This booking was cancelled. You can book another slot any time.',
+      ),
+      _ => (
+        CharakOutcomeTone.waiting,
+        Icons.hourglass_empty_rounded,
+        'Awaiting response',
+        "$doctor is reviewing your request. You'll be notified the moment "
+            'they decide.',
+      ),
+    };
 
     return Column(children: [
-      Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(statusIcon, color: statusColor, size: 64),
-        const SizedBox(height: 16),
-        Text(statusLabel, style: CharakText.display.copyWith(color: statusColor)),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Text(statusDesc,
-              style: CharakText.body.copyWith(color: CharakColors.inkMuted),
-              textAlign: TextAlign.center),
+      Expanded(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 34, 20, 24),
+          // `.pulse` — the whole status block flashes when the booking moves
+          // to a new state (requested → accepted → paid).
+          child: CharakStatusPulse(
+            trigger: status,
+            child: CharakOutcomeState(
+              tone: tone,
+              icon: icon,
+              title: title,
+              message: message,
+              child: Column(children: [
+                CharakSummaryCard(rows: [
+                  if (docName != null && status == 'accepted')
+                    CharakSummaryRow(label: 'Doctor', value: doctor),
+                  if (when.isNotEmpty) CharakSummaryRow(label: 'When', value: when),
+                  CharakSummaryRow(label: 'Channel', value: channelLabel),
+                  const CharakSummaryDivider(),
+                  if (price != null)
+                    CharakSummaryRow(
+                      label: status == 'accepted' ? 'To pay' : 'Amount',
+                      value: '₹${price.toStringAsFixed(0)}',
+                      tabular: true,
+                    ),
+                  CharakSummaryRow(
+                    label: 'Status',
+                    // `.fade-swap` — the pill swaps its label in place.
+                    child: CharakFadeSwap(
+                      child: CharakStatusPill.forStatus(status, key: ValueKey(status)),
+                    ),
+                  ),
+                ]),
+                if (status == 'accepted') ...[
+                  const SizedBox(height: 10),
+                  const Text('Payment via UPI or card · Razorpay secure checkout',
+                      style: charakHintStyle, textAlign: TextAlign.center),
+                ],
+              ]),
+            ),
+          ),
         ),
-      ])),
+      ),
 
-      Padding(
-        padding: const EdgeInsets.fromLTRB(CharakSpacing.base, 0, CharakSpacing.base, 24),
-        child: Column(children: [
-          if (status == 'accepted')
-            CharakButton(
-              label: 'Pay Now',
+      CharakCtaBar(children: [
+        if (status == 'accepted')
+          Expanded(
+            child: CharakButton(
+              label: price != null ? 'Pay ₹${price.toStringAsFixed(0)} now' : 'Pay now',
               onPressed: () => context.go('/booking/$bookingId/pay'),
             ),
-          if (status == 'declined') ...[
-            CharakButton(label: 'Find Another Doctor', onPressed: () => context.go('/directory')),
-            const SizedBox(height: 10),
-          ],
-          if (status == 'paid' || status == 'completed')
-            CharakButton(
-              label: 'View Details',
+          )
+        else if (status == 'declined')
+          Expanded(
+            child: CharakButton(
+              label: 'Find another doctor',
+              onPressed: () => context.go('/directory'),
+            ),
+          )
+        else if (status == 'paid')
+          Expanded(
+            child: CharakButton(
+              label: 'View booking',
               onPressed: () => context.go('/booking/$bookingId/active'),
             ),
-          if (status == 'completed') ...[
-            const SizedBox(height: 10),
-            CharakButton(
-              label: 'Rate Your Experience',
-              outlined: true,
+          )
+        else if (status == 'completed') ...[
+          Expanded(
+            child: CharakButton(
+              label: 'Rate your visit',
               onPressed: () => context.push('/booking/$bookingId/rate'),
             ),
-          ],
-          const SizedBox(height: 10),
-          TextButton(onPressed: () => context.go('/home'), child: const Text('Go Home')),
-        ]),
-      ),
+          ),
+        ] else
+          Expanded(
+            child: CharakButton(
+              label: 'Go to Home',
+              outlined: true,
+              onPressed: () => context.go('/home'),
+            ),
+          ),
+      ]),
     ]);
   }
+}
+
+/// Loading state: `.skel` blocks in the shape of `.ok-state` — the centred
+/// icon medallion, title and message lines, then the `.bsum` summary card.
+class _StatusLoading extends StatelessWidget {
+  const _StatusLoading();
+
+  @override
+  Widget build(BuildContext context) => const SingleChildScrollView(
+    padding: EdgeInsets.fromLTRB(20, 34, 20, 24),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Center(child: CharakSkeleton(width: 84, height: 84, radius: 42)),
+        SizedBox(height: 16),
+        Center(child: CharakSkeleton(width: 196, height: 21)),
+        SizedBox(height: 12),
+        CharakSkeleton(height: 14),
+        SizedBox(height: 7),
+        CharakSkeleton(height: 14),
+        SizedBox(height: 22),
+        CharakSkeleton(height: 148, radius: 14),
+      ],
+    ),
+  );
 }

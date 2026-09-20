@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
+import '../home/booking_providers.dart';
+
+const _starLabels = ['Tap a star', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'];
 
 class RateScreen extends ConsumerStatefulWidget {
   final String bookingId;
@@ -42,6 +44,11 @@ class _State extends ConsumerState<RateScreen> {
     }
   }
 
+  void _toHistory() {
+    ref.read(homeTabIndexProvider.notifier).state = 2;
+    context.go('/home');
+  }
+
   @override
   void dispose() {
     _commentCtrl.dispose();
@@ -51,95 +58,78 @@ class _State extends ConsumerState<RateScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: CharakColors.bg,
-    appBar: AppBar(
-      title: const Text('Rate Your Experience'),
-      backgroundColor: CharakColors.bg,
-      foregroundColor: CharakColors.ink,
-      elevation: 0,
-    ),
-    body: _submitted ? _SuccessBody() : _RateBody(),
+    appBar: const CharakTopBar(title: 'Rate your visit'),
+    body: _submitted ? _success() : _form(),
   );
 
-  Widget _SuccessBody() => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.all(CharakSpacing.lg),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        const Spacer(),
-        const Icon(Icons.favorite, color: CharakColors.danger, size: 72),
-        const SizedBox(height: 24),
-        Text('Thank you!', style: CharakText.display),
-        const SizedBox(height: 8),
-        Text(
-          'Your feedback helps other patients find great doctors.',
-          style: CharakText.body.copyWith(color: CharakColors.inkMuted),
-          textAlign: TextAlign.center,
-        ),
-        const Spacer(),
-        CharakButton(label: 'Go Home', onPressed: () => context.go('/home')),
-        const SizedBox(height: 24),
-      ]),
-    ),
-  );
-
-  Widget _RateBody() => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.all(CharakSpacing.base),
-      child: Column(children: [
-        const SizedBox(height: 24),
-        Text('How was your experience?', style: CharakText.h1),
-        const SizedBox(height: 8),
-        Text(
-          'Rate the quality of care you received.',
-          style: CharakText.body.copyWith(color: CharakColors.inkMuted),
-        ),
-        const SizedBox(height: 32),
-        // Star row
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(5, (i) {
-          final filled = i < _stars;
-          return GestureDetector(
-            onTap: () => setState(() => _stars = i + 1),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Icon(
-                filled ? Icons.star : Icons.star_border,
-                color: filled ? const Color(0xFFFFB800) : CharakColors.border,
-                size: 44,
-              ),
-            ),
-          );
-        })),
-        const SizedBox(height: 8),
-        Text(
-          _stars == 0 ? 'Tap to rate' : _starLabel(_stars),
-          style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
-        ),
-        const SizedBox(height: 24),
-        TextField(
-          controller: _commentCtrl,
-          minLines: 3,
-          maxLines: 5,
-          decoration: const InputDecoration(
-            hintText: 'Share more details (optional)…',
+  Widget _success() => Column(children: [
+    Expanded(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 34, 20, 24),
+        child: Column(children: [
+          const CharakOutcomeState(
+            title: 'Thanks for rating!',
+            message: 'Your feedback helps other patients pick the right '
+                'doctor for them.',
           ),
-        ),
-        const Spacer(),
-        CharakButton(
-          label: 'Submit Rating',
+          const SizedBox(height: 20),
+          CharakStarRating(value: _stars, size: 22, gap: 6),
+        ]),
+      ),
+    ),
+    CharakCtaBar.single(
+      CharakButton(label: 'Done', onPressed: _toHistory),
+    ),
+  ]);
+
+  Widget _form() => Column(children: [
+    Expanded(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
+        children: [
+          const Text('How was your visit?',
+              style: charakScreenTitleStyle, textAlign: TextAlign.center),
+          const SizedBox(height: 5),
+          const Text('Only the stars are required — the comment is optional.',
+              style: charakScreenSubStyle, textAlign: TextAlign.center),
+
+          // `.stars` — 26px above, 8px below, 40px glyphs.
+          Padding(
+            padding: const EdgeInsets.only(top: 26, bottom: 8),
+            child: CharakStarRating(
+              value: _stars,
+              onChanged: (v) => setState(() => _stars = v),
+            ),
+          ),
+
+          // `.rate-hint`
+          Text(_starLabels[_stars],
+              textAlign: TextAlign.center,
+              style: CharakText.caption.copyWith(
+                  fontSize: 13.5, color: CharakColors.inkMuted)),
+          const SizedBox(height: 18),
+
+          CharakField(
+            label: 'Add a comment (optional)',
+            controller: _commentCtrl,
+            placeholder: 'What should other patients know?',
+            maxLines: null,
+            minLines: 4,
+          ),
+        ],
+      ),
+    ),
+    CharakCtaBar(children: [
+      Expanded(
+        child: CharakButton(label: 'Skip', outlined: true, onPressed: _toHistory),
+      ),
+      Expanded(
+        child: CharakButton(
+          label: 'Submit rating',
           isLoading: _loading,
           onPressed: _stars > 0 ? _submit : null,
         ),
-        const SizedBox(height: 12),
-        TextButton(
-          onPressed: () => context.go('/home'),
-          child: const Text('Skip'),
-        ),
-        const SizedBox(height: 24),
-      ]),
-    ),
-  );
-
-  String _starLabel(int stars) {
-    const labels = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
-    return labels[stars];
-  }
+      ),
+    ]),
+  ]);
 }

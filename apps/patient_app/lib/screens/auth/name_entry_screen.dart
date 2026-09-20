@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
 
 class NameEntryScreen extends ConsumerStatefulWidget {
   const NameEntryScreen({super.key});
@@ -36,32 +35,29 @@ class _State extends ConsumerState<NameEntryScreen> {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: CharakColors.bg,
     body: SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(CharakSpacing.lg),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SizedBox(height: 40),
-          Text('What should we\ncall you?', style: CharakText.display),
-          const SizedBox(height: 32),
-          TextField(
-            controller: _ctrl,
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
-            style: CharakText.h1,
-            onChanged: (_) => setState(() => _error = null),
-            onSubmitted: (_) { if (_valid) _save(); },
-            decoration: InputDecoration(
-              hintText: 'Your name',
-              hintStyle: CharakText.h1.copyWith(color: CharakColors.border),
-              errorText: _error,
-              border: const UnderlineInputBorder(),
-              enabledBorder: const UnderlineInputBorder(
-                  borderSide: BorderSide(color: CharakColors.border)),
-              focusedBorder: const UnderlineInputBorder(
-                  borderSide: BorderSide(color: CharakColors.primary, width: 2)),
-              filled: false,
-            ),
+      child: Column(children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('What should we call you?', style: charakScreenTitleStyle),
+              const SizedBox(height: 5),
+              const Text('This is how doctors will see you.', style: charakScreenSubStyle),
+              const SizedBox(height: 26),
+              CharakField(
+                label: 'Full name',
+                controller: _ctrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                placeholder: 'Your full name',
+                error: _error,
+                onChanged: (_) => setState(() => _error = null),
+                onSubmitted: (_) { if (_valid) _save(); },
+              ),
+            ]),
           ),
-          const Spacer(),
+        ),
+        CharakCtaBar.single(
           ValueListenableBuilder(
             valueListenable: _ctrl,
             builder: (_, __, ___) => CharakButton(
@@ -70,8 +66,8 @@ class _State extends ConsumerState<NameEntryScreen> {
               onPressed: _valid ? _save : null,
             ),
           ),
-        ]),
-      ),
+        ),
+      ]),
     ),
   );
 }

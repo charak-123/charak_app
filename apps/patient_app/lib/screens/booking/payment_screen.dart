@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
 
 class PaymentScreen extends ConsumerStatefulWidget {
   final String bookingId;
@@ -14,6 +13,14 @@ class PaymentScreen extends ConsumerStatefulWidget {
 class _State extends ConsumerState<PaymentScreen> {
   bool _loading = false;
   Map<String, dynamic>? _order;
+  bool _cardTab = false;
+  final _upiCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _upiCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -81,56 +88,107 @@ class _State extends ConsumerState<PaymentScreen> {
   @override
   Widget build(BuildContext context) {
     final amount = _order != null ? (_order!['amount'] as int) / 100 : 0.0;
+    final isStub =
+        (_order?['razorpay_key'] as String? ?? '').startsWith('stub');
+
     return Scaffold(
-      backgroundColor: CharakColors.bgSubtle,
-      appBar: AppBar(
-        title: const Text('Payment'),
-        backgroundColor: CharakColors.bg,
-        foregroundColor: CharakColors.ink,
-        elevation: 0,
-      ),
+      backgroundColor: CharakColors.bg,
+      appBar: const CharakTopBar(title: 'Payment'),
       body: _loading && _order == null
-          ? const Center(child: CircularProgressIndicator())
+          // Initial order fetch — content is arriving, so `.skel` stands in.
+          ? const _PaymentLoading()
           : Column(children: [
-              Expanded(child: Padding(
-                padding: const EdgeInsets.all(CharakSpacing.lg),
-                child: Column(children: [
-                  const SizedBox(height: 32),
-                  const Icon(Icons.lock_outline, color: CharakColors.primary, size: 48),
-                  const SizedBox(height: 16),
-                  Text('Secure Payment', style: CharakText.h1),
-                  const SizedBox(height: 8),
-                  Text('Consultation Fee',
-                      style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-                  const SizedBox(height: 4),
-                  Text('₹${amount.toStringAsFixed(0)}',
-                      style: CharakText.display.copyWith(color: CharakColors.primary)),
-                  const SizedBox(height: 32),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF7F1),
-                      borderRadius: BorderRadius.all(CharakRadius.card),
+              Expanded(child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                children: [
+                  // `.sheet-title` row — amount left, "Secure" badge right.
+                  Row(children: [
+                    Expanded(
+                      child: Text('Pay ₹${amount.toStringAsFixed(0)}',
+                          style: CharakText.h2.copyWith(
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          )),
                     ),
-                    child: Row(children: [
-                      const Icon(Icons.info_outline, color: CharakColors.success, size: 16),
-                      const SizedBox(width: 8),
+                    const CharakBadge(
+                        label: 'Secure',
+                        variant: CharakBadgeVariant.muted,
+                        icon: Icons.lock_outline),
+                  ]),
+                  const SizedBox(height: 4),
+                  const Text('Consultation fee · paid before the visit',
+                      style: charakHintStyle),
+                  const SizedBox(height: 14),
+
+                  CharakSegmented<bool>(
+                    value: _cardTab,
+                    onChanged: (v) => setState(() => _cardTab = v),
+                    segments: const [
+                      CharakSegment(value: false, label: 'UPI'),
+                      CharakSegment(value: true, label: 'Card'),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  if (!_cardTab) ...[
+                    CharakField(
+                      label: 'UPI ID',
+                      controller: _upiCtrl,
+                      placeholder: 'yourname@bank',
+                      hint: 'or pay with',
+                    ),
+                    const SizedBox(height: 12),
+                    // `.two-col` — 46px ghost buttons side by side.
+                    Row(children: [
                       Expanded(
-                        child: Text(
-                          'Payment is processed securely via Razorpay. '
-                          'The doctor will be confirmed once payment is received.',
-                          style: CharakText.micro.copyWith(color: CharakColors.success),
+                        child: CharakButton(
+                          label: 'GPay',
+                          outlined: true,
+                          onPressed: () => _notice('Opening GPay…'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: CharakButton(
+                          label: 'PhonePe',
+                          outlined: true,
+                          onPressed: () => _notice('Opening PhonePe…'),
                         ),
                       ),
                     ]),
+                  ] else ...[
+                    const CharakField(
+                      label: 'Card number',
+                      placeholder: '4242 4242 4242 4242',
+                      tabular: true,
+                    ),
+                    const SizedBox(height: 10),
+                    const Row(children: [
+                      Expanded(
+                        child: CharakField(
+                            label: 'Expiry', placeholder: '08/28', tabular: true),
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: CharakField(
+                            label: 'CVV', placeholder: '123', tabular: true),
+                      ),
+                    ]),
+                  ],
+
+                  const SizedBox(height: 14),
+                  const CharakNoteBanner(
+                    icon: Icons.verified_user_outlined,
+                    tone: CharakStatusTone.success,
+                    message: 'Payment is processed securely via Razorpay. The '
+                        'booking is confirmed the moment payment lands.',
                   ),
-                ]),
+                ],
               )),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(CharakSpacing.base, 0, CharakSpacing.base, 24),
-                child: CharakButton(
-                  label: _order != null && (_order!['razorpay_key'] as String).startsWith('stub')
-                      ? 'Confirm Payment (Dev Stub)'
+
+              CharakCtaBar.single(
+                CharakButton(
+                  label: isStub
+                      ? 'Confirm payment (dev stub)'
                       : 'Pay ₹${amount.toStringAsFixed(0)}',
                   isLoading: _loading,
                   onPressed: _order != null ? _pay : null,
@@ -139,4 +197,42 @@ class _State extends ConsumerState<PaymentScreen> {
             ]),
     );
   }
+
+  void _notice(String message) => ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(message)));
+}
+
+/// Loading state for the initial order fetch: `.skel` blocks in the shape of
+/// the amount header, the UPI/Card segmented control and the field below it.
+class _PaymentLoading extends StatelessWidget {
+  const _PaymentLoading();
+
+  @override
+  Widget build(BuildContext context) => const SingleChildScrollView(
+    padding: EdgeInsets.fromLTRB(20, 12, 20, 24),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          CharakSkeleton(width: 148, height: 21),
+          Spacer(),
+          CharakSkeleton(width: 78, height: 22, radius: 11),
+        ]),
+        SizedBox(height: 10),
+        CharakSkeleton(width: 234, height: 13),
+        SizedBox(height: 18),
+        CharakSkeleton(height: 40, radius: 12),
+        SizedBox(height: 18),
+        CharakSkeleton(width: 64, height: 13),
+        SizedBox(height: 8),
+        CharakSkeleton(height: 46, radius: 12),
+        SizedBox(height: 14),
+        Row(children: [
+          Expanded(child: CharakSkeleton(height: 46, radius: 12)),
+          SizedBox(width: 10),
+          Expanded(child: CharakSkeleton(height: 46, radius: 12)),
+        ]),
+      ],
+    ),
+  );
 }

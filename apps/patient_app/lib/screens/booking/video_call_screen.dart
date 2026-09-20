@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,11 +16,22 @@ class _State extends ConsumerState<VideoCallScreen> {
   bool _camOn = true;
   bool _loading = true;
   String? _token;
+  String? _peerName;
+
+  // `.call-top` timer — counts from the moment the channel is joined.
+  Timer? _tick;
+  int _elapsed = 0;
 
   @override
   void initState() {
     super.initState();
     _initCall();
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
   }
 
   Future<void> _initCall() async {
@@ -28,114 +40,72 @@ class _State extends ConsumerState<VideoCallScreen> {
         '/bookings/${widget.bookingId}/call',
         {'uid': 1001},
       );
+      if (!mounted) return;
       setState(() {
         _token = res['token'] as String?;
+        _peerName = res['doctor_name'] as String?;
         _loading = false;
+      });
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _elapsed++);
       });
       // In production: initialize Agora engine with _token and join channel
       // await _agoraEngine.joinChannel(token: _token!, channelId: widget.bookingId, uid: 1001)
     } catch (e) {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _endCall() async {
     // In production: leave Agora channel before navigating
+    _tick?.cancel();
     if (mounted) context.pop();
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFF1A1A2E),
-    body: SafeArea(
-      child: _loading
-          ? const Center(child: CircularProgressIndicator(color: Colors.white))
-          : Stack(children: [
-              // Remote video placeholder
-              Container(
-                width: double.infinity,
-                height: double.infinity,
-                color: const Color(0xFF16213E),
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  const CircleAvatar(
-                    radius: 48,
-                    backgroundColor: Color(0xFF2F6FED),
-                    child: Icon(Icons.person, size: 48, color: Colors.white),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _token != null && _token!.startsWith('stub')
-                        ? 'Dev stub — Agora not configured'
-                        : 'Connecting…',
-                    style: CharakText.body.copyWith(color: Colors.white70),
-                  ),
-                ]),
-              ),
-
-              // Local video thumbnail (top-right)
-              Positioned(
-                top: 16, right: 16,
-                child: Container(
-                  width: 90, height: 120,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0F3460),
-                    borderRadius: const BorderRadius.all(CharakRadius.card),
-                  ),
-                  child: _camOn
-                      ? const Icon(Icons.videocam, color: Colors.white54, size: 32)
-                      : const Icon(Icons.videocam_off, color: Colors.white38, size: 32),
-                ),
-              ),
-
-              // Controls bar
-              Positioned(
-                bottom: 32, left: 0, right: 0,
-                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  _ControlBtn(
-                    icon: _micOn ? Icons.mic : Icons.mic_off,
-                    active: _micOn,
-                    onTap: () => setState(() => _micOn = !_micOn),
-                  ),
-                  const SizedBox(width: 16),
-                  // End call
-                  GestureDetector(
-                    onTap: _endCall,
-                    child: Container(
-                      width: 64, height: 64,
-                      decoration: const BoxDecoration(
-                        color: CharakColors.danger, shape: BoxShape.circle),
-                      child: const Icon(Icons.call_end, color: Colors.white, size: 28),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  _ControlBtn(
-                    icon: _camOn ? Icons.videocam : Icons.videocam_off,
-                    active: _camOn,
-                    onTap: () => setState(() => _camOn = !_camOn),
-                  ),
-                ]),
-              ),
-            ]),
-    ),
-  );
-}
-
-class _ControlBtn extends StatelessWidget {
-  final IconData icon;
-  final bool active;
-  final VoidCallback onTap;
-  const _ControlBtn({required this.icon, required this.active, required this.onTap});
+  String get _clock =>
+      '${(_elapsed ~/ 60).toString().padLeft(2, '0')}:'
+      '${(_elapsed % 60).toString().padLeft(2, '0')}';
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 52, height: 52,
-      decoration: BoxDecoration(
-        color: active ? const Color(0xFF2F2F4E) : Colors.white24,
-        shape: BoxShape.circle,
-      ),
-      child: Icon(icon, color: Colors.white, size: 24),
-    ),
-  );
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: CharakCallColors.field,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+
+    final connected = _token != null;
+    return CharakCallScaffold(
+      peerName: _peerName ?? 'Doctor',
+      peerSubtitle: connected
+          ? (_token!.startsWith('stub')
+              ? 'Dev stub · Agora not configured'
+              : 'Video consult · connected')
+          : 'Connecting…',
+      statusText: _clock,
+      recording: connected,
+      showSelfView: _camOn,
+      controls: [
+        CharakCallButton(
+          icon: _micOn ? Icons.mic : Icons.mic_off,
+          active: !_micOn,
+          semanticLabel: _micOn ? 'Mute microphone' : 'Unmute microphone',
+          onPressed: () => setState(() => _micOn = !_micOn),
+        ),
+        CharakCallButton(
+          icon: _camOn ? Icons.videocam : Icons.videocam_off,
+          active: !_camOn,
+          semanticLabel: _camOn ? 'Turn camera off' : 'Turn camera on',
+          onPressed: () => setState(() => _camOn = !_camOn),
+        ),
+        CharakCallButton(
+          icon: Icons.call_end,
+          end: true,
+          semanticLabel: 'End call',
+          onPressed: _endCall,
+        ),
+      ],
+    );
+  }
 }

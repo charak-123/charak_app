@@ -14,107 +14,78 @@ class ProfileTab extends ConsumerWidget {
     final phone = user?['phone'] as String? ?? '';
 
     return Scaffold(
-      backgroundColor: CharakColors.bgSubtle,
-      appBar: AppBar(
-        title: const Text('Profile'),
-        backgroundColor: CharakColors.bg,
-        foregroundColor: CharakColors.ink,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(CharakSpacing.base),
-        children: [
-          // Profile card
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: CharakColors.bg,
-              borderRadius: const BorderRadius.all(CharakRadius.card),
-              border: Border.all(color: CharakColors.border),
-            ),
-            child: Row(children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: CharakColors.primarySoft,
-                child: Text(
-                  name.isNotEmpty ? name[0].toUpperCase() : 'P',
-                  style: CharakText.display.copyWith(color: CharakColors.primary),
-                ),
+      backgroundColor: CharakColors.bg,
+      body: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          children: [
+            // Identity card — 18px padding, 14px gap, 48px avatar.
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: CharakColors.bg,
+                border: Border.all(color: CharakColors.border),
+                borderRadius: const BorderRadius.all(CharakRadius.card),
               ),
-              const SizedBox(width: 16),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(name, style: CharakText.h1),
-                const SizedBox(height: 4),
-                Text(phone, style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
-              ])),
-            ]),
-          ),
-          const SizedBox(height: 16),
+              child: Row(children: [
+                CharakAvatar(name: name, radius: 24, tone: 1),
+                const SizedBox(width: 14),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(name, style: CharakText.h2),
+                  const SizedBox(height: 2),
+                  Text(phone,
+                      style: CharakText.caption.copyWith(
+                        color: CharakColors.inkMuted,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      )),
+                ])),
+              ]),
+            ),
+            const SizedBox(height: 18),
 
-          // Menu items
-          _MenuItem(
-            icon: Icons.history_outlined,
-            label: 'Booking History',
-            onTap: () => context.go('/home', extra: 1),
-          ),
-          _MenuItem(
-            icon: Icons.help_outline,
-            label: 'Help & Support',
-            onTap: () {},
-          ),
-          _MenuItem(
-            icon: Icons.privacy_tip_outlined,
-            label: 'Privacy Policy',
-            onTap: () {},
-          ),
-          _MenuItem(
-            icon: Icons.description_outlined,
-            label: 'Terms of Service',
-            onTap: () {},
-          ),
-          const SizedBox(height: 8),
-          _MenuItem(
-            icon: Icons.logout,
-            label: 'Logout',
-            color: CharakColors.danger,
-            onTap: () async {
-              await ref.read(authProvider.notifier).logout();
-              if (context.mounted) context.go('/auth/phone');
-            },
-          ),
-          const SizedBox(height: 24),
-          Center(
-            child: Text('Charak v1.0.0',
-                style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-          ),
-        ],
+            // `.listrow` stack — flat rows with hairline separators.
+            CharakListRow(
+              icon: Icons.person_outline,
+              title: 'Edit Profile',
+              onTap: () => _comingSoon(context, 'Edit profile'),
+            ),
+            CharakListRow(
+              icon: Icons.credit_card_outlined,
+              title: 'Payment Methods',
+              trailingText: 'UPI · HDFC •• 4821',
+              onTap: () => _comingSoon(context, 'Payment methods'),
+            ),
+            CharakListRow(
+              icon: Icons.report_gmailerrorred_outlined,
+              title: 'Submit a Complaint',
+              onTap: () => context.push('/complaint'),
+            ),
+            CharakListRow(
+              icon: Icons.support_outlined,
+              title: 'Help',
+              onTap: () => _comingSoon(context, 'Help centre'),
+            ),
+            CharakListRow(
+              icon: Icons.logout,
+              title: 'Logout',
+              titleColor: CharakColors.danger,
+              showChevron: false,
+              last: true,
+              onTap: () async {
+                await ref.read(authProvider.notifier).logout();
+                if (context.mounted) context.go('/auth/phone');
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
-}
 
-class _MenuItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color? color;
-  const _MenuItem({required this.icon, required this.label, required this.onTap, this.color});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: CharakColors.bg,
-      borderRadius: const BorderRadius.all(CharakRadius.card),
-      border: Border.all(color: CharakColors.border),
-    ),
-    child: ListTile(
-      leading: Icon(icon, color: color ?? CharakColors.ink),
-      title: Text(label,
-          style: CharakText.body.copyWith(color: color ?? CharakColors.ink)),
-      trailing: Icon(Icons.chevron_right, color: CharakColors.inkMuted),
-      onTap: onTap,
-    ),
-  );
+  void _comingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature — coming in full build')),
+    );
+  }
 }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
+import '../home/booking_providers.dart';
 
 class VisitCompleteScreen extends ConsumerWidget {
   final String bookingId;
@@ -12,43 +12,40 @@ class VisitCompleteScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
     backgroundColor: CharakColors.bg,
     body: SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(CharakSpacing.lg),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Spacer(),
-          Container(
-            width: 88, height: 88,
-            decoration: const BoxDecoration(
-              color: Color(0xFFEAF7F1), shape: BoxShape.circle),
-            child: const Icon(Icons.done_all, color: CharakColors.success, size: 48),
+      child: Column(children: [
+        const Expanded(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(20, 44, 20, 24),
+            // `.ok-state .wait-ic` — the neutral grey badge, not the check.
+            child: CharakOutcomeState(
+              tone: CharakOutcomeTone.neutral,
+              icon: Icons.flag_outlined,
+              title: 'Visit complete',
+              message: 'Hope it went well. A quick rating helps other '
+                  'patients choose well.',
+            ),
           ),
-          const SizedBox(height: 24),
-          Text('Visit Complete', style: CharakText.display),
-          const SizedBox(height: 8),
-          Text(
-            'Your consultation has been completed.\nThank you for using Charak!',
-            style: CharakText.body.copyWith(color: CharakColors.inkMuted),
-            textAlign: TextAlign.center,
+        ),
+
+        CharakCtaBar(children: [
+          Expanded(
+            child: CharakButton(
+              label: 'Skip',
+              outlined: true,
+              onPressed: () {
+                ref.read(homeTabIndexProvider.notifier).state = 2;
+                context.go('/home');
+              },
+            ),
           ),
-          const Spacer(),
-          CharakButton(
-            label: 'Rate Your Experience',
-            onPressed: () => context.go('/booking/$bookingId/rate'),
+          Expanded(
+            child: CharakButton(
+              label: 'Rate your visit',
+              onPressed: () => context.go('/booking/$bookingId/rate'),
+            ),
           ),
-          const SizedBox(height: 12),
-          CharakButton(
-            label: 'View Bill',
-            outlined: true,
-            onPressed: () => context.go('/booking/$bookingId/bill'),
-          ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () => context.go('/home'),
-            child: const Text('Go to Home'),
-          ),
-          const SizedBox(height: 24),
         ]),
-      ),
+      ]),
     ),
   );
 }

@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
-import '../shared/charak_button.dart';
 
 class PhoneEntryScreen extends ConsumerStatefulWidget {
   const PhoneEntryScreen({super.key});
@@ -43,58 +42,51 @@ class _State extends ConsumerState<PhoneEntryScreen> {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: CharakColors.bg,
     body: SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(CharakSpacing.lg),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SizedBox(height: 40),
-          Text('Enter your\nmobile number', style: CharakText.display),
-          const SizedBox(height: 8),
-          Text("We'll send an OTP to verify",
-              style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
-          const SizedBox(height: 32),
-          TextField(
-            controller: _ctrl,
-            focusNode: _focus,
-            autofocus: true,
-            keyboardType: TextInputType.phone,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10),
-            ],
-            style: CharakText.h1,
-            onChanged: (_) => setState(() => _error = null),
-            onSubmitted: (_) { if (_valid) _send(); },
-            decoration: InputDecoration(
-              prefixText: '+91  ',
-              prefixStyle: CharakText.h1.copyWith(color: CharakColors.inkMuted),
-              hintText: '9876543210',
-              hintStyle: CharakText.h1.copyWith(color: CharakColors.border),
-              errorText: _error,
-              border: const UnderlineInputBorder(),
-              enabledBorder: const UnderlineInputBorder(
-                  borderSide: BorderSide(color: CharakColors.border)),
-              focusedBorder: const UnderlineInputBorder(
-                  borderSide: BorderSide(color: CharakColors.primary, width: 2)),
-              filled: false,
-            ),
+      child: Column(children: [
+        Expanded(
+          child: SingleChildScrollView(
+            // `.body` with the screen's 26px top inset.
+            padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Your phone number', style: charakScreenTitleStyle),
+              const SizedBox(height: 5),
+              const Text(
+                "We'll send a one-time code to verify it's you.",
+                style: charakScreenSubStyle,
+              ),
+              const SizedBox(height: 26),
+              CharakField(
+                label: 'Mobile number',
+                controller: _ctrl,
+                focusNode: _focus,
+                autofocus: true,
+                keyboardType: TextInputType.phone,
+                tabular: true,
+                placeholder: '98765 43210',
+                error: _error,
+                hint: 'OTP-based signup. No password, ever.',
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
+                ],
+                prefixBox: CharakField.staticBox('+91'),
+                onChanged: (_) => setState(() => _error = null),
+                onSubmitted: (_) { if (_valid) _send(); },
+              ),
+            ]),
           ),
-          const Spacer(),
+        ),
+        CharakCtaBar.single(
           ValueListenableBuilder(
             valueListenable: _ctrl,
             builder: (_, __, ___) => CharakButton(
-              label: 'Get OTP',
+              label: 'Continue',
               isLoading: _loading,
               onPressed: _valid ? _send : null,
             ),
           ),
-          const SizedBox(height: 16),
-          Center(
-            child: Text('By continuing you agree to our Terms & Privacy Policy',
-                style: CharakText.micro.copyWith(color: CharakColors.inkMuted),
-                textAlign: TextAlign.center),
-          ),
-        ]),
-      ),
+        ),
+      ]),
     ),
   );
 }

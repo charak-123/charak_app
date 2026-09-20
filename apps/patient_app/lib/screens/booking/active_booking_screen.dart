@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
-import '../shared/charak_button.dart';
 
 final _activeBookingProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
@@ -18,18 +17,18 @@ class ActiveBookingScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_activeBookingProvider(bookingId));
+    final docName = async.maybeWhen(
+      data: (b) => (b['doctors'] as Map?)?['name'] as String?,
+      orElse: () => null,
+    );
     return Scaffold(
-      backgroundColor: CharakColors.bgSubtle,
-      appBar: AppBar(
-        title: const Text('Booking Details'),
-        backgroundColor: CharakColors.bg,
-        foregroundColor: CharakColors.ink,
-        elevation: 0,
-      ),
+      backgroundColor: CharakColors.bg,
+      appBar: CharakTopBar(
+          title: docName != null ? 'Dr. $docName' : 'Booking'),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (booking) => _Body(booking: booking, bookingId: bookingId, ref: ref),
+        data: (booking) => _Body(booking: booking, bookingId: bookingId),
       ),
     );
   }
@@ -38,179 +37,243 @@ class ActiveBookingScreen extends ConsumerWidget {
 class _Body extends StatelessWidget {
   final Map<String, dynamic> booking;
   final String bookingId;
-  final WidgetRef ref;
-  const _Body({required this.booking, required this.bookingId, required this.ref});
+  const _Body({required this.booking, required this.bookingId});
 
   @override
   Widget build(BuildContext context) {
-    final status = booking['status'] as String? ?? '';
+    final status  = booking['status'] as String? ?? '';
     final channel = booking['channel'] as String? ?? '';
-    final doc = booking['doctors'] as Map<String, dynamic>? ?? {};
+    final doc     = booking['doctors'] as Map<String, dynamic>? ?? {};
     final docName = doc['name'] as String? ?? 'Doctor';
-    final docCategory = (doc['categories'] as Map?)?['name'] as String? ?? '';
-    final start = booking['scheduled_start'] as String?;
-    final price = booking['price_confirmed'];
+    final start   = booking['scheduled_start'] as String?;
+    final address = booking['address'] as String?;
+    final price   = (booking['price_confirmed'] as num?)?.toDouble();
 
-    String formattedTime = '';
-    if (start != null) {
-      final dt = DateTime.tryParse(start);
-      if (dt != null) formattedTime = DateFormat('EEEE, d MMM yyyy · h:mm a').format(dt.toLocal());
-    }
+    final isOnline = channel != 'home_visit';
+    final channelLabel = isOnline ? 'Online Consult' : 'Home Visit';
+
+    final startDt = start != null ? DateTime.tryParse(start)?.toLocal() : null;
+    final when = startDt != null
+        ? DateFormat('EEE d MMM, h:mm a').format(startDt)
+        : '';
+
+    // `.act-timer` — a live countdown before the slot, the slot time after.
+    final remaining = startDt?.difference(DateTime.now());
+    final countdown = (remaining != null && !remaining.isNegative)
+        ? '${remaining.inHours > 0 ? '${remaining.inHours}:' : ''}'
+            '${(remaining.inMinutes % 60).toString().padLeft(2, '0')}:'
+            '${(remaining.inSeconds % 60).toString().padLeft(2, '0')}'
+        : null;
+
+    final canJoin = status == 'paid' && isOnline;
 
     return Column(children: [
       Expanded(child: ListView(
-        padding: const EdgeInsets.all(CharakSpacing.base),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
         children: [
-          // Doctor card
-          _InfoCard(children: [
+          // ── `.act-card` — doctor + timer ─────────────────────────────
+          _ActCard(child: Column(children: [
             Row(children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: CharakColors.primarySoft,
-                child: Text(
-                  docName.isNotEmpty ? docName[0].toUpperCase() : 'D',
-                  style: CharakText.h1.copyWith(color: CharakColors.primary),
-                ),
-              ),
+              CharakAvatar(name: docName, radius: 24),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Dr. $docName', style: CharakText.h2),
-                Text(docCategory, style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+                Text('Dr. $docName', style: CharakText.h2.copyWith(fontSize: 16)),
+                const SizedBox(height: 1),
+                Text(when.isNotEmpty ? '$channelLabel · $when' : channelLabel,
+                    style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
               ])),
-              _StatusBadge(status: status),
+              const SizedBox(width: 8),
+              CharakStatusPill.forStatus(status),
             ]),
-          ]),
+            const SizedBox(height: 14),
+            if (isOnline)
+              CharakInfoStrip(
+                label: countdown != null ? 'Consult starts in' : 'Consult time',
+                value: countdown ??
+                    (startDt != null ? DateFormat('h:mm a').format(startDt) : '—'),
+                tabularValue: countdown != null,
+              )
+            else
+              CharakInfoStrip(
+                label: "Doctor's ETA",
+                value: startDt != null
+                    ? '~ ${DateFormat('h:mm a').format(startDt)}'
+                    : '—',
+              ),
+          ])),
           const SizedBox(height: 12),
 
-          // Appointment details
-          _InfoCard(children: [
-            _DetailRow(icon: Icons.access_time, label: 'Time', value: formattedTime),
-            const Divider(height: 20, color: CharakColors.border),
-            _DetailRow(
-              icon: channel == 'home_visit' ? Icons.home_outlined : Icons.videocam_outlined,
-              label: 'Type',
-              value: channel == 'home_visit' ? 'Home Visit' : 'Online Consult',
-            ),
-            if (price != null) ...[
-              const Divider(height: 20, color: CharakColors.border),
-              _DetailRow(
-                icon: Icons.currency_rupee,
-                label: 'Fee',
-                value: '₹${(price as num).toStringAsFixed(0)}',
+          // ── `.act-card` — detail rows ────────────────────────────────
+          _ActCard(child: Column(children: [
+            if (isOnline) ...[
+              const _ActRow(
+                  icon: Icons.videocam_outlined,
+                  label: 'Video call',
+                  value: 'Join from this screen',
+                  muted: true),
+              const _ActRow(
+                  icon: Icons.chat_bubble_outline,
+                  label: 'Contact through app',
+                  value: 'Tap to chat',
+                  muted: true),
+              _ActRow(
+                icon: Icons.receipt_long_outlined,
+                label: 'Paid via UPI',
+                value: price != null ? '₹${price.toStringAsFixed(0)}' : '—',
+                tabular: true,
+                last: true,
+              ),
+            ] else ...[
+              _ActRow(
+                  icon: Icons.location_on_outlined,
+                  label: 'Address',
+                  value: (address != null && address.isNotEmpty) ? address : '—'),
+              const _ActRow(
+                  icon: Icons.navigation_outlined,
+                  label: 'Doctor en route',
+                  value: 'Tracking on the day',
+                  muted: true),
+              const _ActRow(
+                  icon: Icons.chat_bubble_outline,
+                  label: 'Contact through app',
+                  value: 'Tap to chat',
+                  muted: true),
+              _ActRow(
+                icon: Icons.receipt_long_outlined,
+                label: 'Paid via UPI',
+                value: price != null ? '₹${price.toStringAsFixed(0)}' : '—',
+                tabular: true,
+                last: true,
               ),
             ],
-          ]),
-          const SizedBox(height: 12),
+          ])),
 
-          // Actions for paid/online consult
-          if (status == 'paid' && channel == 'online_consult')
-            _InfoCard(children: [
-              Row(children: [
-                const Icon(Icons.info_outline, size: 16, color: CharakColors.inkMuted),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Join the call when the doctor is ready.',
-                    style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
-                  ),
-                ),
-              ]),
-            ]),
+          if (canJoin) ...[
+            const SizedBox(height: 6),
+            CharakButton(
+              label: 'Join call',
+              icon: Icons.videocam_rounded,
+              onPressed: () => context.push('/booking/$bookingId/call'),
+            ),
+            const SizedBox(height: 10),
+            const Text('Join opens 5 minutes before the slot.',
+                style: charakHintStyle, textAlign: TextAlign.center),
+          ],
 
           if (status == 'completed') ...[
             const SizedBox(height: 12),
-            _InfoCard(children: [
-              Row(children: [
-                const Icon(Icons.check_circle_outline, color: CharakColors.success, size: 20),
-                const SizedBox(width: 8),
-                Text('Visit completed', style: CharakText.body.copyWith(color: CharakColors.success)),
-              ]),
-            ]),
+            const CharakNoteBanner(
+              icon: Icons.check_circle_outline,
+              tone: CharakStatusTone.success,
+              message: 'Visit completed. Your receipt is in History.',
+            ),
           ],
         ],
       )),
 
-      // Action bar
-      Padding(
-        padding: const EdgeInsets.fromLTRB(CharakSpacing.base, 0, CharakSpacing.base, 24),
-        child: Column(children: [
-          if (status == 'paid' && channel == 'online_consult')
-            CharakButton(
-              label: 'Join Call',
-              onPressed: () => context.push('/booking/$bookingId/call'),
-            ),
-          if (status == 'completed') ...[
-            CharakButton(
-              label: 'Rate Your Experience',
-              onPressed: () => context.push('/booking/$bookingId/rate'),
-            ),
-            const SizedBox(height: 10),
-            CharakButton(
-              label: 'View Bill',
+      // ── `.cta-bar` ─────────────────────────────────────────────────
+      CharakCtaBar(children: [
+        if (status == 'completed') ...[
+          Expanded(
+            child: CharakButton(
+              label: 'View bill',
               outlined: true,
               onPressed: () => context.push('/booking/$bookingId/bill'),
             ),
-          ],
-          const SizedBox(height: 10),
-          TextButton(onPressed: () => context.go('/home'), child: const Text('Go Home')),
-        ]),
-      ),
+          ),
+          Expanded(
+            child: CharakButton(
+              label: 'Rate your visit',
+              onPressed: () => context.push('/booking/$bookingId/rate'),
+            ),
+          ),
+        ] else ...[
+          Expanded(
+            child: CharakButton(
+              label: "I'm running late",
+              outlined: true,
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Doctor notified')),
+              ),
+            ),
+          ),
+          Expanded(
+            child: CharakButton(
+              label: 'Cancel',
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Cancellation under review')),
+              ),
+            ),
+          ),
+        ],
+      ]),
     ]);
   }
 }
 
-class _InfoCard extends StatelessWidget {
-  final List<Widget> children;
-  const _InfoCard({required this.children});
+/// `.act-card` — plain 16px-padded bordered card.
+class _ActCard extends StatelessWidget {
+  final Widget child;
+  const _ActCard({required this.child});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
+    padding: const EdgeInsets.all(CharakSpacing.base),
     decoration: BoxDecoration(
       color: CharakColors.bg,
-      borderRadius: const BorderRadius.all(CharakRadius.card),
       border: Border.all(color: CharakColors.border),
+      borderRadius: const BorderRadius.all(CharakRadius.card),
     ),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+    child: child,
   );
 }
 
-class _DetailRow extends StatelessWidget {
+/// `.act-row` — 17px primary glyph, 14px label, value pushed right; the last
+/// row drops its rule (`.act-row:last-child { border-bottom: 0 }`).
+class _ActRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-  const _DetailRow({required this.icon, required this.label, required this.value});
-  @override
-  Widget build(BuildContext context) => Row(children: [
-    Icon(icon, size: 18, color: CharakColors.inkMuted),
-    const SizedBox(width: 8),
-    Text('$label:', style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-    const SizedBox(width: 8),
-    Expanded(child: Text(value, style: CharakText.bodyMed, textAlign: TextAlign.end)),
-  ]);
-}
+  final bool muted;
+  final bool tabular;
+  final bool last;
 
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
+  const _ActRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.muted = false,
+    this.tabular = false,
+    this.last = false,
+  });
+
   @override
-  Widget build(BuildContext context) {
-    Color color;
-    String label;
-    switch (status) {
-      case 'paid':
-        color = CharakColors.primary; label = 'Confirmed';
-      case 'completed':
-        color = CharakColors.success; label = 'Completed';
-      default:
-        color = CharakColors.warning; label = status;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: const BorderRadius.all(CharakRadius.pill),
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(vertical: 11),
+    decoration: BoxDecoration(
+      border: last ? null : const Border(bottom: BorderSide(color: CharakColors.border)),
+    ),
+    child: Row(children: [
+      Icon(icon, size: 17, color: CharakColors.primary),
+      const SizedBox(width: 10),
+      Text(label,
+          style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.ink)),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Text(
+          value,
+          textAlign: TextAlign.right,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontFamily: CharakText.fontFamily,
+            fontSize: 14,
+            height: 1.4,
+            fontWeight: muted ? FontWeight.w400 : FontWeight.w500,
+            color: muted ? CharakColors.inkMuted : CharakColors.ink,
+            fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+          ),
+        ),
       ),
-      child: Text(label, style: CharakText.micro.copyWith(color: color)),
-    );
-  }
+    ]),
+  );
 }
