@@ -1,23 +1,19 @@
 """
-FCM push notification router.
+Device token registration.
 
-FCM is stubbed when GOOGLE_APPLICATION_CREDENTIALS or FCM_SERVER_KEY is not set.
-Wire real credentials in Day 49.
+Sending lives in ``services/notifications.py`` — this router only records where a
+user's device can be reached. ``send_push`` is kept as a thin alias so any caller
+written against the old name still works.
 """
-import os
-import httpx
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from ..db import supabase
 from ..deps import get_current_user
 from ..errors import AppError
+from ..services import notifications
 
 router = APIRouter()
-
-FCM_SERVER_KEY = os.getenv("FCM_SERVER_KEY", "")
-FCM_SEND_URL = "https://fcm.googleapis.com/fcm/send"
 
 
 class RegisterTokenRequest(BaseModel):
@@ -27,50 +23,34 @@ class RegisterTokenRequest(BaseModel):
 
 @router.post("/register")
 def register_token(body: RegisterTokenRequest, user: dict = Depends(get_current_user)):
-    """Store FCM token for this user so we can push to them."""
+    """Store the FCM token for this user so notifications can reach their device."""
     if body.platform not in ("android", "ios"):
         raise AppError("platform must be 'android' or 'ios'", 400)
+    if not body.fcm_token.strip():
+        raise AppError("fcm_token is required", 400)
 
     table = "doctors" if user.get("role") == "doctor" else "users"
     supabase.table(table).update({
-        "fcm_token": body.fcm_token,
+        "fcm_token": body.fcm_token.strip(),
         "fcm_platform": body.platform,
     }).eq("id", user["sub"]).execute()
 
+    return {"ok": True, "push_enabled": notifications.push_enabled()}
+
+
+@router.delete("/register")
+def unregister_token(user: dict = Depends(get_current_user)):
+    """Clear the token — called on logout so the next user of the device is not
+    sent someone else's medical notifications."""
+    table = "doctors" if user.get("role") == "doctor" else "users"
+    supabase.table(table).update({
+        "fcm_token": None,
+        "fcm_platform": None,
+    }).eq("id", user["sub"]).execute()
     return {"ok": True}
 
 
-# ── Internal helper called by other routers ───────────────────────────────────
-
-async def send_push(to_user_id: str, title: str, body: str, data: dict = None):
-    """
-    Look up the FCM token for a user (doctor or patient) and send a push.
-    Silently skips if no token or FCM key not configured.
-    """
-    if not FCM_SERVER_KEY:
-        print(f"[FCM STUB] to={to_user_id} title={title!r} body={body!r}")
-        return
-
-    # Try doctors first, then users
-    row = supabase.table("doctors").select("fcm_token").eq("id", to_user_id).execute().data
-    if not row:
-        row = supabase.table("users").select("fcm_token").eq("id", to_user_id).execute().data
-    if not row or not row[0].get("fcm_token"):
-        return  # no token registered yet
-
-    token = row[0]["fcm_token"]
-    payload = {
-        "to": token,
-        "notification": {"title": title, "body": body},
-        "data": data or {},
-    }
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                FCM_SEND_URL,
-                json=payload,
-                headers={"Authorization": f"key={FCM_SERVER_KEY}"},
-                timeout=5,
-            )
-    except Exception:
-        pass  # push is best-effort; never let it crash the main flow
+def send_push(to_user_id: str, title: str, body: str, data: dict = None,
+              role: str = "patient"):
+    """Backwards-compatible alias for ``services.notifications.notify``."""
+    return notifications.notify(to_user_id, role, "legacy.push", title, body, data)
