@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from ..config import PAYMENT_HOLD_MINUTES
@@ -87,16 +88,25 @@ def create_booking(
     if existing.data:
         raise AppError("Slot already booked", 409)
 
-    row = supabase.table("bookings").insert({
-        "patient_id": user["sub"],
-        "doctor_id": body.doctor_id,
-        "channel": body.channel,
-        "scheduled_start": body.scheduled_start,
-        "category_id": body.category_id,
-        "price_confirmed": body.price_confirmed,
-        "status": "requested",
-        **address_fields,
-    }).execute().data[0]
+    # The check above loses to a concurrent request that passed it a moment
+    # earlier, so uq_booking_doctor_slot_active (migration 0010) is what actually
+    # guarantees one live booking per doctor per slot. Whichever insert arrives
+    # second raises 23505, and its patient gets the same 409 as the slow path.
+    try:
+        row = supabase.table("bookings").insert({
+            "patient_id": user["sub"],
+            "doctor_id": body.doctor_id,
+            "channel": body.channel,
+            "scheduled_start": body.scheduled_start,
+            "category_id": body.category_id,
+            "price_confirmed": body.price_confirmed,
+            "status": "requested",
+            **address_fields,
+        }).execute().data[0]
+    except APIError as exc:
+        if getattr(exc, "code", None) == "23505":
+            raise AppError("Slot already booked", 409)
+        raise
 
     patient = supabase.table("users").select("name").eq("id", user["sub"]).execute().data or []
     patient_name = (patient[0].get("name") if patient else None) or "A patient"
