@@ -1,8 +1,28 @@
+import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:charak_core/charak_core.dart';
 
+/// Consult-fee payment.
+///
+/// Two things shape this screen.
+///
+/// **The gateway owns method selection, not us.** Card details are never typed
+/// into our own fields — that would put the app inside PCI scope for no benefit.
+/// Razorpay's checkout collects them, and on Android it also renders the UPI app
+/// chooser (GPay / PhonePe / Paytm) natively, which is the whole reason UPI intent
+/// is the default there.
+///
+/// **The return trip is not proof of payment.** On UPI the patient leaves for
+/// another app and may never come back — killing ours mid-payment is ordinary, and
+/// on iOS the app-switch back is the least reliable link in the chain. So
+/// `_onSuccess` is treated as a hint to wait, and the booking's own row, streamed
+/// from Supabase, is what actually confirms. The backend flips it to `paid` only
+/// on a signature-verified Razorpay webhook.
 class PaymentScreen extends ConsumerStatefulWidget {
   final String bookingId;
   const PaymentScreen({super.key, required this.bookingId});
@@ -10,23 +30,44 @@ class PaymentScreen extends ConsumerStatefulWidget {
   ConsumerState<PaymentScreen> createState() => _State();
 }
 
+/// Android gets a real intent chooser, so UPI-only is a clean default there.
+/// iOS has no chooser — Razorpay can only deep-link UPI apps one at a time, and
+/// coverage is patchier — so restricting methods would strip every fallback at
+/// exactly the point where UPI is least reliable. iOS sees the full sheet.
+bool get _upiIntentAvailable => Platform.isAndroid;
+
 class _State extends ConsumerState<PaymentScreen> {
   bool _loading = false;
+  bool _awaitingConfirmation = false;
   Map<String, dynamic>? _order;
-  bool _cardTab = false;
   final _upiCtrl = TextEditingController();
 
-  @override
-  void dispose() {
-    _upiCtrl.dispose();
-    super.dispose();
-  }
+  Razorpay? _razorpay;
+  StreamSubscription? _bookingSub;
+  Timer? _confirmationTimeout;
 
   @override
   void initState() {
     super.initState();
+    _razorpay = Razorpay()
+      ..on(Razorpay.EVENT_PAYMENT_SUCCESS, _onSuccess)
+      ..on(Razorpay.EVENT_PAYMENT_ERROR, _onError)
+      ..on(Razorpay.EVENT_EXTERNAL_WALLET, _onExternalWallet);
     _createOrder();
+    _watchBooking();
   }
+
+  @override
+  void dispose() {
+    // Razorpay holds a native handler; clear() is not optional.
+    _razorpay?.clear();
+    _bookingSub?.cancel();
+    _confirmationTimeout?.cancel();
+    _upiCtrl.dispose();
+    super.dispose();
+  }
+
+  // ── Order ───────────────────────────────────────────────────────────────────
 
   Future<void> _createOrder() async {
     setState(() => _loading = true);
@@ -35,55 +76,118 @@ class _State extends ConsumerState<PaymentScreen> {
           '/payments/${widget.bookingId}/order', {});
       setState(() => _order = res as Map<String, dynamic>);
     } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
-        );
-      }
+      _fail(e.message);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _pay() async {
-    if (_order == null) return;
-    setState(() => _loading = true);
-    try {
-      final key = _order!['razorpay_key'] as String? ?? '';
+  // ── Confirmation ────────────────────────────────────────────────────────────
 
-      if (key.startsWith('stub')) {
-        // Dev mode: stub-complete the payment directly
+  /// The authoritative signal. Runs from the moment the screen opens, so a
+  /// payment that lands while the patient is still in GPay is caught either way.
+  void _watchBooking() {
+    _bookingSub = Supabase.instance.client
+        .from('bookings')
+        .stream(primaryKey: ['id'])
+        .eq('id', widget.bookingId)
+        .listen((rows) {
+      if (rows.isEmpty || !mounted) return;
+      final status = rows.first['status'] as String? ?? '';
+      if (status == 'paid') {
+        _confirmationTimeout?.cancel();
+        context.go('/booking/${widget.bookingId}/confirmed');
+      } else if (status == 'cancelled' || status == 'declined') {
+        // The hold expired while the patient was away, or the doctor withdrew.
+        // Any money that lands now is refunded by the backend, so say so here
+        // rather than leaving them on a dead payment screen.
+        _confirmationTimeout?.cancel();
+        context.go('/booking/${widget.bookingId}/status');
+      }
+    });
+  }
+
+  // ── Pay ─────────────────────────────────────────────────────────────────────
+
+  Future<void> _pay({String? vpa}) async {
+    final order = _order;
+    if (order == null) return;
+
+    final key = order['razorpay_key'] as String? ?? '';
+    if (key.startsWith('stub')) {
+      // No credentials configured — complete it server-side so the rest of the
+      // journey is walkable in development.
+      setState(() => _loading = true);
+      try {
         await ApiClient.instance.post(
             '/payments/${widget.bookingId}/stub-complete', {});
         if (mounted) context.go('/booking/${widget.bookingId}/confirmed');
-        return;
+      } on ApiException catch (e) {
+        _fail(e.message);
+      } finally {
+        if (mounted) setState(() => _loading = false);
       }
+      return;
+    }
 
-      // Production: open Razorpay checkout
-      // razorpay_flutter SDK opens the checkout sheet here
-      // razorpay.open({
-      //   'key': key,
-      //   'amount': _order!['amount'],
-      //   'order_id': _order!['razorpay_order_id'],
-      //   'name': 'Charak',
-      //   'description': 'Consultation fee',
-      // });
-      // Handle payment success/failure via razorpay callbacks
-      // On success: context.go('/booking/${widget.bookingId}/confirmed')
+    _razorpay?.open({
+      'key': key,
+      'order_id': order['razorpay_order_id'],
+      'amount': order['amount'],
+      'currency': order['currency'] ?? 'INR',
+      'name': 'Charak',
+      'description': 'Consultation fee',
+      'timeout': 300,
+      if (_upiIntentAvailable)
+        'method': {
+          'upi': true,
+          'card': false,
+          'netbanking': false,
+          'wallet': false,
+        },
+      // UPI collect: the request appears inside the patient's UPI app, with no
+      // app-switch and no return trip to depend on. Only worth offering where
+      // intent is unavailable.
+      if (vpa != null && vpa.isNotEmpty) 'vpa': vpa,
+    });
+  }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add Razorpay key to enable live payments')),
-      );
-    } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
-        );
+  void _onSuccess(PaymentSuccessResponse r) {
+    // Not proof — see the class doc. Wait for the booking row.
+    if (!mounted) return;
+    setState(() => _awaitingConfirmation = true);
+    _confirmationTimeout = Timer(const Duration(seconds: 90), () {
+      if (mounted && _awaitingConfirmation) {
+        setState(() => _awaitingConfirmation = false);
+        _fail('Payment is taking longer than usual to confirm. '
+            'Check your bookings in a moment — do not pay again.');
       }
-    } finally {
-      if (mounted) setState(() => _loading = false);
+    });
+  }
+
+  void _onError(PaymentFailureResponse r) {
+    // Tells the backend to keep the slot held for the rest of the window.
+    ApiClient.instance
+        .post('/payments/${widget.bookingId}/failed', {})
+        .catchError((_) => null);
+    if (mounted) {
+      setState(() => _awaitingConfirmation = false);
+      _fail('Payment did not go through. Your slot is still held — try again.');
     }
   }
+
+  void _onExternalWallet(ExternalWalletResponse r) {
+    if (mounted) setState(() => _awaitingConfirmation = true);
+  }
+
+  void _fail(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: CharakColors.danger),
+    );
+  }
+
+  // ── UI ──────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -117,62 +221,47 @@ class _State extends ConsumerState<PaymentScreen> {
                   const SizedBox(height: 4),
                   const Text('Consultation fee · paid before the visit',
                       style: charakHintStyle),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 18),
 
-                  CharakSegmented<bool>(
-                    value: _cardTab,
-                    onChanged: (v) => setState(() => _cardTab = v),
-                    segments: const [
-                      CharakSegment(value: false, label: 'UPI'),
-                      CharakSegment(value: true, label: 'Card'),
+                  if (_awaitingConfirmation)
+                    const CharakNoteBanner(
+                      icon: Icons.hourglass_top_outlined,
+                      tone: CharakStatusTone.primary,
+                      message: 'Confirming your payment with the bank. This can '
+                          'take a few seconds — please stay on this screen.',
+                    )
+                  else ...[
+                    CharakNoteBanner(
+                      icon: _upiIntentAvailable
+                          ? Icons.account_balance_wallet_outlined
+                          : Icons.lock_outline,
+                      tone: CharakStatusTone.primary,
+                      message: _upiIntentAvailable
+                          ? 'Tap Pay to choose your UPI app — GPay, PhonePe, '
+                              'Paytm or any other installed app.'
+                          : 'Tap Pay to choose how you would like to pay — UPI, '
+                              'card, or net banking.',
+                    ),
+
+                    // iOS only: no intent chooser exists, so offer collect as a
+                    // fallback that does not depend on deep-linking working.
+                    if (!_upiIntentAvailable) ...[
+                      const SizedBox(height: 18),
+                      CharakField(
+                        label: 'Pay by UPI ID',
+                        controller: _upiCtrl,
+                        placeholder: 'yourname@bank',
+                        hint: 'We will send a request to your UPI app',
+                      ),
+                      const SizedBox(height: 10),
+                      CharakButton(
+                        label: 'Request via UPI ID',
+                        outlined: true,
+                        onPressed: _order == null
+                            ? null
+                            : () => _pay(vpa: _upiCtrl.text.trim()),
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  if (!_cardTab) ...[
-                    CharakField(
-                      label: 'UPI ID',
-                      controller: _upiCtrl,
-                      placeholder: 'yourname@bank',
-                      hint: 'or pay with',
-                    ),
-                    const SizedBox(height: 12),
-                    // `.two-col` — 46px ghost buttons side by side.
-                    Row(children: [
-                      Expanded(
-                        child: CharakButton(
-                          label: 'GPay',
-                          outlined: true,
-                          onPressed: () => _notice('Opening GPay…'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: CharakButton(
-                          label: 'PhonePe',
-                          outlined: true,
-                          onPressed: () => _notice('Opening PhonePe…'),
-                        ),
-                      ),
-                    ]),
-                  ] else ...[
-                    const CharakField(
-                      label: 'Card number',
-                      placeholder: '4242 4242 4242 4242',
-                      tabular: true,
-                    ),
-                    const SizedBox(height: 10),
-                    const Row(children: [
-                      Expanded(
-                        child: CharakField(
-                            label: 'Expiry', placeholder: '08/28', tabular: true),
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: CharakField(
-                            label: 'CVV', placeholder: '123', tabular: true),
-                      ),
-                    ]),
                   ],
 
                   const SizedBox(height: 14),
@@ -190,20 +279,18 @@ class _State extends ConsumerState<PaymentScreen> {
                   label: isStub
                       ? 'Confirm payment (dev stub)'
                       : 'Pay ₹${amount.toStringAsFixed(0)}',
-                  isLoading: _loading,
-                  onPressed: _order != null ? _pay : null,
+                  isLoading: _loading || _awaitingConfirmation,
+                  onPressed:
+                      _order != null && !_awaitingConfirmation ? _pay : null,
                 ),
               ),
             ]),
     );
   }
-
-  void _notice(String message) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(message)));
 }
 
-/// Loading state for the initial order fetch: `.skel` blocks in the shape of
-/// the amount header, the UPI/Card segmented control and the field below it.
+/// Loading state for the initial order fetch: `.skel` blocks in the shape of the
+/// amount header and the guidance banners below it.
 class _PaymentLoading extends StatelessWidget {
   const _PaymentLoading();
 
@@ -221,17 +308,9 @@ class _PaymentLoading extends StatelessWidget {
         SizedBox(height: 10),
         CharakSkeleton(width: 234, height: 13),
         SizedBox(height: 18),
-        CharakSkeleton(height: 40, radius: 12),
-        SizedBox(height: 18),
-        CharakSkeleton(width: 64, height: 13),
-        SizedBox(height: 8),
-        CharakSkeleton(height: 46, radius: 12),
+        CharakSkeleton(height: 62, radius: 12),
         SizedBox(height: 14),
-        Row(children: [
-          Expanded(child: CharakSkeleton(height: 46, radius: 12)),
-          SizedBox(width: 10),
-          Expanded(child: CharakSkeleton(height: 46, radius: 12)),
-        ]),
+        CharakSkeleton(height: 62, radius: 12),
       ],
     ),
   );

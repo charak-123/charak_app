@@ -39,9 +39,19 @@ from ..services import notifications, payouts
 
 router = APIRouter()
 
-# Razorpay signs webhooks with the webhook secret, which is distinct from the API
-# key secret. Fall back to the key secret so a single-secret setup still verifies.
-_WEBHOOK_SECRET = RAZORPAY_WEBHOOK_SECRET or RAZORPAY_KEY_SECRET
+# Razorpay signs webhooks with the webhook secret set in the dashboard, which is a
+# different value from the API key secret — it never signs with the latter. Falling
+# back to the key secret therefore could not rescue a single-secret setup; it only
+# HMAC'd every delivery against the wrong key, rejecting all of them with a 400
+# while looking configured. Razorpay retries a few times, gives up, and no payment
+# ever confirms. Better to verify with the right secret or not at all, and let
+# /readyz say which.
+_WEBHOOK_SECRET = RAZORPAY_WEBHOOK_SECRET
+
+
+def webhook_verified() -> bool:
+    """Whether incoming webhooks are signature-checked. Surfaced by /readyz."""
+    return bool(_WEBHOOK_SECRET)
 
 
 def _now() -> datetime:
@@ -70,6 +80,27 @@ def _razorpay_create_order(amount_paise: int, receipt: str) -> dict:
         "receipt": receipt,
         "payment_capture": 1,
     })
+
+
+def _razorpay_refund(razorpay_payment_id: Optional[str], amount_paise: int) -> None:
+    """
+    Refund a captured payment. A no-op without credentials or a payment id.
+
+    Deliberately not raising on failure: the caller has already decided this money
+    must go back, and the booking must not be left in a confirmed-looking state
+    because Razorpay's API had a bad minute. A refund that does not go through is
+    recoverable by ops from the payment row, which is marked ``refunded`` either
+    way; a slot sold twice is not.
+    """
+    if not live_mode() or not razorpay_payment_id:
+        return
+    try:
+        import razorpay  # type: ignore — optional until credentials are configured
+
+        client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+        client.payment.refund(razorpay_payment_id, {"amount": amount_paise})
+    except Exception as exc:                      # noqa: BLE001 — see docstring
+        print(f"[refund FAILED] payment={razorpay_payment_id} — {exc!r}")
 
 
 # ── Create order ──────────────────────────────────────────────────────────────
@@ -225,6 +256,14 @@ async def razorpay_webhook(request: Request, background: BackgroundTasks):
     body = await request.body()
     sig = request.headers.get("x-razorpay-signature", "")
 
+    if live_mode() and not _WEBHOOK_SECRET:
+        # Real money is moving and nothing can prove this request came from
+        # Razorpay. Anyone who can reach this URL could credit a doctor's ledger
+        # and mark a booking paid, so refuse rather than trust it. 503 because the
+        # deployment is misconfigured, not because the caller did anything wrong —
+        # and Razorpay's retries will deliver once the secret is set.
+        raise AppError("RAZORPAY_WEBHOOK_SECRET is not configured", 503)
+
     if _WEBHOOK_SECRET:
         if not sig:
             raise AppError("Missing webhook signature", 400)
@@ -262,8 +301,39 @@ async def razorpay_webhook(request: Request, background: BackgroundTasks):
     if payment["status"] == "completed":
         return {"ok": True, "idempotent": True}   # replayed delivery
 
-    _confirm_payment(payment, entity.get("id"), entity.get("method"), background)
-    return {"ok": True}
+    # Pass the outcome straight through: a late capture that got refunded rather
+    # than confirmed must say so, or the distinction is invisible in Razorpay's
+    # delivery log and in ours.
+    return _confirm_payment(payment, entity.get("id"), entity.get("method"), background)
+
+
+def _refund_orphaned_payment(
+    payment: dict,
+    booking: dict,
+    razorpay_payment_id: Optional[str],
+    background=None,
+) -> None:
+    """
+    Send back money that arrived too late, and reverse any credit behind it.
+
+    The ledger reversal is belt and braces: reaching here means the credit never
+    ran, but a replayed webhook or a hand-fixed row could have left one, and
+    ``payouts.reverse`` returns None when there is nothing to reverse.
+    """
+    supabase.table("payments").update({
+        "status": "refunded",
+        "razorpay_payment_id": razorpay_payment_id,
+    }).eq("id", payment["id"]).execute()
+
+    _razorpay_refund(
+        razorpay_payment_id,
+        int(round(float(payment["amount"]) * 100)),
+    )
+
+    source = "consult_fee" if payment["type"] == "consult_fee" else "procedure_bill"
+    payouts.reverse(booking["id"], source, note="payment refunded — booking was gone")
+
+    notifications.payment_auto_refunded(booking, payment["amount"], background)
 
 
 def _confirm_payment(
@@ -291,6 +361,17 @@ def _confirm_payment(
     )
     if not booking:
         return {"ok": True}
+
+    # A capture can arrive after the booking is already gone. UPI makes this
+    # routine rather than rare: the patient is app-switched into GPay against the
+    # payment-hold clock, and PSP delays of several minutes are normal, so the
+    # hold sweeper cancels the booking and releases the slot while the payment is
+    # still in flight. Confirming here would credit the doctor and flip a
+    # cancelled booking back to `paid` — on a slot that has since been sold to
+    # someone else. The money goes back instead.
+    if booking["status"] in ("cancelled", "declined", "no_show"):
+        _refund_orphaned_payment(payment, booking, razorpay_payment_id, background)
+        return {"ok": True, "refunded": True}
 
     source = "consult_fee" if payment["type"] == "consult_fee" else "procedure_bill"
     payouts.credit(

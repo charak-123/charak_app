@@ -65,7 +65,7 @@ def ready():
     """
     from .db import supabase
     from .routers.calls import agora_configured
-    from .routers.payments import live_mode as razorpay_live
+    from .routers.payments import live_mode as razorpay_live, webhook_verified
     from .config import MSG91_API_KEY
     from .services.transcription import enabled as transcription_enabled
 
@@ -78,11 +78,17 @@ def ready():
         db_error = str(exc)[:200]
 
     return {
-        "status": "ok" if db_ok else "degraded",
+        # Live keys with an unverifiable webhook is a degraded deploy, not a
+        # healthy one: it can take a patient's money and never confirm the booking.
+        "status": "ok" if db_ok and not (razorpay_live() and not webhook_verified())
+                  else "degraded",
         "database": {"ok": db_ok, "error": db_error},
         "integrations": {
             "sms_otp": bool(MSG91_API_KEY),
             "payments": razorpay_live(),
+            # Live keys without a verified webhook is the dangerous combination:
+            # payments can be taken but confirmations cannot be trusted.
+            "payments_webhook_verified": webhook_verified(),
             "push": push_enabled(),
             "video_calls": agora_configured(),
             "transcription": transcription_enabled(),

@@ -382,3 +382,88 @@ def test_an_unrelated_user_cannot_read_payment_history():
     for c in _client(PATIENT, db):
         res = c.get("/payments/bk-1", headers=AUTH)
     assert res.status_code == 403
+
+
+# ── late capture against a released slot ──────────────────────────────────────
+#
+# UPI turns this from an edge case into a routine one: the patient is app-switched
+# into GPay against the payment-hold clock, PSP delays of minutes are normal, and
+# the hold sweeper cancels the booking and frees the slot while the money is still
+# in flight. Confirming such a capture credits the doctor and flips a cancelled
+# booking back to `paid` — on a slot that may already belong to another patient.
+
+def _released_db(booking_status="cancelled"):
+    """Sweeper has been through: booking cancelled, its payment marked failed."""
+    return make_supabase({
+        "payments": make_chain(list_data=[{
+            "id": "p-1", "booking_id": "bk-1", "type": "consult_fee",
+            "amount": 800.0, "status": "failed",
+        }]),
+        "bookings": make_chain(data={**BOOKING, "status": booking_status}),
+        "doctors": make_chain(list_data=[{"commission_pct": 15}]),
+        "doctor_ledger_entries": make_chain(list_data=[]),
+        "notifications": make_chain(list_data=[{"id": "n-1"}]),
+    })
+
+
+def _post_captured(db):
+    raw, sig = _signed(CAPTURED, "whsec")
+    with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
+         patch("app.routers.payments._WEBHOOK_SECRET", "whsec"):
+        return TestClient(app).post(
+            "/payments/webhook", content=raw,
+            headers={"x-razorpay-signature": sig, "content-type": "application/json"},
+        )
+
+
+def test_capture_on_a_cancelled_booking_refunds_instead_of_confirming():
+    db = _released_db("cancelled")
+    with patch("app.routers.payments._razorpay_refund") as refund:
+        res = _post_captured(db)
+
+    assert res.status_code == 200
+    assert res.json() == {"ok": True, "refunded": True}
+    # Refunded for the full amount, against the id from the webhook entity —
+    # the payments row has no payment id of its own at this point.
+    refund.assert_called_once_with("pay_live_1", 80000)
+
+
+def test_capture_on_a_cancelled_booking_does_not_credit_the_doctor():
+    """The slot is gone; crediting here would pay a doctor for nothing."""
+    db = _released_db("cancelled")
+    with patch("app.routers.payments._razorpay_refund"), \
+         patch("app.services.payouts.credit") as credit:
+        _post_captured(db)
+    credit.assert_not_called()
+
+
+def test_capture_on_a_declined_booking_is_also_refunded():
+    db = _released_db("declined")
+    with patch("app.routers.payments._razorpay_refund") as refund:
+        res = _post_captured(db)
+    assert res.json() == {"ok": True, "refunded": True}
+    refund.assert_called_once()
+
+
+def test_capture_on_a_live_booking_still_confirms():
+    """The guard must not block the ordinary path."""
+    db = _released_db("accepted")
+    with patch("app.routers.payments._razorpay_refund") as refund:
+        res = _post_captured(db)
+    assert res.json() == {"ok": True}
+    refund.assert_not_called()
+
+
+# ── webhook secret is mandatory once keys are live ────────────────────────────
+
+def test_live_keys_without_a_webhook_secret_refuse_the_webhook():
+    """
+    Razorpay never signs with the API key secret, so there is no safe fallback.
+    Unverifiable + live means anyone reaching this URL could mark bookings paid.
+    """
+    db = make_supabase({})
+    with patch(PAY_DB, db), patch("app.routers.payments._WEBHOOK_SECRET", ""), \
+         patch("app.routers.payments.live_mode", return_value=True):
+        res = TestClient(app).post("/payments/webhook", json=CAPTURED)
+    assert res.status_code == 503
+    assert "RAZORPAY_WEBHOOK_SECRET" in res.json()["error"]

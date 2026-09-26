@@ -404,3 +404,21 @@ def complaint_filed(booking: dict, background=None):
     )
 
 
+
+
+def payment_auto_refunded(booking: dict, amount, background=None):
+    """
+    A payment landed after its booking was already gone.
+
+    UPI makes this ordinary rather than exotic: the patient approves in GPay well
+    after the hold expired, so the money arrives against a slot that has been
+    released. They are told plainly that nothing is booked and the money is coming
+    back, because the alternative is a silent debit with no booking behind it.
+    """
+    return notify(
+        booking["patient_id"], "patient", "payment.auto_refunded",
+        "Payment refunded",
+        f"{_money(amount)} arrived after your slot was released, so it is being "
+        "refunded. Nothing was booked — please book again.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+    )
