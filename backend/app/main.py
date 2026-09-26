@@ -3,7 +3,9 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .errors import AppError, app_error_handler
+from postgrest.exceptions import APIError
+
+from .errors import AppError, app_error_handler, db_error_handler
 from .routers import (
     addresses, admin, auth, bookings, calls, categories, complaints, doctors,
     earnings, intake, maintenance, notifications, payments, payouts,
@@ -27,6 +29,9 @@ app.add_middleware(
 )
 
 app.add_exception_handler(AppError, app_error_handler)
+# Malformed path ids reach the driver as invalid uuid input; without this they
+# surfaced as unhandled 500s on every `{id}` route.
+app.add_exception_handler(APIError, db_error_handler)
 
 app.include_router(auth.router,             prefix="/auth",             tags=["auth"])
 app.include_router(categories.router,       prefix="/categories",       tags=["categories"])

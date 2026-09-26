@@ -5,7 +5,6 @@ Patches app.routers.bookings.supabase (the local name bound at import).
 from unittest.mock import MagicMock, patch
 
 from postgrest.exceptions import APIError
-import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -234,8 +233,15 @@ def test_create_booking_loses_insert_race_returns_409():
     assert resp.json()["error"] == "Slot already booked"
 
 
-def test_create_booking_other_db_error_is_not_swallowed():
-    """A constraint violation that isn't the slot index must not read as 409."""
+def test_create_booking_other_db_error_is_not_reported_as_a_slot_conflict():
+    """
+    A constraint violation that isn't the slot index must not be disguised as one.
+
+    The router re-raises anything but 23505, and the app-wide db_error_handler
+    then translates it — a foreign-key violation is a 409 too, but it must not
+    claim the slot was taken, because that sends the patient to pick another time
+    for a problem another time will not fix.
+    """
     verified_doc = make_chain(data={"id": "doc-1", "verification_status": "verified",
                                     "offers_online_consult": True, "offers_home_visit": False})
 
@@ -243,11 +249,14 @@ def test_create_booking_other_db_error_is_not_swallowed():
                              "bookings": _slot_free_but_insert_conflicts(sqlstate="23503")})
     with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = PATIENT_PAYLOAD
-        client = TestClient(app)
-        with pytest.raises(APIError):
-            client.post(
-                "/bookings/",
-                json={"doctor_id": "doc-1", "channel": "online_consult",
-                      "scheduled_start": "2026-08-25T09:00:00+00:00"},
-                headers={"Authorization": PATIENT_TOKEN},
-            )
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post(
+            "/bookings/",
+            json={"doctor_id": "doc-1", "channel": "online_consult",
+                  "scheduled_start": "2026-08-25T09:00:00+00:00"},
+            headers={"Authorization": PATIENT_TOKEN},
+        )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"] != "Slot already booked"
+    assert "Referenced record" in resp.json()["error"]
