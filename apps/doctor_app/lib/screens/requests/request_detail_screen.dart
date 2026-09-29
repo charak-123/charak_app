@@ -63,7 +63,7 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
   Widget build(BuildContext context) {
     final async = ref.watch(_bookingDetailProvider(widget.bookingId));
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: const CharakTopBar(title: 'Request'),
       body: async.when(
         // `.skel` blocks tracing the real body: the `.pat-strip` card, the
@@ -172,7 +172,6 @@ class _PatientStrip extends StatelessWidget {
       decoration: BoxDecoration(
         color: CharakColors.bg,
         borderRadius: const BorderRadius.all(CharakRadius.card),
-        border: Border.all(color: CharakColors.border),
       ),
       child: Row(children: [
         CharakAvatar(name: name, radius: 24),
@@ -185,12 +184,7 @@ class _PatientStrip extends StatelessWidget {
           const SizedBox(height: 1),
           Text(
             channel == 'home_visit' ? 'Home Visit' : 'Online Consult',
-            style: const TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 12.5,
-              height: 1.4,
-              color: CharakColors.inkMuted,
-            ),
+            style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
           ),
         ])),
         const SizedBox(width: 10),
@@ -205,14 +199,9 @@ class _PatientStrip extends StatelessWidget {
                 ),
               ),
               // `.per`
-              const TextSpan(
+              TextSpan(
                 text: '/15m',
-                style: TextStyle(
-                  fontFamily: CharakText.fontFamily,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: CharakColors.inkMuted,
-                ),
+                style: CharakText.caption.copyWith(color: CharakColors.inkMuted, fontWeight: FontWeight.w500),
               ),
             ])),
           // `.fade-swap` — the status label cross-fades out in place when the
@@ -256,9 +245,9 @@ class _IntakeBlock extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: CharakColors.bgSubtle,
-        borderRadius: BorderRadius.all(CharakRadius.card),
+        borderRadius: const BorderRadius.all(CharakRadius.card),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // `.bhead`
@@ -268,39 +257,21 @@ class _IntakeBlock extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                fontFamily: CharakText.fontFamily,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
-                color: CharakColors.ink,
-              ),
+              style: CharakText.caption.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600),
             ),
           ),
           // `.vtag`
           if (transcribed && hasText)
-            const Text(
+            Text(
               'TRANSCRIBED',
-              style: TextStyle(
-                fontFamily: CharakText.fontFamily,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
-                letterSpacing: 10 * 0.05,
-                color: CharakColors.success,
-              ),
+              style: CharakText.overline.copyWith(color: CharakColors.success, fontWeight: FontWeight.w600),
             ),
         ]),
         if (hasText) ...[
           const SizedBox(height: 7),
           Text(
             text,
-            style: const TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 13.5,
-              height: 1.55,
-              color: CharakColors.ink,
-            ),
+            style: CharakText.caption.copyWith(color: CharakColors.ink),
           ),
         ],
         if (url != null && url.isNotEmpty) ...[
@@ -323,9 +294,8 @@ class _FileChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
     decoration: BoxDecoration(
-      color: CharakColors.bg,
-      borderRadius: BorderRadius.circular(9),
-      border: Border.all(color: CharakColors.border),
+      color: CharakColors.bgSubtle,
+      borderRadius: const BorderRadius.all(CharakRadius.pill),
     ),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
       Icon(icon, size: 14, color: CharakColors.primary),
@@ -354,7 +324,6 @@ class _VisitDetailsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: CharakColors.bg,
         borderRadius: const BorderRadius.all(CharakRadius.card),
-        border: Border.all(color: CharakColors.border),
       ),
       child: Column(children: [
         CharakVisitLine(icon: Icons.access_time_rounded, value: slotStr),

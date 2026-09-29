@@ -116,7 +116,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
         Text(label, style: _fieldLabel),
         const SizedBox(height: 7),
         Row(children: [
-          const Text('₹', style: _rupee),
+          Text('₹', style: _rupee),
           const SizedBox(width: 10),
           Expanded(
             child: _PriceField(
@@ -126,7 +126,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
             ),
           ),
           const SizedBox(width: 10),
-          const Text('per 15 min', style: _suffix),
+          Text('per 15 min', style: _suffix),
         ]),
         const SizedBox(height: 8),
         Row(children: [
@@ -139,7 +139,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
             ),
           ),
           const SizedBox(width: 10),
-          const Text('extra per 15 min', style: _suffix),
+          Text('extra per 15 min', style: _suffix),
         ]),
       ],
     );
@@ -151,9 +151,9 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
     // this is arriving content, not a pending action — `.skel` blocks keep the
     // step dots and heading in place while it loads.
     if (_loadingDoctorInfo) {
-      return const Scaffold(
-        backgroundColor: CharakColors.bg,
-        body: SafeArea(
+      return Scaffold(
+        backgroundColor: CharakColors.ground,
+        body: const SafeArea(
           child: Padding(
             padding: EdgeInsets.fromLTRB(20, 16, 20, 24),
             child: Column(
@@ -161,7 +161,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
               children: [
                 CharakStepDots(current: 2),
                 SizedBox(height: 10),
-                Text('Set your prices', style: CharakText.h1),
+                Text('Set your prices', style: CharakText.titleLarge),
                 SizedBox(height: 5),
                 CharakSkeleton(height: 14),
                 SizedBox(height: 7),
@@ -184,7 +184,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
     final homeShown   = _homeBaseCtrl.text.isNotEmpty ? _homeBaseCtrl.text : '—';
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -196,7 +196,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                   children: [
                     const CharakStepDots(current: 2),
                     const SizedBox(height: 10),
-                    const Text('Set your prices', style: CharakText.h1),
+                    const Text('Set your prices', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text(
                       'Consult fee covers a base time (min 15 min). Extra time is charged '
@@ -222,8 +222,8 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                       ),
                       const SizedBox(height: 12),
 
-                      // `.proc-price-row` — bordered 9/14 row, name on the left,
-                      // ₹ + a 78×38 right-aligned price input on the right.
+                      // Procedure row: a flat tile, name on the left, ₹ and a
+                      // right-aligned price input on the right.
                       ..._procs.asMap().entries.map((entry) {
                         final i = entry.key;
                         final p = entry.value;
@@ -231,9 +231,8 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                           margin: const EdgeInsets.only(bottom: 8),
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                           decoration: BoxDecoration(
-                            color: CharakColors.bg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: CharakColors.border),
+                            color: CharakColors.card,
+                            borderRadius: const BorderRadius.all(CharakRadius.tile),
                           ),
                           child: Row(children: [
                             Expanded(
@@ -244,14 +243,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            const Text('₹', style: TextStyle(
-                              fontFamily: CharakText.fontFamily,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              height: 1.3,
-                              color: CharakColors.ink,
-                              fontFeatures: [FontFeature.tabularFigures()],
-                            )),
+                            Text('₹', style: CharakText.body.tabular.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600, fontSize: 15)),
                             const SizedBox(width: 8),
                             SizedBox(
                               width: 78,
@@ -269,8 +261,8 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                                   p.dispose();
                                   setState(() => _procs.removeAt(i));
                                 },
-                                child: const Padding(
-                                  padding: EdgeInsets.only(left: 8),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 8),
                                   child: Icon(Icons.remove_circle_outline,
                                       size: 18, color: CharakColors.danger),
                                 ),
@@ -287,10 +279,10 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                       const SizedBox(height: 16),
                       const CharakSectionTitle(label: 'Senior review threshold'),
                       const SizedBox(height: 9),
-                      const Text('Review procedure bills above', style: _fieldLabel),
+                      Text('Review procedure bills above', style: _fieldLabel),
                       const SizedBox(height: 7),
                       Row(children: [
-                        const Text('₹', style: _rupee),
+                        Text('₹', style: _rupee),
                         const SizedBox(width: 10),
                         SizedBox(
                           width: 120,
@@ -307,18 +299,13 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                       // the figures lifted to ink.
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: CharakColors.bgSubtle,
-                          borderRadius: BorderRadius.all(CharakRadius.card),
+                          borderRadius: const BorderRadius.all(CharakRadius.card),
                         ),
                         child: Text.rich(
                           TextSpan(
-                            style: const TextStyle(
-                              fontFamily: CharakText.fontFamily,
-                              fontSize: 13,
-                              height: 1.55,
-                              color: CharakColors.inkMuted,
-                            ),
+                            style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
                             children: [
                               const TextSpan(text: 'Patients see '),
                               TextSpan(text: '₹$onlineShown', style: _previewStrong),
@@ -357,34 +344,16 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
 }
 
 /// `.field label` — 13px/600 ink.
-const _fieldLabel = TextStyle(
-  fontFamily: CharakText.fontFamily,
-  fontSize: 13,
-  fontWeight: FontWeight.w600,
-  height: 1.4,
-  color: CharakColors.ink,
-);
+final _fieldLabel = CharakText.caption.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600);
 
 /// The 18px/600 rupee glyph that leads each price row.
-const _rupee = TextStyle(
-  fontFamily: CharakText.fontFamily,
-  fontSize: 18,
-  fontWeight: FontWeight.w600,
-  height: 1.3,
-  color: CharakColors.ink,
-  fontFeatures: [FontFeature.tabularFigures()],
-);
+final _rupee = CharakText.body.tabular.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600, fontSize: 18);
 
 /// `.price-suffix` — 12.5px muted trailing unit.
-const _suffix = TextStyle(
-  fontFamily: CharakText.fontFamily,
-  fontSize: 12.5,
-  height: 1.4,
-  color: CharakColors.inkMuted,
-);
+final _suffix = CharakText.caption.copyWith(color: CharakColors.inkMuted);
 
 /// `.price-preview b` — the figures inside the preview block.
-const _previewStrong = TextStyle(
+final _previewStrong = TextStyle(
   color: CharakColors.ink,
   fontWeight: FontWeight.w600,
 );
@@ -412,7 +381,7 @@ class _PriceField extends StatelessWidget {
     decoration: BoxDecoration(
       color: CharakColors.bg,
       borderRadius: const BorderRadius.all(CharakRadius.button),
-      border: Border.all(color: CharakColors.border),
+      border: Border.all(color: CharakColors.borderStrong, width: 1.5),
     ),
     alignment: Alignment.center,
     child: TextField(

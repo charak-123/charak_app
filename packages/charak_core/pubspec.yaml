@@ -1,5 +1,5 @@
 name: charak_core
-description: Shared package for Charak apps — design tokens, auth, API client, models.
+description: Shared package for Charak apps — design system V2 (tokens, theme, components, fonts), auth, API client.
 version: 0.1.0
 publish_to: none
 
@@ -20,3 +20,21 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+
+flutter:
+  # Brand mark cut from design-system/CHARAK_Design_System_V2.pdf (page 1).
+  # Load with CharakLogoMark, never Image.asset directly.
+  assets:
+    - assets/brand/
+
+  # Anek (Ek Type, SIL OFL 1.1). One variable family, two scripts. Width and
+  # weight come from the wdth/wght axes, so a single file per script covers
+  # every style. Apps reference it as 'packages/charak_core/Anek'
+  # (CharakType.family); they must not declare their own fonts.
+  fonts:
+    - family: Anek
+      fonts:
+        - asset: fonts/AnekLatin-Variable.ttf
+    - family: AnekDevanagari
+      fonts:
+        - asset: fonts/AnekDevanagari-Variable.ttf

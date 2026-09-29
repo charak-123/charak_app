@@ -38,8 +38,8 @@
         {
           "slug": "charak",
           "files": [
-            { "label": "Tokens (colors & type)", "path": "design-systems/charak/colors_and_type.css" },
-            { "label": "System guide", "path": "design-systems/charak/SKILL.md" }
+            { "label": "Tokens V2 (generated from design-system/tokens.json)", "path": "design-systems/charak/colors_and_type.css" },
+            { "label": "System guide (V2 brief; full spec in design-system/README.md)", "path": "design-systems/charak/SKILL.md" }
           ]
         }
       ]

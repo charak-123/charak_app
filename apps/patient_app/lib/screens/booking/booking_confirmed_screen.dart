@@ -10,7 +10,7 @@ class BookingConfirmedScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-    backgroundColor: CharakColors.bg,
+    backgroundColor: CharakColors.ground,
     body: SafeArea(
       child: Column(children: [
         Expanded(

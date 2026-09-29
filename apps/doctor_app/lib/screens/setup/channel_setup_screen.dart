@@ -45,7 +45,7 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -57,7 +57,7 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
                   children: [
                     const CharakStepDots(current: 2),
                     const SizedBox(height: 10),
-                    const Text('How do you practice?', style: CharakText.h1),
+                    const Text('How do you practice?', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text('Pick one or both. A cardiologist can simply skip Home Visit.',
                         style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),

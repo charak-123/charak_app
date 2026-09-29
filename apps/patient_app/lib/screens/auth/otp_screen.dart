@@ -100,7 +100,7 @@ class _State extends ConsumerState<OtpScreen> {
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
+          SnackBar(content: Text(e.message), backgroundColor: CharakPalette.statusDeclined),
         );
       }
     }
@@ -113,19 +113,19 @@ class _State extends ConsumerState<OtpScreen> {
         widget.phone.startsWith('+91') ? widget.phone : '+91 ${widget.phone}';
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: AppBar(
-        backgroundColor: CharakColors.bg,
+        backgroundColor: CharakColors.ground,
         elevation: 0,
         scrolledUnderElevation: 0,
-        leading: const BackButton(color: CharakColors.ink),
+        leading: BackButton(color: CharakColors.ink),
       ),
       body: Column(children: [
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Enter the code', style: charakScreenTitleStyle),
+              Text('Enter the code', style: charakScreenTitleStyle),
               const SizedBox(height: 5),
               // `.screen-sub` with the inline "Change" link.
               Text.rich(
@@ -133,7 +133,7 @@ class _State extends ConsumerState<OtpScreen> {
                   TextSpan(text: 'Sent to $displayPhone · '),
                   TextSpan(
                     text: 'Change',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: CharakColors.primary,
@@ -187,10 +187,10 @@ class _State extends ConsumerState<OtpScreen> {
                             TextSpan(
                               text:
                                   '${_countdown ~/ 60}:${(_countdown % 60).toString().padLeft(2, '0')}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.w600,
                                 color: CharakColors.ink,
-                                fontFeatures: [FontFeature.tabularFigures()],
+                                fontFeatures: const [FontFeature.tabularFigures()],
                               ),
                             ),
                           ]),
@@ -268,24 +268,17 @@ class _OtpCellState extends State<_OtpCell> {
   Widget build(BuildContext context) {
     final edge = widget.hasError
         ? CharakColors.danger
-        : (_focused ? CharakColors.primary : CharakColors.border);
+        : (_focused ? CharakColors.primary : CharakColors.borderStrong);
+    // OTP cell: a 48×60 field block; the outline turns 2px blue on focus.
     return AnimatedContainer(
-      duration: CharakDurations.buttonPress,
-      width: 46,
-      height: 54,
+      duration: CharakMotion.standard,
+      curve: CharakCurves.standard,
+      width: 48,
+      height: 60,
       decoration: BoxDecoration(
-        color: CharakColors.bg,
-        border: Border.all(color: edge),
-        borderRadius: const BorderRadius.all(CharakRadius.button),
-        boxShadow: _focused
-            ? [
-                BoxShadow(
-                  color: (widget.hasError ? CharakColors.danger : CharakColors.primary)
-                      .withValues(alpha: 0.12),
-                  spreadRadius: 3,
-                ),
-              ]
-            : null,
+        color: CharakColors.card,
+        border: Border.all(color: edge, width: (_focused || widget.hasError) ? 2 : 1.5),
+        borderRadius: const BorderRadius.all(CharakRadius.tile),
       ),
       alignment: Alignment.center,
       child: TextField(
@@ -296,14 +289,7 @@ class _OtpCellState extends State<_OtpCell> {
         textAlign: TextAlign.center,
         maxLength: 1,
         cursorColor: CharakColors.primary,
-        style: const TextStyle(
-          fontFamily: CharakText.fontFamily,
-          fontSize: 22,
-          fontWeight: FontWeight.w600,
-          height: 1.2,
-          color: CharakColors.ink,
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
+        style: CharakText.numeric.copyWith(fontSize: 26, color: CharakColors.ink),
         decoration: const InputDecoration(
           counterText: '',
           isDense: true,

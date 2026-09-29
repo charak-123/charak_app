@@ -43,7 +43,7 @@ class _OnlineConsultSetupScreenState extends ConsumerState<OnlineConsultSetupScr
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -53,7 +53,7 @@ class _OnlineConsultSetupScreenState extends ConsumerState<OnlineConsultSetupScr
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Online consult hours', style: CharakText.h1),
+                    const Text('Online consult hours', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text('Weekly template — patients book into these slots.',
                         style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),

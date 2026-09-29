@@ -40,7 +40,7 @@ class _State extends ConsumerState<PhoneEntryScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.bg,
+    backgroundColor: CharakColors.ground,
     body: SafeArea(
       child: Column(children: [
         Expanded(
@@ -48,9 +48,9 @@ class _State extends ConsumerState<PhoneEntryScreen> {
             // `.body` with the screen's 26px top inset.
             padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Your phone number', style: charakScreenTitleStyle),
+              Text('Your phone number', style: charakScreenTitleStyle),
               const SizedBox(height: 5),
-              const Text(
+              Text(
                 "We'll send a one-time code to verify it's you.",
                 style: charakScreenSubStyle,
               ),

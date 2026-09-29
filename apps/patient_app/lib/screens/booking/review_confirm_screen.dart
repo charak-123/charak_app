@@ -53,7 +53,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
+          SnackBar(content: Text(e.message), backgroundColor: CharakPalette.statusDeclined),
         );
       }
     } finally {
@@ -100,7 +100,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
     final intakePreview = text.isNotEmpty ? text : transcript;
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: const CharakTopBar(title: 'Review & confirm'),
       body: Column(children: [
         Expanded(child: ListView(
@@ -152,9 +152,9 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
             const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: CharakColors.bgSubtle,
-                borderRadius: BorderRadius.all(CharakRadius.card),
+                borderRadius: const BorderRadius.all(CharakRadius.card),
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 if (intakeLabel != null) ...[
@@ -175,7 +175,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
             ),
 
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'The doctor reviews your request before accepting — booking a '
               'slot does not confirm it automatically.',
               style: charakHintStyle,

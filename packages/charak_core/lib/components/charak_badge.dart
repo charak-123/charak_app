@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:shadcn_ui/shadcn_ui.dart';
+
 import '../design/tokens.dart';
 import 'charak_controls.dart';
 
-enum CharakBadgeVariant { primary, success, warning, danger, muted }
+enum CharakBadgeVariant { primary, success, warning, danger, muted, requested, active }
 
-/// Status / label badge using ShadBadge.
+/// Small label badge: sentence case, caption/600, soft status fill. Shares
+/// its colours with [CharakStatusPill] so badges and pills never drift apart.
 class CharakBadge extends StatelessWidget {
   final String label;
   final CharakBadgeVariant variant;
@@ -20,34 +21,28 @@ class CharakBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (bg, fg) = _colors();
-    // `.badge` — 3×10 padding, 11px/600, 0.04em tracking, uppercase.
-    return ShadBadge(
-      backgroundColor: bg,
+    final (bg, fg) = charakToneColors(switch (variant) {
+      CharakBadgeVariant.primary   => CharakStatusTone.accepted,
+      CharakBadgeVariant.success   => CharakStatusTone.confirmed,
+      CharakBadgeVariant.warning   => CharakStatusTone.review,
+      CharakBadgeVariant.danger    => CharakStatusTone.declined,
+      CharakBadgeVariant.muted     => CharakStatusTone.muted,
+      CharakBadgeVariant.requested => CharakStatusTone.requested,
+      CharakBadgeVariant.active    => CharakStatusTone.active,
+    });
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(color: bg, borderRadius: const BorderRadius.all(CharakRadius.pill)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 12, color: fg),
-            const SizedBox(width: 5),
+            Icon(icon, size: 13, color: fg),
+            const SizedBox(width: 4),
           ],
-          Text(
-            label.toUpperCase(),
-            style: CharakText.micro.copyWith(color: fg, letterSpacing: 11 * 0.04),
-          ),
+          Text(label, style: CharakText.caption.copyWith(color: fg, fontWeight: FontWeight.w600)),
         ],
       ),
     );
   }
-
-  // Tone pairs are shared with CharakStatusPill so badges and pills never
-  // drift apart; values come straight from `core.css`.
-  (Color, Color) _colors() => charakToneColors(switch (variant) {
-    CharakBadgeVariant.primary => CharakStatusTone.primary,
-    CharakBadgeVariant.success => CharakStatusTone.success,
-    CharakBadgeVariant.warning => CharakStatusTone.warning,
-    CharakBadgeVariant.danger  => CharakStatusTone.danger,
-    CharakBadgeVariant.muted   => CharakStatusTone.muted,
-  });
 }

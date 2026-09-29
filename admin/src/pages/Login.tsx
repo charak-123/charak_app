@@ -31,7 +31,11 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-muted/30">
       <Card className="w-[360px]">
         <CardHeader>
-          <CardTitle>Charak Admin</CardTitle>
+          <CardTitle className="flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold tracking-wide" style={{ fontStretch: '125%' }}>CHARAK</span>
+            <span className="text-2xl font-bold text-chandan" style={{ fontFamily: '"Anek Devanagari"' }}>चरक</span>
+            <span className="text-sm font-medium text-muted-foreground">admin</span>
+          </CardTitle>
           <p className="text-sm text-muted-foreground">Enter your admin password to continue</p>
         </CardHeader>
         <CardContent>
