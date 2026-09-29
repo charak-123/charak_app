@@ -19,6 +19,22 @@ RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 AGORA_APP_ID          = os.getenv("AGORA_APP_ID", "")
 AGORA_APP_CERTIFICATE = os.getenv("AGORA_APP_CERTIFICATE", "")
 
+# ── Voice-note transcription + summary ───────────────────────────────────────
+# Requirements Doc 3.8: voice becomes transcript + summary for the doctor.
+# Nothing diagnostic, and nothing reads photos or video.
+#
+# Vertex AI is preferred over the public Gemini API for one reason: patient
+# voice notes describing symptoms are health data, and a regional endpoint
+# (asia-south1 = Mumbai) keeps processing in India. The global endpoint would
+# silently defeat that, so the region is always part of the URL.
+VERTEX_PROJECT_ID = os.getenv("VERTEX_PROJECT_ID", "")
+VERTEX_LOCATION   = os.getenv("VERTEX_LOCATION", "asia-south1")
+# Pin the model. APAC regions lag US on new releases, so "whatever is newest"
+# is not a safe default here.
+GEMINI_MODEL      = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+# Legacy: Whisper. Kept as a fallback while Vertex is being switched on, and so
+# a deployment without GCP credentials still transcribes.
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # ── Push ─────────────────────────────────────────────────────────────────────

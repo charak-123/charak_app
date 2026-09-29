@@ -19,18 +19,83 @@ Detailed build plan · Website · Patient app first · Doctor app · Shared back
 
 | Checkpoint | Date | Status |
 |---|---|---|
-| Website live (charak.in) | Fri 22 Aug 2026 | ✅ COMPLETE |
+| Website live (charak.care) | Fri 22 Aug 2026 | ✅ COMPLETE |
 | Foundation complete | Fri 5 Sep 2026 | ✅ COMPLETE |
 | Patient app complete | Fri 26 Sep 2026 | ✅ COMPLETE |
 | Doctor app complete | Fri 17 Oct 2026 | Upcoming |
 | Android beta live | Fri 31 Oct 2026 | Upcoming |
 
-**Current status (19 Sep 2026): on schedule, with buffer banked.**
+**iOS has not started.** Neither app had an `ios/` directory until 29 Sep;
+both are now scaffolded (`com.charak.patientApp` / `com.charak.doctorApp`)
+with usage strings and background modes set. Everything past that —
+`pod install`, signing, an Apple Developer account, APNs for FCM, a build —
+needs macOS hardware. No App Store date should be quoted until that exists.
+
+**Current status (29 Sep 2026): code complete on paper, but a full-source
+review found the booking spine broken. Those defects are now fixed; store
+readiness is the remaining work.**
+
+> **Correction (29 Sep 2026).** The "Patient app complete" tick below was
+> premature. A read of both apps against the backend found that no consult
+> could be paid for (nothing ever wrote `price_confirmed`), no home visit
+> could be booked (the app never sent `address_id` and had no address
+> picker), intake photos/video/voice were never uploaded, and no patient
+> could join a paid online consult. The 392-test suite was green throughout,
+> because it exercised routers against mocked Supabase chains and never
+> checked what the Flutter call sites actually send. **That seam is where
+> every one of these bugs lived, and it is still the least-tested part of the
+> system.** All are fixed; an integration test that drives a real booking
+> against a real database is the outstanding gap.
 
 Website, Phase 1 (Foundation) and Phase 2 (Patient App) are complete as planned.
 In addition, **the entire Phase 4 backend workload has been completed early** —
 the server-side work originally scheduled for Days 46–55 (20–31 Oct) landed on
 19 Sep. See *Backend — completed ahead of schedule* below.
+
+**Phase 3 (Doctor App) has also largely landed before its 29 Sep start.** Every
+screen from Weeks 7–9 is built and wired to the live backend, and the three
+items that were still stubbed are now done:
+
+| Item | Scheduled | Status |
+|---|---|---|
+| Agora video — real engine, both apps | Wed 8 Oct | ✅ Done (25 Sep) |
+| Verification document — required, uploaded via backend | Tue 30 Sep | ✅ Done (25 Sep) |
+| FCM push — device registration + tap routing | Wed 15 Oct | ✅ Done (25 Sep) |
+| Senior-review E2E flow test | Thu 16 Oct | ✅ Done (26 Sep) |
+| Active visit: Navigate, Running late, visit timer | Thu 9 Oct | ✅ Done (27 Sep) |
+| Active visit: in-app contact | Thu 9 Oct | ⚠️ Not built — see below |
+| Voice transcript + AI summary | Tue 7 Oct | ✅ Done (27 Sep) — Gemini on Vertex AI |
+
+The senior-review path is covered end to end by
+`backend/tests/test_e2e_phase3.py` — doctor onboarding through ops verification,
+a live request, a clarification call, a bill over the threshold held out of
+earnings, and ops approval moving it in. Push routing is unit-tested in each
+app's `test/push_routes_test.dart`; the call surface in
+`packages/charak_core/test`.
+
+⚠️ **One piece of patient-facing copy is now inaccurate.** The intake screen
+says *"Reviewed by your doctor directly — never analyzed by AI."* That was true
+while voice notes were only transcribed. Requirements Doc §3.8 always allowed
+*"transcription + summary for the doctor"*, and the summary is now built, so the
+line overpromises. It needs rewording before launch — something that states the
+real boundary rather than a broader one, e.g. *"Your doctor reads this directly.
+AI only transcribes and summarises your voice note — your photos and video are
+never analysed."* Wording is a founder call, not a code change.
+
+**In-app contact is the one unbuilt feature.** Both apps show a "Contact
+through app" affordance that does nothing — there is no messaging anywhere in
+the product, and the requirement is explicitly that neither side sees the
+other's raw number. It needs a decision: masked calling through a telephony
+provider (an integration, like Agora and FCM), or in-app chat (a build, on both
+apps plus the backend). Everything else on the visit screen is live.
+
+**Otherwise what remains is the device pass** (Fri 17 Oct): running the scripted flow
+on real hardware. `docs/runbooks/phase3_device_test.md` is that script, and
+`scripts/run-app.sh` launches either app against the LAN backend. Most of it
+runs without credentials; the live video and push sections need Agora
+(`AGORA_APP_ID` / `AGORA_APP_CERTIFICATE`) and a Firebase project with a
+`google-services.json` per app. Both degrade cleanly and say so in the UI until
+those exist — see `docs/runbooks/backend_go_live.md`.
 
 All five checkpoint dates are unchanged and remain the dates to report. The time
 recovered is held as buffer, not pulled forward — it absorbs device-testing
@@ -38,23 +103,23 @@ surprises, Play Store review, and anything the integration credentials turn up.
 
 ---
 
-## Website — charak.in
+## Website — charak.care
 
 **18 Aug – 22 Aug 2026 (Week 1) · ✅ COMPLETE**
 
-*Goal: charak.in is publicly live — doctors can register online, documents go directly into the same Supabase database the apps use. No re-entry needed when the app launches. The URL can go into outreach, ads, and QR codes immediately.*
+*Goal: charak.care is publicly live — doctors can register online, documents go directly into the same Supabase database the apps use. No re-entry needed when the app launches. The URL can go into outreach, ads, and QR codes immediately.*
 
 ### Week 1 — 18–22 Aug · ✅ Done
 
 | Date | Task |
 |---|---|
-| Mon 18 Aug | Next.js project setup; public landing page (charak.in /): headline, "How it works" (Register → Get Verified → Go Live), doctor benefits, verification trust section, FAQ, footer with legal links, one CTA: "Register as a Doctor" |
+| Mon 18 Aug | Next.js project setup; public landing page (charak.care /): headline, "How it works" (Register → Get Verified → Go Live), doctor benefits, verification trust section, FAQ, footer with legal links, one CTA: "Register as a Doctor" |
 | Tue 19 Aug | Doctor registration form (/register): full name, phone (with OTP verification built into the form), email, specialty dropdown, licence/registration number, qualification, years of experience, consultation channels checkboxes, city/state, document upload (licence or degree, PDF/JPG/PNG up to 10 MB); Submit locked until phone is verified |
 | Wed 20 Aug | Backend wiring: form submission creates a doctor record in the same Supabase tables the apps use — same schema, zero re-entry. Confirmation page (/register/success) with unique reference ID (CHR-XXXXXX). Duplicate guard: same phone → "Already registered — Pending Verification". Rate limiting: max 5 submissions/IP/hour |
 | Thu 21 Aug | Legal pages: Privacy Policy (DPDPA 2023 compliant), Terms of Service, Medical Disclaimer (booking platform, not medical provider), Contact page (Grievance Officer details per IT Rules 2021); SMS + email confirmation on registration |
 | Fri 22 Aug | Production deploy to Vercel; full smoke test (submit real registration end-to-end, confirm record appears in Supabase within 2 seconds); URL shared for doctor outreach |
 
-**Website exit:** charak.in is publicly live. A doctor can register, verify their phone, upload documents, and receive a reference ID. Every submission appears in Supabase instantly. Doctor acquisition can begin immediately — before either app ships.
+**Website exit:** charak.care is publicly live. A doctor can register, verify their phone, upload documents, and receive a reference ID. Every submission appears in Supabase instantly. Doctor acquisition can begin immediately — before either app ships.
 
 ---
 
@@ -238,7 +303,7 @@ testing, credential switch-on, and the admin panel front end.*
 | Date | Task |
 |---|---|
 | Mon 27 Oct | Bug-fix sprint: fix all issues from cross-app testing. Performance: API targets under 300 ms; large file upload; slot race conditions. Test on ₹8,000–₹15,000 Android devices (primary Indian user segment) |
-| Tue 28 Oct | Play Store listings: icon, name, 5–8 screenshots per app, short + long descriptions, content rating, privacy policy URL (charak.in/privacy). Generate signed Android release builds (AAB) and upload to Play Console under Closed Testing |
+| Tue 28 Oct | Play Store listings: icon, name, 5–8 screenshots per app, short + long descriptions, content rating, privacy policy URL (charak.care/privacy). Generate signed Android release builds (AAB) and upload to Play Console under Closed Testing |
 | Wed 29 Oct | Seed first doctor accounts (early-user doctors who agreed to be in beta). Write rollout plan (beta tester count, geographies, feedback method) |
 | Thu 30 Oct | Final release builds after last-minute fixes. Handoff checklist: all credentials documented, monitoring active, support email live, backup schedule confirmed |
 | Fri 31 Oct | **Beta pilot live.** Both apps on Google Play (Closed Testing). Real doctors on doctor app, real patients on patient app. Real OTP, real payments, admin verification working. Product ready for first real users |
@@ -249,7 +314,7 @@ testing, credential switch-on, and the admin panel front end.*
 
 ## Notes
 
-**Website advantage:** doctors who registered on charak.in before the app launched have their profile pre-filled in the doctor app — same Supabase tables, same phone number, no re-entry. This gives a base of registered doctors ready to be verified before the patient app ships.
+**Website advantage:** doctors who registered on charak.care before the app launched have their profile pre-filled in the doctor app — same Supabase tables, same phone number, no re-entry. This gives a base of registered doctors ready to be verified before the patient app ships.
 
 **Why patient app first:** the patient booking and payment flow is validated end-to-end before the doctor app layers on top. The shared `charak_core` package and backend are built once in Phase 1 and consumed by both apps.
 

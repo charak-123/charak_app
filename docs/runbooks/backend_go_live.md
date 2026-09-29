@@ -116,6 +116,25 @@ changes delivery only.
 
 `google-auth==2.41.1` is already in `requirements.txt`.
 
+### App side
+
+Both apps register automatically — `CharakPush.start()` is called from
+`AuthNotifier` on login and on a resumed session, and `stop()` on logout, so no
+screen has to remember to do it. What the apps still need at build time is a
+Firebase project:
+
+1. Add an Android app per package name (`in.charak.partner`, `in.charak.app`)
+   to the same Firebase project the backend's service account belongs to.
+2. Drop each `google-services.json` at `apps/<app>/android/app/`.
+3. Add the Google Services plugin to `apps/<app>/android/` —
+   `id("com.google.gms.google-services") version "4.4.2" apply false` in the
+   root `build.gradle.kts`, applied in `app/build.gradle.kts`.
+
+Until that file exists `Firebase.initializeApp()` throws, `CharakPush` records
+`unavailableReason` and returns quietly — the apps build and run, they simply
+receive nothing. Notification taps are routed per event in each app's
+`router.dart`.
+
 **Verify:** after logging in on a device, `POST /push/register` then trigger a
 booking request. Check the row:
 
@@ -159,11 +178,56 @@ Until set, a voice note still uploads and is still playable by the doctor; the
 `intake_media` row records `transcript_status='failed'` with the reason, so the
 gap is visible rather than looking like a patient who said nothing.
 
-**Scope is deliberately narrow.** This is speech-to-text only — no summarising, no
-triage, no symptom extraction — because the product promises intake is "reviewed
-by your doctor directly, never analyzed by AI". The request carries no prompt, and
-a test asserts that. Adding anything interpretive here is a product decision about
-that promise, not a code change.
+### Vertex AI (preferred) — transcript and summary in one call
+
+```
+VERTEX_PROJECT_ID=charak-xxxx
+VERTEX_LOCATION=asia-south1          # Mumbai. Do not use the global endpoint.
+GEMINI_MODEL=gemini-2.5-flash
+GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/gcp-service-account.json
+```
+
+The same service-account file FCM uses, with the `cloud-platform` scope. No new
+dependency — `google-auth` is already installed.
+
+Two reasons this is preferred over Whisper:
+
+* **Data residency.** Patient voice notes describing symptoms are health data.
+  `asia-south1` keeps processing in India; the *global* endpoint silently does
+  not, which is why the region is baked into the request URL and a test asserts
+  it.
+* **One call, two outputs.** Transcript and summary together, for roughly a
+  sixth of Whisper's per-minute cost.
+
+Pin the model. APAC regions lag US on new releases, so check the model is
+actually served in `asia-south1` before changing `GEMINI_MODEL`.
+
+**Fallback.** If Vertex is unset or a call fails, it falls back to Whisper and
+stores the transcript with no summary. A transcript without a summary is a
+working intake; losing the transcript would not be.
+
+### Where the AI boundary sits
+
+Requirements Document §3.8: *"Voice → transcription + summary for the doctor
+only. Nothing diagnostic. Nothing analyzes video or images. This is a hard
+product boundary."*
+
+So, concretely:
+
+* voice may be transcribed **and summarised**;
+* photos and video are stored and displayed as-is — nothing reads them, and the
+  doctor app will not render a summary on a non-voice item;
+* the summary reports what the patient *said*, never what it might mean. No
+  triage, no urgency, no severity, no differential, no advice.
+
+`SUMMARY_PROMPT` in `services/transcription.py` is the only place that boundary
+is expressed, and tests assert its constraining clauses are still present.
+Weakening it is a product decision, not a refactor.
+
+⚠️ **The patient-facing microcopy is now wrong.** `intake_screen.dart` says
+"Reviewed by your doctor directly — never analyzed by AI." That was accurate when
+nothing was summarised. It is not accurate now, and it needs rewording before
+launch — see the note in the milestone schedule.
 
 ---
 
@@ -181,7 +245,23 @@ channel.
 
 Both sides get a token: the doctor from
 `POST /bookings/{id}/clarification-call`, the patient from
-`POST /bookings/{id}/clarification-call/{call_id}/token`.
+`POST /bookings/{id}/call` — which resolves whatever call is ringing on the
+booking, because the patient app is never told a call id.
+`POST /bookings/{id}/clarification-call/{call_id}/token` remains for a caller
+that does hold one.
+
+### App side
+
+`CharakCallSession` in `charak_core` owns the Agora engine for both apps —
+permissions, join, mute/camera, the elapsed clock and the two video views. No
+extra build configuration is needed; the `agora_rtc_engine` plugin and the
+camera/microphone manifest permissions are already in place.
+
+The `live` flag in every token response is what the apps switch on. While the
+credentials above are unset the backend returns a `stub_…` token, no engine is
+created, and both call screens say **"Dev stub · Agora not configured"** rather
+than sitting on "Connecting…" forever — so the flow stays testable without
+credentials, and it is obvious which mode you are in.
 
 ---
 
@@ -214,7 +294,7 @@ curl -fsS -X POST -H "X-Cron-Secret: $CRON_SECRET" \
 
 ```
 ADMIN_PASSWORD=<strong value>              # default is 'charak-admin-2024' — change it
-ALLOWED_ORIGINS=https://admin.charak.in    # default '*' — tighten before launch
+ALLOWED_ORIGINS=https://admin.charak.care    # default '*' — tighten before launch
 PLATFORM_COMMISSION_PCT=15                 # Charak's cut; per-doctor override in doctors.commission_pct
 PAYMENT_HOLD_MINUTES=10                    # how long a slot is held for payment
 JWT_SECRET=<64 random hex chars>           # rotating this logs every user out

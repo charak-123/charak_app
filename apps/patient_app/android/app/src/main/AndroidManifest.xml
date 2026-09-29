@@ -1,6 +1,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Agora RTC needs camera + mic for the clarification call, and reads
+         network/wifi state to adapt the stream. BLUETOOTH_CONNECT lets audio
+         route to a headset mid-call on Android 12+. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Pinning a home-visit address: the booking is refused without
+         coordinates, because the doctor's service-radius check runs on them.
+         Fine accuracy is what that check needs — a coarse fix can be a
+         kilometre out, which is enough to put an address on the wrong side of
+         a radius boundary and refuse a visit that should be allowed. Requested
+         only from the add-address sheet, never in the background. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- FCM taps open the app while it is backgrounded; Android 13+ gates the
+         notification itself behind a runtime permission. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
-        android:label="patient_app"
+        android:label="Charak"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

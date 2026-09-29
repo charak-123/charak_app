@@ -49,6 +49,15 @@ class CharakCallScaffold extends StatelessWidget {
   /// Renders the self-view tile. Set false before the local stream is ready.
   final bool showSelfView;
 
+  /// The peer's live video. When present it fills the field in place of the
+  /// avatar identity block; the name strip moves to the bottom-left so the
+  /// stream is not covered.
+  final Widget? peerVideo;
+
+  /// The local camera stream, drawn inside the `.call-self` tile. Falls back
+  /// to the camera glyph when absent (stub mode, or camera off).
+  final Widget? selfVideo;
+
   /// Optional single-line notes field pinned above the controls.
   final Widget? notes;
 
@@ -62,6 +71,8 @@ class CharakCallScaffold extends StatelessWidget {
     required this.statusText,
     this.recording = false,
     this.showSelfView = true,
+    this.peerVideo,
+    this.selfVideo,
     this.notes,
     required this.controls,
   });
@@ -84,28 +95,50 @@ class CharakCallScaffold extends StatelessWidget {
             ),
           ),
         ),
-        Positioned.fill(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0x33FFFFFF), width: 3),
-                ),
-                child: CharakAvatar(name: peerName, imageUrl: peerImageUrl, radius: 42),
-              ),
-              const SizedBox(height: 12),
-              Text(peerName,
-                  style: CharakText.h1.copyWith(fontSize: 19, color: Colors.white)),
-              if (peerSubtitle != null) ...[
-                const SizedBox(height: 4),
-                Text(peerSubtitle!,
-                    style: CharakText.caption.copyWith(color: CharakCallColors.peerSub)),
+        if (peerVideo != null) ...[
+          Positioned.fill(child: peerVideo!),
+          // Identity moves out of the centre so it never sits over a face.
+          Positioned(
+            left: 16,
+            right: 120,
+            bottom: notes != null ? 150 : 96,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(peerName,
+                    style: CharakText.h1.copyWith(fontSize: 17, color: Colors.white),
+                    overflow: TextOverflow.ellipsis),
+                if (peerSubtitle != null)
+                  Text(peerSubtitle!,
+                      style: CharakText.caption.copyWith(color: CharakCallColors.peerSub),
+                      overflow: TextOverflow.ellipsis),
               ],
-            ],
+            ),
           ),
-        ),
+        ] else
+          Positioned.fill(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0x33FFFFFF), width: 3),
+                  ),
+                  child: CharakAvatar(name: peerName, imageUrl: peerImageUrl, radius: 42),
+                ),
+                const SizedBox(height: 12),
+                Text(peerName,
+                    style: CharakText.h1.copyWith(fontSize: 19, color: Colors.white)),
+                if (peerSubtitle != null) ...[
+                  const SizedBox(height: 4),
+                  Text(peerSubtitle!,
+                      style: CharakText.caption.copyWith(color: CharakCallColors.peerSub)),
+                ],
+              ],
+            ),
+          ),
         // `.call-top`
         Positioned(
           left: 0,
@@ -152,9 +185,11 @@ class CharakCallScaffold extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: CharakCallColors.hairline),
                 ),
+                clipBehavior: Clip.antiAlias,
                 alignment: Alignment.center,
-                child: const Icon(Icons.videocam_outlined,
-                    size: 22, color: CharakCallColors.selfIcon),
+                child: selfVideo ??
+                    const Icon(Icons.videocam_outlined,
+                        size: 22, color: CharakCallColors.selfIcon),
               ),
             ),
           ),

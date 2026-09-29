@@ -13,6 +13,8 @@ import 'screens/setup/online_consult_setup_screen.dart';
 import 'screens/setup/home_visit_setup_screen.dart';
 import 'screens/setup/pricing_setup_screen.dart';
 import 'screens/home/home_shell.dart';
+import 'screens/home/shell_providers.dart';
+import 'push_routes.dart';
 import 'screens/requests/request_detail_screen.dart';
 import 'screens/requests/clarification_call_screen.dart';
 import 'screens/requests/active_visit_screen.dart';
@@ -91,5 +93,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+
+  // A tapped notification should land on the thing it is about, not the last
+  // screen the doctor happened to be on. The mapping itself lives in
+  // `push_routes.dart` so it can be tested without a GoRouter.
+  final pushSub = CharakPush.instance.messages.listen((m) {
+    final destination = doctorPushDestination(m);
+    if (destination == null) return;
+    final tab = destination.tabIndex;
+    if (tab != null) ref.read(doctorTabIndexProvider.notifier).state = tab;
+    router.go(destination.route);
+  });
+  ref.onDispose(pushSub.cancel);
+
   return router;
 });

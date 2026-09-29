@@ -12,26 +12,34 @@ class ClarificationCallScreen extends ConsumerStatefulWidget {
 
 class _State extends ConsumerState<ClarificationCallScreen> {
   String? _callId;
-  // Retained for the pending Agora SDK wiring below.
-  // ignore: unused_field
-  String? _agoraChannel;
   String _peerName = 'Patient';
   bool _callActive = false;
   bool _loading = false;
-  bool _muted = false;
-  bool _cameraOff = false;
   final _notesController = TextEditingController();
+  final _call = CharakCallSession();
 
   @override
   void initState() {
     super.initState();
+    _call.addListener(_onCallChanged);
     _initCall();
   }
 
   @override
   void dispose() {
+    _call.removeListener(_onCallChanged);
+    _call.dispose();
     _notesController.dispose();
     super.dispose();
+  }
+
+  void _onCallChanged() {
+    if (!mounted) return;
+    setState(() {});
+    final error = _call.error;
+    if (_call.stage == CharakCallStage.failed && error != null) {
+      showCharakToast(context, message: error, isError: true);
+    }
   }
 
   Future<void> _initCall() async {
@@ -41,13 +49,12 @@ class _State extends ConsumerState<ClarificationCallScreen> {
         '/bookings/${widget.bookingId}/clarification-call', {},
       ) as Map<String, dynamic>;
       setState(() {
-        _callId       = res['id'] as String?;
-        _agoraChannel = res['agora_channel'] as String?;
-        _peerName     = res['patient_name'] as String? ?? _peerName;
-        _callActive   = true;
+        _callId     = res['id'] as String?;
+        _peerName   = res['patient_name'] as String? ?? _peerName;
+        _callActive = true;
       });
-      // TODO: initialize Agora SDK with the returned token + _agoraChannel
-      // AgoraRtcEngine.joinChannel(token, _agoraChannel, null, 0);
+      // The doctor is uid 0 — the patient joins the same channel as 1001.
+      await _call.join(CharakCallCredentials.fromJson(res, uid: 0));
     } on ApiException catch (e) {
       if (mounted) {
         showCharakToast(context, message: e.message, isError: true);
@@ -61,6 +68,7 @@ class _State extends ConsumerState<ClarificationCallScreen> {
   Future<void> _endCall({bool missed = false}) async {
     if (_callId == null) return;
     setState(() => _loading = true);
+    await _call.leave();
     try {
       final endpoint = missed
           ? '/bookings/${widget.bookingId}/clarification-call/$_callId/missed'
@@ -83,6 +91,27 @@ class _State extends ConsumerState<ClarificationCallScreen> {
     }
   }
 
+  /// Tells the doctor plainly whether the patient is actually on the line —
+  /// and says so out loud when Agora has no credentials in this environment.
+  String get _subtitle {
+    if (_call.stage == CharakCallStage.failed) {
+      return _call.error ?? 'Call could not be started';
+    }
+    if (_call.isStub && _callActive) {
+      return 'Dev stub · Agora not configured';
+    }
+    switch (_call.stage) {
+      case CharakCallStage.connected:
+        return 'Clarification call · connected';
+      case CharakCallStage.waitingForPeer:
+        return 'Ringing the patient…';
+      case CharakCallStage.ended:
+        return 'Call ended';
+      default:
+        return 'Clarification call · before you decide';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading && !_callActive) {
@@ -96,11 +125,13 @@ class _State extends ConsumerState<ClarificationCallScreen> {
       children: [
         CharakCallScaffold(
           peerName: _peerName,
-          peerSubtitle: 'Clarification call · before you decide',
+          peerSubtitle: _subtitle,
           // `.call-top` — recording dot beside the call's label.
-          statusText: _callActive ? 'Clarification call' : 'Connecting…',
-          recording: _callActive,
-          showSelfView: !_cameraOff,
+          statusText: _callActive ? _call.clock : 'Connecting…',
+          recording: _callActive && _call.stage != CharakCallStage.failed,
+          showSelfView: _call.cameraOn,
+          peerVideo: _call.remoteView(),
+          selfVideo: _call.localView(),
           // `.call-notes` — translucent blurred field kept for this booking.
           notes: TextField(
             controller: _notesController,
@@ -121,16 +152,17 @@ class _State extends ConsumerState<ClarificationCallScreen> {
           ),
           controls: [
             CharakCallButton(
-              icon: _muted ? Icons.mic_off : Icons.mic,
-              active: _muted,
-              semanticLabel: _muted ? 'Unmute' : 'Mute',
-              onPressed: () => setState(() => _muted = !_muted),
+              icon: _call.micOn ? Icons.mic : Icons.mic_off,
+              active: !_call.micOn,
+              semanticLabel: _call.micOn ? 'Mute' : 'Unmute',
+              onPressed: _call.toggleMic,
             ),
             CharakCallButton(
-              icon: _cameraOff ? Icons.videocam_off : Icons.videocam,
-              active: _cameraOff,
-              semanticLabel: _cameraOff ? 'Turn camera on' : 'Turn camera off',
-              onPressed: () => setState(() => _cameraOff = !_cameraOff),
+              icon: _call.cameraOn ? Icons.videocam : Icons.videocam_off,
+              active: !_call.cameraOn,
+              semanticLabel:
+                  _call.cameraOn ? 'Turn camera off' : 'Turn camera on',
+              onPressed: _call.toggleCamera,
             ),
             CharakCallButton(
               icon: Icons.call_end,

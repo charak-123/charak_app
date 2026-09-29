@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:charak_core/charak_core.dart';
 
 class VerificationScreen extends ConsumerStatefulWidget {
@@ -30,46 +29,50 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
       withData: true,
     );
-    if (result != null) setState(() => _doc = result.files.single);
+    if (result == null || !mounted) return;
+    final picked = result.files.single;
+    // storage.LIMITS caps a document at 15MB, and rejects it only after the
+    // whole file has been uploaded. Say so before that happens.
+    const maxBytes = 15 * 1024 * 1024;
+    if (picked.size > maxBytes) {
+      showCharakToast(context,
+          message: 'That file is '
+              '${(picked.size / (1024 * 1024)).toStringAsFixed(1)}MB — the '
+              'limit is 15MB. Try a photo of the certificate instead of a scan.');
+      return;
+    }
+    setState(() => _doc = picked);
   }
 
-  // TODO(backend): the document should be required. It is optional only
-  // because client-side Supabase Storage uploads cannot be authorised — these
-  // apps authenticate with a custom FastAPI JWT, not a Supabase auth session,
-  // so the client carries just the anon key and RLS rejects the insert (403).
-  // Restore `&& _doc != null` once uploads go through a backend endpoint.
-  bool get _valid => _licenseCtrl.text.trim().isNotEmpty;
+  // The document is required: a licence number alone is not something ops can
+  // verify. The upload goes through `POST /uploads/doctor/verification-document`
+  // — a client-side Storage write is rejected, because these apps authenticate
+  // with a FastAPI JWT rather than a Supabase auth session.
+  bool get _valid => _licenseCtrl.text.trim().isNotEmpty && _doc != null;
 
   Future<void> _submit() async {
+    final doc = _doc;
+    if (doc == null || doc.bytes == null) {
+      setState(() => _error = 'Attach your medical licence or degree certificate');
+      return;
+    }
     setState(() { _loading = true; _error = null; });
     try {
-      String? docUrl;
-      if (_doc != null && _doc!.bytes != null) {
-        // Non-fatal: a failed upload must not strand the doctor mid-onboarding.
-        try {
-          final supabase = Supabase.instance.client;
-          final ext  = _doc!.extension ?? 'pdf';
-          final path = 'verification-docs/${DateTime.now().millisecondsSinceEpoch}.$ext';
-          await supabase.storage.from('verification-docs').uploadBinary(
-            path, _doc!.bytes!,
-            fileOptions: FileOptions(contentType: ext == 'pdf' ? 'application/pdf' : 'image/$ext'),
-          );
-          // Signed URL (TTL 10 years for ops review)
-          docUrl = await supabase.storage.from('verification-docs')
-              .createSignedUrl(path, 60 * 60 * 24 * 365 * 10);
-        } catch (_) {
-          if (mounted) {
-            showCharakToast(context,
-                message: "Couldn't attach the document — submitted without it.",
-                isError: true);
-          }
-        }
-      }
-
+      // Licence number first: the document upload sets verification_status back
+      // to pending, so it must be the last write of the pair.
       await ApiClient.instance.post('/doctors/me/verification', {
         'license_number': _licenseCtrl.text.trim(),
-        if (docUrl != null) 'document_url': docUrl,
       });
+
+      final ext = (doc.extension ?? 'pdf').toLowerCase();
+      await ApiClient.instance.postFile(
+        '/uploads/doctor/verification-document',
+        bytes: doc.bytes!,
+        filename: doc.name,
+        contentType: ext == 'pdf'
+            ? 'application/pdf'
+            : 'image/${ext == 'jpg' ? 'jpeg' : ext}',
+      );
       if (mounted) context.go('/onboarding/verification-pending');
     } on ApiException catch (e) {
       setState(() => _error = e.message);

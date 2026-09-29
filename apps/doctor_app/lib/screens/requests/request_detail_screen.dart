@@ -241,9 +241,10 @@ class _IntakeBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final type = item['media_type'] as String? ?? '';
-    final text = item['transcript_text'] as String?;
-    final url  = item['file_url'] as String?;
+    final type    = item['media_type'] as String? ?? '';
+    final text    = item['transcript_text'] as String?;
+    final summary = item['transcript_summary'] as String?;
+    final url     = item['file_url'] as String?;
 
     final (icon, label, transcribed) = switch (type) {
       'voice' => (Icons.mic_none_rounded, 'Voice note', true),
@@ -252,6 +253,10 @@ class _IntakeBlock extends StatelessWidget {
       _       => (Icons.short_text_rounded, 'Typed note', false),
     };
     final hasText = text != null && text.isNotEmpty;
+    // Only voice notes are summarised. Requirements Doc 3.8 is explicit that
+    // nothing reads photos or video, so a summary must never appear on one.
+    final hasSummary =
+        type == 'voice' && summary != null && summary.trim().isNotEmpty;
 
     return Container(
       width: double.infinity,
@@ -291,6 +296,13 @@ class _IntakeBlock extends StatelessWidget {
               ),
             ),
         ]),
+        // The summary sits above the transcript because it is what a doctor
+        // scans first — but the patient's own words stay right beneath it,
+        // never replaced, so the summary can always be checked against them.
+        if (hasSummary) ...[
+          const SizedBox(height: 8),
+          _SummaryLine(text: summary.trim()),
+        ],
         if (hasText) ...[
           const SizedBox(height: 7),
           Text(
@@ -310,6 +322,53 @@ class _IntakeBlock extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// The one-or-two-line summary of a voice note, marked as machine-written.
+///
+/// Labelled rather than blended in: a doctor must be able to tell at a glance
+/// which words are the patient's and which are a model's, because only one of
+/// those is evidence. The full transcript sits directly below it.
+class _SummaryLine extends StatelessWidget {
+  final String text;
+  const _SummaryLine({required this.text});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 9),
+        decoration: BoxDecoration(
+          color: CharakColors.bg,
+          borderRadius: const BorderRadius.all(CharakRadius.card),
+          border: Border.all(color: CharakColors.border),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.auto_awesome_outlined,
+                size: 12, color: CharakColors.inkMuted),
+            const SizedBox(width: 6),
+            Text(
+              'AI SUMMARY',
+              style: CharakText.caption.copyWith(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+                color: CharakColors.inkMuted,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 5),
+          Text(
+            text,
+            style: const TextStyle(
+              fontFamily: CharakText.fontFamily,
+              fontSize: 13,
+              height: 1.5,
+              color: CharakColors.ink,
+            ),
+          ),
+        ]),
+      );
 }
 
 /// `.file-chip` — white pill-ish chip on a 9px radius with a 14px primary

@@ -34,7 +34,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
       final status = me['verification_status'] as String?;
       final hasProfile = (me['name'] as String?)?.isNotEmpty == true;
-      final hasSubmittedVerification = (me['license_number'] as String?)?.isNotEmpty == true;
+      // Both halves are required — a licence number with no document is not
+      // something ops can verify, so a doctor who submitted one before the
+      // document became mandatory is sent back to finish the pair.
+      final hasSubmittedVerification =
+          (me['license_number'] as String?)?.isNotEmpty == true &&
+          (me['verification_document_path'] as String?)?.isNotEmpty == true;
       final offersOnline = me['offers_online_consult'] as bool? ?? false;
       final offersHome   = me['offers_home_visit']    as bool? ?? false;
 

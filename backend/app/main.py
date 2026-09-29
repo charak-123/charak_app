@@ -72,7 +72,10 @@ def ready():
     from .routers.calls import agora_configured
     from .routers.payments import live_mode as razorpay_live, webhook_verified
     from .config import MSG91_API_KEY
-    from .services.transcription import enabled as transcription_enabled
+    from .services.transcription import (
+        enabled as transcription_enabled,
+        backend_name as transcription_backend,
+    )
 
     try:
         supabase.table("categories").select("id").limit(1).execute()
@@ -97,5 +100,8 @@ def ready():
             "push": push_enabled(),
             "video_calls": agora_configured(),
             "transcription": transcription_enabled(),
+            # Which backend, not just whether one exists: "vertex:...@asia-south1"
+            # is the difference between health data staying in India and not.
+            "transcription_backend": transcription_backend(),
         },
     }

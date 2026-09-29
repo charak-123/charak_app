@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'screens/splash_screen.dart';
+import 'push_routes.dart';
 import 'screens/auth/phone_entry_screen.dart';
 import 'screens/auth/otp_screen.dart';
 import 'screens/auth/name_entry_screen.dart';
@@ -104,7 +105,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/booking/:id/status',
           pageBuilder: (_, s) => _push(BookingStatusScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/pay',
-          pageBuilder: (_, s) => _push(PaymentScreen(bookingId: s.pathParameters['id']!))),
+          pageBuilder: (_, s) => _push(PaymentScreen(
+                bookingId: s.pathParameters['id']!,
+                type: s.uri.queryParameters['type'] ?? 'consult_fee',
+              ))),
       GoRoute(path: '/booking/:id/confirmed',
           pageBuilder: (_, s) => _rise(BookingConfirmedScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/active',
@@ -125,5 +129,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           pageBuilder: (_, __) => _push(const ComplaintScreen())),
     ],
   );
+
+  // A tapped notification should land on the thing it is about — above all
+  // `call.incoming`, which is time-critical: the doctor is ringing now. The
+  // mapping lives in `push_routes.dart` so it can be tested without a GoRouter.
+  final pushSub = CharakPush.instance.messages.listen((m) {
+    final route = patientPushRoute(m);
+    if (route != null) router.go(route);
+  });
+  ref.onDispose(pushSub.cancel);
+
   return router;
 });

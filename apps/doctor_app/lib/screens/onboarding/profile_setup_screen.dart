@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:charak_core/charak_core.dart';
 
 final _categoriesProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
@@ -35,8 +34,16 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   }
 
   Future<void> _pickPhoto() async {
-    final img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 75);
-    if (img != null) setState(() => _photo = File(img.path));
+    // This is only ever rendered at avatar size in the directory, and the
+    // backend caps it at 5MB — so there is nothing to gain from a full-size
+    // camera image, and a lot of upload time to lose.
+    final img = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 80,
+    );
+    if (img != null && mounted) setState(() => _photo = File(img.path));
   }
 
   // The photo is optional: the wireframe's Continue is ungated, and
@@ -48,19 +55,25 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   Future<void> _submit() async {
     setState(() { _loading = true; _error = null; });
     try {
-      String? photoUrl;
-      if (_photo != null) {
-        // Non-fatal: client-side Storage uploads are unauthorised until they
-        // move behind a backend endpoint (see verification_screen for why), and
-        // a doctor without a photo still renders via CharakAvatar's initials.
+      await ApiClient.instance.patch('/doctors/me', {
+        'name': _nameCtrl.text.trim(),
+        'category_id': _categoryId,
+        'bio': _bioCtrl.text.trim(),
+      });
+
+      final photo = _photo;
+      if (photo != null) {
+        // Non-fatal, and deliberately after the profile write: a doctor
+        // without a photo still renders via CharakAvatar's initials, so a
+        // failed upload must not cost them the name and specialty they typed.
         try {
-          final supabase = Supabase.instance.client;
-          final bytes = await _photo!.readAsBytes();
-          final ext   = _photo!.path.split('.').last;
-          final path  = 'doctor-photos/${DateTime.now().millisecondsSinceEpoch}.$ext';
-          await supabase.storage.from('doctor-photos').uploadBinary(path, bytes,
-              fileOptions: FileOptions(contentType: 'image/$ext'));
-          photoUrl = supabase.storage.from('doctor-photos').getPublicUrl(path);
+          final ext = photo.path.split('.').last.toLowerCase();
+          await ApiClient.instance.postFile(
+            '/uploads/doctor/photo',
+            bytes: await photo.readAsBytes(),
+            filename: photo.path.split('/').last,
+            contentType: 'image/${ext == 'jpg' ? 'jpeg' : ext}',
+          );
         } catch (_) {
           if (mounted) {
             showCharakToast(context,
@@ -69,12 +82,6 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
           }
         }
       }
-      await ApiClient.instance.patch('/doctors/me', {
-        'name': _nameCtrl.text.trim(),
-        'category_id': _categoryId,
-        'bio': _bioCtrl.text.trim(),
-        if (photoUrl != null) 'photo_url': photoUrl,
-      });
       if (mounted) context.go('/onboarding/verification');
     } on ApiException catch (e) {
       setState(() => _error = e.message);

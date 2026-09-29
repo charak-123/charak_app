@@ -4,7 +4,10 @@ export 'design/tokens.dart';
 export 'design/theme.dart';
 export 'design/motion.dart';
 export 'network/api_client.dart';
+export 'network/charak_poller.dart';
 export 'auth/auth_service.dart';
+export 'call/charak_call_session.dart';
+export 'push/charak_push.dart';
 
 // shadcn-based shared components
 export 'components/charak_button.dart';

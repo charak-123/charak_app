@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../network/api_client.dart';
+import '../push/charak_push.dart';
 
 class AuthState {
   final String? token;
@@ -34,6 +35,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final id    = prefs.getString('user_id');
     if (token != null) {
       state = AuthState(token: token, user: id != null ? {'id': id, 'name': name} : null);
+      // A returning session still needs its FCM token registered — the token
+      // rotates between launches, and the backend only knows the last one it
+      // was told about.
+      CharakPush.instance.start();
     }
   }
 
@@ -52,6 +57,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await prefs.setString('user_name', userMap['name'] as String);
     }
     state = AuthState(token: res['token'] as String, user: userMap);
+    // Registration is authenticated, so it can only happen once the token is
+    // stored — not at app start.
+    CharakPush.instance.start();
     return res['is_new'] as bool? ?? false;
   }
 
@@ -63,6 +71,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    // Before the token goes: an unregistered device keeps receiving the
+    // previous user's booking and payment notifications.
+    await CharakPush.instance.stop();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('auth_token');
     await prefs.remove('user_id');

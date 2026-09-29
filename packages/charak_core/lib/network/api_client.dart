@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String _kBaseUrl = String.fromEnvironment(
@@ -76,6 +77,33 @@ class ApiClient {
     return _handle(res);
   }
 
+  /// Multipart upload for the `/uploads/*` endpoints.
+  ///
+  /// These take a real file, not JSON — client-side Storage writes are rejected
+  /// because these apps authenticate with a FastAPI JWT rather than a Supabase
+  /// auth session, so every file goes through the backend.
+  Future<dynamic> postFile(
+    String path, {
+    required List<int> bytes,
+    required String filename,
+    String field = 'file',
+    String? contentType,
+    Map<String, String> fields = const {},
+  }) async {
+    final request = http.MultipartRequest('POST', Uri.parse('$_kBaseUrl$path'));
+    final token = await _token();
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    request.fields.addAll(fields);
+    request.files.add(http.MultipartFile.fromBytes(
+      field,
+      bytes,
+      filename: filename,
+      contentType: contentType == null ? null : MediaType.parse(contentType),
+    ));
+    final streamed = await request.send();
+    return _handle(await http.Response.fromStream(streamed));
+  }
+
   Future<void> delete(String path) async {
     final res = await http.delete(
       Uri.parse('$_kBaseUrl$path'),
@@ -122,9 +150,28 @@ class ApiClient {
   dynamic _handle(http.Response res) {
     if (res.statusCode >= 200 && res.statusCode < 300) {
       if (res.body.isEmpty) return null;
-      return jsonDecode(res.body);
+      try {
+        return jsonDecode(res.body);
+      } on FormatException {
+        // A 2xx that is not JSON is still a broken response, but it must
+        // arrive as an ApiException like everything else — every call site
+        // catches only that.
+        throw ApiException('Unexpected response from the server', res.statusCode);
+      }
     }
-    final body = res.body.isNotEmpty ? jsonDecode(res.body) : {};
+
+    // Error bodies are not always JSON: a proxy 502/504 or an HTML error page
+    // would throw FormatException here, escaping the ApiException contract
+    // every screen is written against and surfacing as a red screen instead of
+    // a readable message.
+    dynamic body = const {};
+    if (res.body.isNotEmpty) {
+      try {
+        body = jsonDecode(res.body);
+      } on FormatException {
+        body = const {};
+      }
+    }
     final msg = _message(body, res.statusCode);
 
     if (res.statusCode == 401 && !_handlingUnauthorized) {

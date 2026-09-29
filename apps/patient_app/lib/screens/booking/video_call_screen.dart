@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -12,59 +11,99 @@ class VideoCallScreen extends ConsumerStatefulWidget {
 }
 
 class _State extends ConsumerState<VideoCallScreen> {
-  bool _micOn = true;
-  bool _camOn = true;
   bool _loading = true;
-  String? _token;
+  bool _joined = false;
   String? _peerName;
+  String? _joinError;
 
-  // `.call-top` timer — counts from the moment the channel is joined.
-  Timer? _tick;
-  int _elapsed = 0;
+  // The patient is always uid 1001 — the doctor holds uid 0 on the channel.
+  static const _patientUid = 1001;
+
+  final _call = CharakCallSession();
 
   @override
   void initState() {
     super.initState();
+    _call.addListener(_onCallChanged);
     _initCall();
   }
 
   @override
   void dispose() {
-    _tick?.cancel();
+    _call.removeListener(_onCallChanged);
+    _call.dispose();
     super.dispose();
+  }
+
+  void _onCallChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _initCall() async {
     try {
       final res = await ApiClient.instance.post(
         '/bookings/${widget.bookingId}/call',
-        {'uid': 1001},
-      );
+        {'uid': _patientUid},
+      ) as Map<String, dynamic>;
       if (!mounted) return;
       setState(() {
-        _token = res['token'] as String?;
         _peerName = res['doctor_name'] as String?;
         _loading = false;
+        _joined = true;
       });
-      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() => _elapsed++);
-      });
-      // In production: initialize Agora engine with _token and join channel
-      // await _agoraEngine.joinChannel(token: _token!, channelId: widget.bookingId, uid: 1001)
-    } catch (e) {
-      if (mounted) setState(() => _loading = false);
+      await _call.join(
+        CharakCallCredentials.fromJson(res, uid: _patientUid),
+      );
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _joinError = e.message;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _joinError = 'Could not join the call';
+        });
+      }
     }
   }
 
   Future<void> _endCall() async {
-    // In production: leave Agora channel before navigating
-    _tick?.cancel();
+    await _call.leave();
     if (mounted) context.pop();
   }
 
-  String get _clock =>
-      '${(_elapsed ~/ 60).toString().padLeft(2, '0')}:'
-      '${(_elapsed % 60).toString().padLeft(2, '0')}';
+  /// True once the call is really up. `_joined` only means the token request
+  /// came back, which is not the same thing.
+  bool get _connected =>
+      _joined &&
+      _joinError == null &&
+      (_call.stage == CharakCallStage.waitingForPeer ||
+          _call.stage == CharakCallStage.connected);
+
+  /// Says what is actually happening — including when Agora has no
+  /// credentials in this environment, rather than sitting on "Connecting…".
+  String get _subtitle {
+    if (_joinError != null) return _joinError!;
+    if (_call.stage == CharakCallStage.failed) {
+      return _call.error ?? 'Call could not be started';
+    }
+    if (!_joined) return 'Connecting…';
+    if (_call.isStub) return 'Dev stub · Agora not configured';
+    switch (_call.stage) {
+      case CharakCallStage.connected:
+        return 'Video consult · connected';
+      case CharakCallStage.waitingForPeer:
+        return 'Waiting for the doctor to join…';
+      case CharakCallStage.ended:
+        return 'Call ended';
+      default:
+        return 'Connecting…';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,29 +114,31 @@ class _State extends ConsumerState<VideoCallScreen> {
       );
     }
 
-    final connected = _token != null;
     return CharakCallScaffold(
       peerName: _peerName ?? 'Doctor',
-      peerSubtitle: connected
-          ? (_token!.startsWith('stub')
-              ? 'Dev stub · Agora not configured'
-              : 'Video consult · connected')
-          : 'Connecting…',
-      statusText: _clock,
-      recording: connected,
-      showSelfView: _camOn,
+      peerSubtitle: _subtitle,
+      statusText: _connected ? _call.clock : 'Connecting…',
+      // join() reports failure by moving to CharakCallStage.failed rather than
+      // throwing, so _joinError stays null on an Agora failure. Gating on the
+      // session's own stage is what keeps the recording dot and the running
+      // clock off a call that never connected.
+      recording: _connected,
+      showSelfView: _call.cameraOn,
+      peerVideo: _call.remoteView(),
+      selfVideo: _call.localView(),
       controls: [
         CharakCallButton(
-          icon: _micOn ? Icons.mic : Icons.mic_off,
-          active: !_micOn,
-          semanticLabel: _micOn ? 'Mute microphone' : 'Unmute microphone',
-          onPressed: () => setState(() => _micOn = !_micOn),
+          icon: _call.micOn ? Icons.mic : Icons.mic_off,
+          active: !_call.micOn,
+          semanticLabel: _call.micOn ? 'Mute microphone' : 'Unmute microphone',
+          onPressed: _call.toggleMic,
         ),
         CharakCallButton(
-          icon: _camOn ? Icons.videocam : Icons.videocam_off,
-          active: !_camOn,
-          semanticLabel: _camOn ? 'Turn camera off' : 'Turn camera on',
-          onPressed: () => setState(() => _camOn = !_camOn),
+          icon: _call.cameraOn ? Icons.videocam : Icons.videocam_off,
+          active: !_call.cameraOn,
+          semanticLabel:
+              _call.cameraOn ? 'Turn camera off' : 'Turn camera on',
+          onPressed: _call.toggleCamera,
         ),
         CharakCallButton(
           icon: Icons.call_end,

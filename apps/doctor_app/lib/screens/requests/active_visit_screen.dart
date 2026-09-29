@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +8,9 @@ import 'package:charak_core/charak_core.dart';
 // intl is a direct dependency; don't rely on shadcn_ui re-exporting DateFormat.
 // ignore: unnecessary_import
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../visit_navigation.dart';
 
 // ── Procedure checklist entry ─────────────────────────────────────────────────
 
@@ -45,6 +50,36 @@ class ActiveVisitScreen extends ConsumerStatefulWidget {
 class _State extends ConsumerState<ActiveVisitScreen> {
   List<_ProcedureEntry> _procedures = [];
   bool _completing = false;
+  bool _notifyingLate = false;
+
+  /// Counts from the moment this screen is opened — the doctor opens it when
+  /// they arrive, so it measures the visit rather than the whole booking. It is
+  /// a reference for the doctor, not a billing input.
+  Timer? _tick;
+  Duration _elapsed = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsed += const Duration(seconds: 1));
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  String get _clock {
+    final h = _elapsed.inHours;
+    final m = _elapsed.inMinutes % 60;
+    final sec = _elapsed.inSeconds % 60;
+    final mm = m.toString().padLeft(2, '0');
+    final ss = sec.toString().padLeft(2, '0');
+    return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
+  }
 
   void _initProcedures(List rawProcs) {
     if (_procedures.isEmpty && rawProcs.isNotEmpty) {
@@ -106,6 +141,82 @@ class _State extends ConsumerState<ActiveVisitScreen> {
     }
   }
 
+  /// Opens the patient's location in whatever maps app the phone has.
+  ///
+  /// Coordinates are preferred — a home visit is often to an address a
+  /// geocoder gets wrong, and the pin the patient dropped is the one that is
+  /// actually right. The text address is the fallback, and if neither is
+  /// present the address has not been released yet.
+  Future<void> _navigateToPatient(Map<String, dynamic> booking) async {
+    final uri = patientMapUri(booking);
+    if (uri == null) {
+      showCharakToast(context,
+          message: "The patient's address hasn't been released yet",
+          isError: true);
+      return;
+    }
+
+    if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+
+    // No app registered for geo: — the web map is something every phone opens.
+    final web = patientMapWebUri(booking);
+    if (web == null || !await launchUrl(web, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        showCharakToast(context,
+            message: 'No maps app could be opened', isError: true);
+      }
+    }
+  }
+
+  /// Tells the patient the doctor is delayed. A nudge only — the booking does
+  /// not change state, so this stays available however many times it is needed.
+  Future<void> _runningLate(Map<String, dynamic> booking) async {
+    final minutes = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => CharakSheet(
+        title: 'Let the patient know',
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'They are notified straight away. The slot is unchanged.',
+                style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+              ),
+            ),
+            for (final m in const [10, 15, 30, 45])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: CharakButton(
+                  label: '$m minutes late',
+                  outlined: true,
+                  onPressed: () => Navigator.pop(ctx, m),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (minutes == null || !mounted) return;
+
+    setState(() => _notifyingLate = true);
+    try {
+      await ApiClient.instance.post(
+        '/bookings/${widget.bookingId}/running-late',
+        {'minutes': minutes},
+      );
+      if (mounted) {
+        showCharakToast(context, message: 'Patient notified — $minutes min');
+      }
+    } on ApiException catch (e) {
+      if (mounted) showCharakToast(context, message: e.message, isError: true);
+    } finally {
+      if (mounted) setState(() => _notifyingLate = false);
+    }
+  }
+
   void _stub(String label) => showCharakToast(context, message: label);
 
   @override
@@ -157,6 +268,8 @@ class _State extends ConsumerState<ActiveVisitScreen> {
                     trigger: booking['status'],
                     child: _PatientInfoCard(booking: booking),
                   ),
+                  const SizedBox(height: 10),
+                  _VisitTimer(clock: _clock),
                   const SizedBox(height: 12),
                   if (isPaid) ...[
                     CharakNoteBanner(
@@ -184,13 +297,36 @@ class _State extends ConsumerState<ActiveVisitScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    CharakButton(label: 'Navigate to patient', icon: Icons.navigation_outlined, onPressed: () => _stub('Opens native maps')),
+                    CharakButton(
+                      label: 'Navigate to patient',
+                      icon: Icons.navigation_outlined,
+                      onPressed: () => _navigateToPatient(booking),
+                    ),
                     const SizedBox(height: 10),
-                    CharakButton(label: 'Contact patient', outlined: true, icon: Icons.message_outlined, onPressed: () => _stub('Contact through app — no raw number')),
+                    CharakButton(
+                      label: 'Running late',
+                      outlined: true,
+                      icon: Icons.schedule_outlined,
+                      isLoading: _notifyingLate,
+                      onPressed: () => _runningLate(booking),
+                    ),
+                    const SizedBox(height: 10),
+                    CharakButton(
+                      label: 'Contact patient',
+                      outlined: true,
+                      icon: Icons.message_outlined,
+                      onPressed: () => _stub('In-app messaging is not built yet'),
+                    ),
                   ] else ...[
                     CharakButton(label: 'Start call', icon: Icons.videocam_rounded, onPressed: () => context.push('/call/${widget.bookingId}')),
                     const SizedBox(height: 10),
-                    CharakButton(label: 'Directions to patient', outlined: true, icon: Icons.navigation_outlined, onPressed: () => _stub('Opens native maps')),
+                    CharakButton(
+                      label: 'Running late',
+                      outlined: true,
+                      icon: Icons.schedule_outlined,
+                      isLoading: _notifyingLate,
+                      onPressed: () => _runningLate(booking),
+                    ),
                   ],
                   const SizedBox(height: 8),
                   CharakHintLine(
@@ -443,4 +579,40 @@ class _ProcedureChecklist extends StatelessWidget {
       ],
     ]),
   );
+}
+
+
+/// Time on site, counting from when the doctor opened this screen.
+///
+/// Deliberately informational: nothing bills off it, and it is not sent
+/// anywhere. It exists because a doctor mid-visit has no other way to see how
+/// long they have been there.
+class _VisitTimer extends StatelessWidget {
+  final String clock;
+  const _VisitTimer({required this.clock});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+        decoration: BoxDecoration(
+          color: CharakColors.bgSubtle,
+          borderRadius: const BorderRadius.all(CharakRadius.card),
+          border: Border.all(color: CharakColors.border),
+        ),
+        child: Row(children: [
+          const Icon(Icons.timer_outlined, size: 17, color: CharakColors.inkMuted),
+          const SizedBox(width: 9),
+          Text('Time on visit',
+              style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+          const Spacer(),
+          Text(
+            clock,
+            style: CharakText.bodyMed.copyWith(
+              fontSize: 14,
+              color: CharakColors.ink,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ]),
+      );
 }
