@@ -1,0 +1,12 @@
+# Copy to key.properties (git-ignored) and fill in before a release build.
+#
+# Create the upload keystore once per app:
+#   keytool -genkey -v -keystore ~/charak-upload-<app>.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# Keep the .jks file and these passwords safe and backed up: losing them means
+# you can no longer update the app on Play under the same listing.
+storeFile=/absolute/path/to/charak-upload-<app>.jks
+storePassword=
+keyAlias=upload
+keyPassword=
