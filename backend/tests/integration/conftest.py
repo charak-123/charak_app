@@ -96,8 +96,19 @@ def seed():
              "otp_verified": True}
         ).execute().data[0]
 
+        # A doctor with no published price cannot be booked at all: the consult
+        # fee is resolved server-side from doctor_pricing, so every channel the
+        # doctor offers needs a row or create_booking refuses with a 409.
+        pricing = [{"id": _id(), "doctor_id": doctor["id"],
+                    "channel": "online_consult", "price": 500.00}]
+        if offers_home_visit:
+            pricing.append({"id": _id(), "doctor_id": doctor["id"],
+                            "channel": "home_visit", "price": 800.00})
+        supabase.table("doctor_pricing").insert(pricing).execute()
+
         return {"category": category, "patient": patient,
-                "other_patient": other_patient, "doctor": doctor}
+                "other_patient": other_patient, "doctor": doctor,
+                "pricing": pricing}
 
     return _seed
 

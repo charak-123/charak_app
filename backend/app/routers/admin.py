@@ -304,6 +304,50 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
     }
 
 
+
+@router.get("/metrics/timeseries")
+def dashboard_timeseries(days: int = 30, user: dict = Depends(require_ops)):
+    """
+    Daily booking counts and consult revenue for the overview's trend chart.
+
+    Bucketed here rather than in SQL because the table client has no date_trunc;
+    the window is capped so this stays a bounded scan.
+    """
+    days = max(7, min(days, 90))
+    start = (datetime.now(timezone.utc) - timedelta(days=days - 1)).date()
+
+    rows = (
+        supabase.table("bookings")
+        .select("created_at, status, price_confirmed")
+        .gte("created_at", start.isoformat())
+        .execute()
+        .data
+        or []
+    )
+
+    buckets = {
+        (start + timedelta(days=i)).isoformat(): {"bookings": 0, "completed": 0, "revenue": 0.0}
+        for i in range(days)
+    }
+
+    for r in rows:
+        created = r.get("created_at")
+        if not created:
+            continue
+        day = str(created)[:10]
+        bucket = buckets.get(day)
+        if bucket is None:
+            continue
+        bucket["bookings"] += 1
+        if r.get("status") in ("paid", "completed"):
+            bucket["completed"] += 1
+            bucket["revenue"] += float(r.get("price_confirmed") or 0)
+
+    return [
+        {"date": day, **{**v, "revenue": round(v["revenue"], 2)}}
+        for day, v in sorted(buckets.items())
+    ]
+
 # ── 9. Audit log ──────────────────────────────────────────────────────────────
 
 @router.get("/audit-log")

@@ -161,3 +161,20 @@ def test_multiple_days():
     assert len(result["2026-08-26"]) == 1
     # Tuesday, Thursday, Friday, Saturday, Sunday have no schedule
     assert "2026-08-25" not in result
+
+
+def test_a_requested_booking_hides_its_slot_from_the_grid():
+    """
+    Regression: availability ignored `requested`, but create_booking refuses
+    it. A second patient was shown a slot that was already spoken for, filled
+    in their whole intake, and was turned away with "Slot already booked" at
+    the final step.
+    """
+    from app.routers.bookings import SLOT_HOLDING_STATUSES
+    from app.services.availability import SLOT_OCCUPYING_STATUSES
+
+    assert "requested" in SLOT_OCCUPYING_STATUSES
+    # Everything that blocks a booking must also be hidden from the grid.
+    for status in SLOT_HOLDING_STATUSES:
+        assert status in SLOT_OCCUPYING_STATUSES, (
+            f"{status} blocks booking but is still offered as a free slot")

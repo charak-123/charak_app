@@ -66,11 +66,12 @@ def _store_db(row, update_data=None):
     return make_supabase({"otp_codes": chain}), chain
 
 
-def _row(code="123456", phone="+919876543210", attempts=0, expires_in_minutes=5):
+def _row(code="123456", phone="+919876543210", attempts=0, expires_in_minutes=5,
+         role="patient"):
     return {
         "id": "otp-1",
         "phone": phone,
-        "role": "patient",
+        "role": role,
         "code_hash": otp_store.hash_code(phone, code),
         "expires_at": _future(minutes=expires_in_minutes),
         "attempts": attempts,
@@ -215,10 +216,10 @@ def test_send_otp_surfaces_an_sms_gateway_failure():
 
 # ── verify-otp route ──────────────────────────────────────────────────────────
 
-def _verify_dbs(user_row, otp_row=None):
+def _verify_dbs(user_row, otp_row=None, issued_role="patient"):
     otp_chain = make_chain()
     otp_chain.execute.side_effect = [
-        MagicMock(data=[otp_row or _row()]),
+        MagicMock(data=[otp_row or _row(role=issued_role)]),
         MagicMock(data=[{"id": "otp-1"}]),
         MagicMock(data=[{"id": "otp-1"}]),
     ]
@@ -253,7 +254,8 @@ def test_verify_otp_flags_a_returning_user_as_not_new():
 
 
 def test_verify_otp_upserts_a_doctor_into_the_doctors_table():
-    store_db, auth_db = _verify_dbs({"id": "doc-1", "phone": "+919876543210", "name": None})
+    store_db, auth_db = _verify_dbs(
+        {"id": "doc-1", "phone": "+919876543210", "name": None}, issued_role="doctor")
     with patch(STORE_DB, store_db), patch(AUTH_DB, auth_db):
         client.post("/auth/verify-otp", json={
             "phone": "+919876543210", "code": "123456", "role": "doctor",
@@ -265,7 +267,8 @@ def test_verify_otp_token_carries_the_subject_and_role():
     from jose import jwt
     from app.config import JWT_SECRET
 
-    store_db, auth_db = _verify_dbs({"id": "doc-1", "phone": "+919876543210", "name": "Dr A"})
+    store_db, auth_db = _verify_dbs(
+        {"id": "doc-1", "phone": "+919876543210", "name": "Dr A"}, issued_role="doctor")
     with patch(STORE_DB, store_db), patch(AUTH_DB, auth_db):
         token = client.post("/auth/verify-otp", json={
             "phone": "+919876543210", "code": "123456", "role": "doctor",
@@ -294,3 +297,39 @@ def test_verify_otp_rejects_a_malformed_code_before_touching_the_database(code):
             "phone": "+919876543210", "code": code, "role": "patient",
         })
     assert res.status_code == 422
+
+
+def test_verify_otp_refuses_a_patient_code_redeemed_as_a_doctor():
+    """
+    Regression: the role must come from the issued code, not the request body.
+
+    Trusting req.role let anyone request a code in the patient app, submit it
+    with role="doctor", and be handed a doctor-scoped JWT on their own phone —
+    which passes require_doctor on every /doctors/me*, /bookings/doctor/* and
+    /earnings/me endpoint.
+    """
+    store_db, auth_db = _verify_dbs(
+        {"id": "doc-1", "phone": "+919876543210", "name": None}, issued_role="patient")
+
+    with patch(STORE_DB, store_db), patch(AUTH_DB, auth_db):
+        res = client.post("/auth/verify-otp", json={
+            "phone": "+919876543210", "code": "123456", "role": "doctor",
+        })
+
+    assert res.status_code == 400
+    assert "different app" in res.json()["error"]
+    # No doctors row may be created off a patient's code.
+    assert not any(c[0] and c[0][0] == "doctors" for c in auth_db.table.call_args_list)
+
+
+def test_verify_otp_refuses_a_doctor_code_redeemed_as_a_patient():
+    """The same guard in the other direction — the check is symmetric."""
+    store_db, auth_db = _verify_dbs(
+        {"id": "usr-1", "phone": "+919876543210", "name": None}, issued_role="doctor")
+
+    with patch(STORE_DB, store_db), patch(AUTH_DB, auth_db):
+        res = client.post("/auth/verify-otp", json={
+            "phone": "+919876543210", "code": "123456", "role": "patient",
+        })
+
+    assert res.status_code == 400

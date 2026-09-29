@@ -3,6 +3,13 @@ from ..db import supabase
 
 SLOT_MINUTES = 15
 
+# Statuses that occupy a slot. A `requested` booking holds its time while the
+# doctor decides, so it has to disappear from the grid too — otherwise a second
+# patient is shown the slot as free, fills in their whole intake, and is turned
+# away with "Slot already booked" at the last step. `completed` is here so a
+# past visit does not reopen its own slot.
+SLOT_OCCUPYING_STATUSES = ["requested", "accepted", "paid", "completed"]
+
 
 def get_available_slots(doctor_id: str, from_date: date, days: int = 14) -> dict:
     """
@@ -39,7 +46,7 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14) -> dict
         supabase.table("bookings")
         .select("scheduled_start")
         .eq("doctor_id", doctor_id)
-        .in_("status", ["accepted", "paid", "completed"])
+        .in_("status", SLOT_OCCUPYING_STATUSES)
         .gte("scheduled_start", from_date.isoformat())
         .lt("scheduled_start", end_date.isoformat())
         .execute()

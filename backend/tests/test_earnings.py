@@ -54,8 +54,11 @@ def test_earnings_with_approved_procedure_bill():
     assert resp.status_code == 200
     data = resp.json()
     assert data["consult_total"] == 800.0
-    assert data["procedure_total"] == 1200.0
-    assert data["grand_total"] == 2000.0
+    # Approved is payable, not paid: it is reported separately and stays out
+    # of the earned total until the money actually lands.
+    assert data["procedure_total"] == 0
+    assert data["awaiting_payment_total"] == 1200.0
+    assert data["grand_total"] == 800.0
     assert len(data["items"]) == 1
 
 
@@ -67,7 +70,7 @@ def test_earnings_multiple_bookings():
          "price_confirmed": 800.0, "status": "completed", "users": {"name": "Priya"}},
     ]
     bills = [
-        {"id": "bill-1", "booking_id": "bk-2", "total": 1200.0, "status": "approved", "items": []},
+        {"id": "bill-1", "booking_id": "bk-2", "total": 1200.0, "status": "paid", "items": []},
     ]
     mock_db = make_supabase({
         "bookings": make_chain(list_data=bookings),
@@ -80,7 +83,8 @@ def test_earnings_multiple_bookings():
 
     data = resp.json()
     assert data["consult_total"] == 1300.0   # 500 + 800
-    assert data["procedure_total"] == 1200.0
+    assert data["procedure_total"] == 1200.0   # paid, so it counts
+    assert data["awaiting_payment_total"] == 0
     assert data["grand_total"] == 2500.0
     assert len(data["items"]) == 2
 

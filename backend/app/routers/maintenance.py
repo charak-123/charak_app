@@ -53,21 +53,29 @@ def release_expired_holds(_: bool = Depends(require_cron)):
         or []
     )
 
-    released = []
+    if not expired:
+        return {"released": 0, "booking_ids": []}
+
+    booking_ids = [b["id"] for b in expired]
+
+    # Two statements for the whole batch rather than two per booking. This runs
+    # on a timer with no user waiting on it, but a backlog (a queue stall, a
+    # missed run) is exactly when it is largest and least affordable.
+    supabase.table("bookings").update({
+        "status": "cancelled",
+        "cancelled_by": "system",
+        "hold_expires_at": None,
+    }).in_("id", booking_ids).execute()
+
+    supabase.table("payments").update({"status": "failed"}) \
+        .in_("booking_id", booking_ids).eq("status", "initiated").execute()
+
+    # Only once the rows are actually released — a notification about a hold
+    # that is still live would be a lie.
     for booking in expired:
-        supabase.table("bookings").update({
-            "status": "cancelled",
-            "cancelled_by": "system",
-            "hold_expires_at": None,
-        }).eq("id", booking["id"]).execute()
-
-        supabase.table("payments").update({"status": "failed"}) \
-            .eq("booking_id", booking["id"]).eq("status", "initiated").execute()
-
         notifications.booking_hold_expired(booking)
-        released.append(booking["id"])
 
-    return {"released": len(released), "booking_ids": released}
+    return {"released": len(booking_ids), "booking_ids": booking_ids}
 
 
 @router.post("/purge-expired-otps")

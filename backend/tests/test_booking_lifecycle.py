@@ -307,3 +307,33 @@ def test_maintenance_refuses_to_run_open_when_no_secret_is_configured():
         res = TestClient(app).post("/maintenance/release-expired-holds",
                                    headers={"X-Cron-Secret": "anything"})
     assert res.status_code == 503
+
+
+# ── an unpaid visit cannot be closed ─────────────────────────────────────────
+
+def test_complete_refuses_an_unpaid_booking():
+    """
+    Regression: completing an 'accepted' (unpaid) booking stranded the fee.
+
+    _amount_due only issues a consult_fee order while the booking is 'accepted',
+    so once the doctor marked it complete the patient could never pay — while
+    get_earnings still counted the amount as earned.
+    """
+    from unittest.mock import MagicMock, patch
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from tests.conftest import make_chain, make_supabase
+
+    chain = make_chain()
+    chain.execute.side_effect = [
+        MagicMock(data={"id": "bk-1", "doctor_id": "doc-1", "status": "accepted"}),
+    ]
+    db = make_supabase({"bookings": chain})
+
+    with patch("app.routers.bookings.supabase", db), patch("app.deps.jwt") as jw:
+        jw.decode.return_value = {"sub": "doc-1", "role": "doctor"}
+        res = TestClient(app).patch(
+            "/bookings/bk-1/complete", headers={"Authorization": "Bearer d"})
+
+    assert res.status_code == 409
+    assert "not been paid for" in res.json()["error"]

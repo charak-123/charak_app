@@ -150,3 +150,32 @@ def test_an_online_consult_is_never_marked_withheld():
     for c in _client(DOCTOR, db):
         row = c.get("/bookings/doctor/incoming", headers=AUTH).json()[0]
     assert "address_withheld" not in row
+
+
+# ── phone numbers never cross the patient/doctor boundary ─────────────────────
+
+def test_doctor_booking_lists_do_not_select_the_patient_phone():
+    """
+    Regression: /doctor/incoming, /doctor/active and /doctor/history used to
+    select users(name, phone), handing the doctor the patient's raw number for
+    every booking — including `requested` ones they had not accepted. The
+    product requirement is that neither side sees the other's number, and
+    _redact_address_for_doctor only ever covered the address fields.
+    """
+    import inspect
+    from app.routers import bookings as bookings_module
+
+    for fn in (bookings_module.list_incoming,
+               bookings_module.list_active,
+               bookings_module.list_history):
+        src = inspect.getsource(fn)
+        assert "phone" not in src, f"{fn.__name__} still selects a phone number"
+
+
+def test_get_booking_does_not_select_either_side_phone():
+    """The single-booking endpoint served whichever side asked, so it leaked both."""
+    import inspect
+    from app.routers import bookings as bookings_module
+
+    src = inspect.getsource(bookings_module.get_booking)
+    assert "phone" not in src

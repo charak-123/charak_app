@@ -279,3 +279,48 @@ def test_the_audit_log_read_is_capped():
     for c in _client(OPS, db):
         c.get("/admin/audit-log?limit=99999", headers=AUTH)
     audit.limit.assert_called_with(500)
+
+
+# ── metrics timeseries ────────────────────────────────────────────────────────
+
+def test_timeseries_buckets_bookings_and_revenue_by_day():
+    from datetime import datetime, timedelta, timezone
+
+    today = datetime.now(timezone.utc)
+    yesterday = today - timedelta(days=1)
+    db = make_supabase({
+        "bookings": make_chain(list_data=[
+            {"created_at": today.isoformat(),     "status": "completed", "price_confirmed": 800},
+            {"created_at": today.isoformat(),     "status": "paid",      "price_confirmed": 500},
+            {"created_at": today.isoformat(),     "status": "requested", "price_confirmed": None},
+            {"created_at": yesterday.isoformat(), "status": "completed", "price_confirmed": 300},
+        ]),
+    })
+    for c in _client(OPS, db):
+        series = c.get("/admin/metrics/timeseries?days=7", headers=AUTH).json()
+
+    assert len(series) == 7
+    assert [d["date"] for d in series] == sorted(d["date"] for d in series)
+
+    by_day = {d["date"]: d for d in series}
+    t = by_day[today.date().isoformat()]
+    assert (t["bookings"], t["completed"], t["revenue"]) == (3, 2, 1300.0)
+
+    y = by_day[yesterday.date().isoformat()]
+    assert (y["bookings"], y["completed"], y["revenue"]) == (1, 1, 300.0)
+
+    # Days with no bookings are still present, so the chart has no gaps.
+    assert sum(d["bookings"] for d in series) == 4
+    assert all(d["revenue"] == 0 for d in series if d["date"] not in
+               (today.date().isoformat(), yesterday.date().isoformat()))
+
+
+def test_timeseries_clamps_the_window_and_requires_ops():
+    db = make_supabase({"bookings": make_chain(list_data=[])})
+    for c in _client(OPS, db):
+        assert len(c.get("/admin/metrics/timeseries?days=500", headers=AUTH).json()) == 90
+        assert len(c.get("/admin/metrics/timeseries?days=1", headers=AUTH).json()) == 7
+
+    db2 = make_supabase({})
+    for c in _client(DOCTOR, db2):
+        assert c.get("/admin/metrics/timeseries", headers=AUTH).status_code == 403

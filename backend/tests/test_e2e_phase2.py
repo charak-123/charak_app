@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch, call as mock_call
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
-from tests.conftest import make_chain, make_supabase
+from tests.conftest import make_chain, make_supabase, pricing_chain
 
 DOCTOR_TOKEN  = "Bearer doc_token"
 PATIENT_TOKEN = "Bearer pat_token"
@@ -73,6 +73,7 @@ def test_step1_patient_creates_booking():
 
     mock_db = make_supabase({
         "doctors": verified_doc,
+        "doctor_pricing": pricing_chain(800.0),
         "bookings": bookings_chain,
         "patient_addresses": address,
         "users": make_chain(list_data=[{"name": "Asha"}]),
@@ -85,7 +86,6 @@ def test_step1_patient_creates_booking():
             "doctor_id": "doc-1",
             "channel": "home_visit",
             "scheduled_start": "2026-08-26T10:00:00+00:00",
-            "price_confirmed": 800.0,
             "address_id": "addr-1",
         }, headers={"Authorization": PATIENT_TOKEN})
 
@@ -202,7 +202,9 @@ def test_step5_doctor_accepts():
 # ── Step 6: Doctor marks booking complete ────────────────────────────────────
 
 def test_step6_booking_completed():
-    row = _booking("accepted")
+    # Paid, not merely accepted: a booking completed while still unpaid can
+    # never be charged for afterwards, so the router refuses it.
+    row = _booking("paid")
     completed = {**row, "status": "completed"}
     chain = make_chain()
     n = {"v": 0}
@@ -280,8 +282,11 @@ def test_step8_earnings_reflect_completed_visit():
     assert resp.status_code == 200
     data = resp.json()
     assert data["consult_total"] == 800.0
-    assert data["procedure_total"] == 500.0
-    assert data["grand_total"] == 1300.0
+    # The bill is approved, so it is payable — but the patient has not paid it
+    # yet, so it is not earnings.
+    assert data["procedure_total"] == 0
+    assert data["awaiting_payment_total"] == 500.0
+    assert data["grand_total"] == 800.0
     assert data["pending_review_total"] == 0.0
     assert len(data["items"]) == 1
     assert data["items"][0]["patient_name"] == "Ramesh Kumar"

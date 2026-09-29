@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.conftest import make_chain, make_supabase
+from tests.conftest import make_chain, make_supabase, pricing_chain
 
 PATIENT = {"sub": "pat-1", "role": "patient"}
 DOCTOR  = {"sub": "doc-1", "role": "doctor"}
@@ -158,7 +158,7 @@ DOCTOR_ROW = {
 BOOK_BODY = {
     "doctor_id": "doc-1", "channel": "home_visit",
     "scheduled_start": "2026-10-01T09:00:00+00:00",
-    "price_confirmed": 800.0, "address_id": "addr-1",
+    "address_id": "addr-1",
 }
 
 
@@ -172,6 +172,7 @@ def _book_db(doctor=None, address=ADDRESS):
     ]
     db = make_supabase({
         "doctors": make_chain(data=doctor or DOCTOR_ROW),
+        "doctor_pricing": pricing_chain(),
         "patient_addresses": make_chain(data=address),
         "bookings": bookings,
         "users": make_chain(list_data=[{"name": "Asha"}]),
@@ -256,6 +257,6 @@ def test_an_online_consult_needs_no_address():
         jw.decode.return_value = PATIENT
         res = TestClient(app).post("/bookings/", headers=AUTH, json={
             "doctor_id": "doc-1", "channel": "online_consult",
-            "scheduled_start": "2026-10-01T09:00:00+00:00", "price_confirmed": 500.0})
+            "scheduled_start": "2026-10-01T09:00:00+00:00"})
     assert res.status_code == 201
     assert "address_id" not in bookings.insert.call_args[0][0]

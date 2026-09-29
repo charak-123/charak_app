@@ -43,8 +43,13 @@ def get_earnings(user: dict = Depends(require_doctor)):
     consult_total = sum(
         float(b.get("price_confirmed") or 0) for b in bookings
     )
+    # 'approved' means the patient *may* pay, not that they have. Counting it
+    # as earned inflated the headline figure with money that had not arrived.
     procedure_total = sum(
-        float(bill["total"]) for bill in bills if bill["status"] in ("approved", "paid")
+        float(bill["total"]) for bill in bills if bill["status"] == "paid"
+    )
+    awaiting_payment_total = sum(
+        float(bill["total"]) for bill in bills if bill["status"] == "approved"
     )
     pending_review_total = sum(
         float(bill["total"]) for bill in bills if bill["status"] == "under_review"
@@ -66,8 +71,15 @@ def get_earnings(user: dict = Depends(require_doctor)):
         "items": items,
         "consult_total": consult_total,
         "procedure_total": procedure_total,
+        # Payable but not yet paid — shown separately, never inside a total
+        # described as earned.
+        "awaiting_payment_total": awaiting_payment_total,
         "pending_review_total": pending_review_total,
+        # Everything actually collected, over all time. The doctor app used to
+        # label this "this month", which it never was — there is no date filter
+        # here and adding one would silently change what the number means.
         "grand_total": consult_total + procedure_total,
+        "period": "all_time",
     }
 
 

@@ -8,7 +8,7 @@ from postgrest.exceptions import APIError
 from fastapi.testclient import TestClient
 from app.main import app
 
-from tests.conftest import make_chain, make_supabase
+from tests.conftest import make_chain, make_supabase, pricing_chain
 
 DOCTOR_TOKEN  = "Bearer doctor_token"
 PATIENT_TOKEN = "Bearer patient_token"
@@ -46,7 +46,8 @@ def test_create_booking_success():
         return MagicMock(data=[created_row])   # inserted row
     bookings_chain.execute.side_effect = bookings_execute
 
-    mock_db = make_supabase({"doctors": verified_doc, "bookings": bookings_chain})
+    mock_db = make_supabase({"doctors": verified_doc, "bookings": bookings_chain,
+                             "doctor_pricing": pricing_chain()})
 
     with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = PATIENT_PAYLOAD
@@ -81,7 +82,8 @@ def test_create_booking_slot_conflict():
                                      "offers_online_consult": True, "offers_home_visit": False})
     conflict_chain  = make_chain(list_data=[{"id": "existing"}])
 
-    mock_db = make_supabase({"doctors": verified_doc, "bookings": conflict_chain})
+    mock_db = make_supabase({"doctors": verified_doc, "bookings": conflict_chain,
+                             "doctor_pricing": pricing_chain()})
     with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = PATIENT_PAYLOAD
         client = TestClient(app)
@@ -219,6 +221,7 @@ def test_create_booking_loses_insert_race_returns_409():
                                     "offers_online_consult": True, "offers_home_visit": False})
 
     mock_db = make_supabase({"doctors": verified_doc,
+                             "doctor_pricing": pricing_chain(),
                              "bookings": _slot_free_but_insert_conflicts()})
     with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = PATIENT_PAYLOAD
@@ -246,6 +249,7 @@ def test_create_booking_other_db_error_is_not_reported_as_a_slot_conflict():
                                     "offers_online_consult": True, "offers_home_visit": False})
 
     mock_db = make_supabase({"doctors": verified_doc,
+                             "doctor_pricing": pricing_chain(),
                              "bookings": _slot_free_but_insert_conflicts(sqlstate="23503")})
     with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = PATIENT_PAYLOAD
@@ -260,3 +264,66 @@ def test_create_booking_other_db_error_is_not_reported_as_a_slot_conflict():
     assert resp.status_code == 409
     assert resp.json()["error"] != "Slot already booked"
     assert "Referenced record" in resp.json()["error"]
+
+
+# ── server-authoritative pricing ──────────────────────────────────────────────
+
+def _price_db(pricing, created_row=None):
+    verified_doc = make_chain(data={"id": "doc-1", "verification_status": "verified",
+                                    "offers_online_consult": True, "offers_home_visit": False})
+    bookings_chain = make_chain()
+    calls = {"n": 0}
+    def execute():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return MagicMock(data=[])
+        return MagicMock(data=[created_row or {
+            "id": "bk-1", "status": "requested", "doctor_id": "doc-1",
+            "patient_id": "pat-1", "channel": "online_consult",
+            "scheduled_start": "2026-08-25T09:00:00+00:00"}])
+    bookings_chain.execute.side_effect = execute
+    db = make_supabase({"doctors": verified_doc, "bookings": bookings_chain,
+                        "doctor_pricing": pricing,
+                        "users": make_chain(list_data=[{"name": "Asha"}])})
+    return db, bookings_chain
+
+
+def _post(db, body):
+    with patch(PATCH_TARGET, db), patch(JWT_TARGET) as jw:
+        jw.decode.return_value = PATIENT_PAYLOAD
+        return TestClient(app).post("/bookings/", json=body,
+                                    headers={"Authorization": PATIENT_TOKEN})
+
+
+BASE_BODY = {"doctor_id": "doc-1", "channel": "online_consult",
+             "scheduled_start": "2026-08-25T09:00:00+00:00"}
+
+
+def test_create_booking_snapshots_the_published_price():
+    """
+    Regression: nothing used to write price_confirmed, so _amount_due refused
+    every consult with "No confirmed price on booking" and no patient could pay.
+    """
+    db, bookings = _price_db(pricing_chain(750.0))
+    resp = _post(db, BASE_BODY)
+
+    assert resp.status_code == 201
+    assert bookings.insert.call_args[0][0]["price_confirmed"] == 750.0
+
+
+def test_create_booking_ignores_a_price_supplied_by_the_client():
+    """A patient naming their own fee must not be charged it."""
+    db, bookings = _price_db(pricing_chain(750.0))
+    resp = _post(db, {**BASE_BODY, "price_confirmed": 1.0})
+
+    assert resp.status_code == 201
+    assert bookings.insert.call_args[0][0]["price_confirmed"] == 750.0
+
+
+def test_create_booking_refuses_a_doctor_with_no_published_price():
+    """Better to refuse than to create a booking that can never be paid for."""
+    db, _ = _price_db(make_chain(data=None))
+    resp = _post(db, BASE_BODY)
+
+    assert resp.status_code == 409
+    assert "has not published a price" in resp.json()["error"]

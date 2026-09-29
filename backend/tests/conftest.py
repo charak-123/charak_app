@@ -156,3 +156,13 @@ def silent_push(monkeypatch):
 
     monkeypatch.setattr(notif, "_deliver", _fake_deliver)
     return sent
+
+
+def pricing_chain(price=500.0):
+    """
+    A doctor_pricing row for _resolve_price in the bookings router.
+
+    Every create_booking call needs one now that the consult fee is resolved
+    server-side from doctor_pricing rather than accepted from the request body.
+    """
+    return make_chain(data={"price": price})

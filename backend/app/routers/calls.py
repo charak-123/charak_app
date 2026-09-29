@@ -151,6 +151,71 @@ def patient_join_token(
     }
 
 
+@router.post("/{booking_id}/call")
+def join_active_call(
+    booking_id: str,
+    body: Optional[JoinRequest] = None,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Join whatever call is ringing on this booking.
+
+    The patient app has no call id — it is told a doctor is calling and simply
+    asks to be let in. This resolves the in-progress clarification call itself
+    and mints the joiner's token. Legacy ``token``/``doctor_name`` keys are
+    returned alongside the ``agora_*`` ones the shared call session reads.
+    """
+    booking = fetch_one(
+        supabase.table("bookings")
+        .select("patient_id, doctor_id, channel, status, doctors(name)")
+        .eq("id", booking_id)
+    )
+    if not booking:
+        raise AppError("Booking not found", 404)
+    if user["sub"] not in (booking["patient_id"], booking["doctor_id"]):
+        raise AppError("Forbidden", 403)
+
+    active = (
+        supabase.table("clarification_calls")
+        .select("*")
+        .eq("booking_id", booking_id)
+        .eq("call_status", "initiated")
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+
+    # A scheduled online consult *is* the call — it has no clarification-call
+    # row and never will, because nobody "initiates" it: both sides simply join
+    # at the slot time. Requiring a ringing clarification call here meant the
+    # patient's "Join call" button 404'd on every consult they had paid for.
+    # The channel name is derived from the booking id, so both sides land in the
+    # same place without any call record to coordinate them.
+    is_paid_consult = (
+        booking.get("channel") == "online_consult"
+        and booking.get("status") == "paid"
+    )
+    if not active and not is_paid_consult:
+        raise AppError("No call is in progress for this booking", 404)
+
+    channel_name = f"charak_{booking_id[:8]}"
+    uid = (body or JoinRequest()).uid
+    token = _generate_agora_token(channel_name, uid)
+    return {
+        # None for a scheduled consult — there is no clarification-call row to
+        # report, and the app only uses this id to close a clarification call.
+        "call_id": active[0]["id"] if active else None,
+        "agora_channel": channel_name,
+        "agora_token": token,
+        "agora_app_id": AGORA_APP_ID,
+        "token": token,                                    # legacy key
+        "doctor_name": (booking.get("doctors") or {}).get("name"),
+        "uid": uid,
+        "live": agora_configured(),
+        "expires_in": TOKEN_TTL_SECONDS,
+    }
+
+
 @router.patch("/{booking_id}/clarification-call/{call_id}/complete")
 def complete_call(booking_id: str, call_id: str, body: CallComplete, user: dict = Depends(require_doctor)):
     call = _get_call(call_id, booking_id, user["sub"])

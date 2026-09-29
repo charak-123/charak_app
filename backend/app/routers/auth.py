@@ -116,11 +116,20 @@ async def send_otp(req: SendOTPRequest):
 @router.post("/verify-otp")
 def verify_otp(req: VerifyOTPRequest):
     try:
-        otp_store.consume(req.phone, req.code)
+        otp_row = otp_store.consume(req.phone, req.code)
     except otp_store.OTPError as exc:
         raise AppError(exc.message, exc.status_code)
 
-    table = "doctors" if req.role == "doctor" else "users"
+    # The role is whatever the code was *issued* for, never what the verify call
+    # claims. Trusting req.role let a code requested in the patient app be
+    # redeemed as a doctor, minting a doctor-scoped token on any phone.
+    role = otp_row.get("role") or req.role
+    if role != req.role:
+        raise AppError(
+            "This code was sent for a different app. Request a new one here.", 400
+        )
+
+    table = "doctors" if role == "doctor" else "users"
     result = (
         supabase.table(table)
         .upsert({"phone": req.phone, "otp_verified": True}, on_conflict="phone")
@@ -131,7 +140,7 @@ def verify_otp(req: VerifyOTPRequest):
 
     row = result.data[0]
     return {
-        "token": _issue_jwt(row["id"], req.role),
+        "token": _issue_jwt(row["id"], role),
         "user": row,
         "is_new": not row.get("name"),
     }

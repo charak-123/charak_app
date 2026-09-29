@@ -48,9 +48,10 @@ def update_profile(body: DoctorProfileUpdate, user: dict = Depends(require_docto
 
 class VerificationSubmit(BaseModel):
     license_number: str
-    # Optional: client-side Storage uploads are not yet authorised, so the app
-    # may submit a licence number without an attached document. Restore as
-    # required once uploads move behind a backend endpoint.
+    # The document itself is submitted separately, to
+    # ``POST /uploads/doctor/verification-document`` — it is a file, not a URL
+    # the client can mint. This field remains only for the website's doctor
+    # registration, which may already hold a link to a document sent by email.
     document_url: Optional[str] = None
 
 
@@ -330,8 +331,21 @@ def check_service_area(
 
 
 @router.get("/{doctor_id}/slots")
-def get_slots(doctor_id: str, from_date: str = None):
+def get_slots(doctor_id: str, from_date: str = None, days: int = 14):
+    """
+    Open slots for a doctor, grouped by date.
+
+    ``days`` is honoured rather than ignored: the patient app asks for six and
+    used to be handed fourteen, because the parameter stopped at the route and
+    never reached get_available_slots.
+    """
     from datetime import date
     from ..services.availability import get_available_slots
-    d = date.fromisoformat(from_date) if from_date else date.today()
-    return get_available_slots(doctor_id, d)
+
+    if not 1 <= days <= 60:
+        raise AppError("days must be between 1 and 60", 400)
+    try:
+        d = date.fromisoformat(from_date) if from_date else date.today()
+    except ValueError:
+        raise AppError("from_date must be ISO format, e.g. 2026-10-01", 400)
+    return get_available_slots(doctor_id, d, days=days)

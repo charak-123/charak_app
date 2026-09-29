@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 
 from ..config import PAYMENT_HOLD_MINUTES
 from ..db import fetch_one, supabase
-from ..deps import get_current_user, require_doctor
+from ..deps import get_current_user, require_doctor, require_patient
 from ..errors import AppError
-from ..services import geo, notifications
+from ..services import availability, geo, notifications
 
 router = APIRouter()
 
@@ -18,8 +18,13 @@ VALID_STATUSES = (
 )
 
 # Statuses that occupy a slot — a new booking cannot take a time already held by
-# one of these.
-SLOT_HOLDING_STATUSES = ["requested", "accepted", "paid"]
+# one of these. Derived from the availability service's list so the grid and the
+# booking check can never disagree: anything hidden from the patient must also
+# be refused here, and vice versa. `completed` is excluded only because a
+# completed booking is necessarily in the past.
+SLOT_HOLDING_STATUSES = [
+    s for s in availability.SLOT_OCCUPYING_STATUSES if s != "completed"
+]
 
 
 def _now() -> datetime:
@@ -37,17 +42,22 @@ class BookingCreate(BaseModel):
     channel: str                 # "online_consult" | "home_visit"
     scheduled_start: str         # ISO datetime "2026-08-25T09:00:00+05:30"
     category_id: Optional[str]   = None
-    price_confirmed: Optional[float] = None
     # Required for home_visit: which of the patient's saved addresses to visit.
     # Ignored for online_consult, which has no destination.
     address_id: Optional[str]    = None
+    # Deliberately no price field. The consult fee is what the doctor published
+    # in doctor_pricing, resolved server-side by _resolve_price — a client that
+    # names its own price names what it will be charged.
 
 
 @router.post("/", status_code=201)
 def create_booking(
     body: BookingCreate,
     background: BackgroundTasks,
-    user: dict = Depends(get_current_user),
+    # require_patient, not get_current_user: this writes patient_id from the
+    # token subject, so a doctor's token would have created a booking whose
+    # patient is a doctor id — a row nothing downstream can make sense of.
+    user: dict = Depends(require_patient),
 ):
     if body.channel not in ("online_consult", "home_visit"):
         raise AppError("Invalid channel", 400)
@@ -77,6 +87,10 @@ def create_booking(
     # radius the doctor agreed to cover.
     address_fields = _resolve_home_visit_address(body, doc, user["sub"])
 
+    # Snapshot the published fee onto the booking. Without this the whole payment
+    # path is dead: _amount_due refuses a booking with no price_confirmed.
+    price = _resolve_price(body.doctor_id, body.channel)
+
     existing = (
         supabase.table("bookings")
         .select("id")
@@ -99,7 +113,7 @@ def create_booking(
             "channel": body.channel,
             "scheduled_start": body.scheduled_start,
             "category_id": body.category_id,
-            "price_confirmed": body.price_confirmed,
+            "price_confirmed": price,
             "status": "requested",
             **address_fields,
         }).execute().data[0]
@@ -127,7 +141,7 @@ def list_incoming(user: dict = Depends(require_doctor)):
     """
     rows = (
         supabase.table("bookings")
-        .select("*, users(name, phone)")
+        .select("*, users(name)")
         .eq("doctor_id", user["sub"])
         .eq("status", "requested")
         .order("created_at", desc=True)
@@ -143,7 +157,7 @@ def list_active(user: dict = Depends(require_doctor)):
     """Accepted/paid bookings — current queue."""
     rows = (
         supabase.table("bookings")
-        .select("*, users(name, phone)")
+        .select("*, users(name)")
         .eq("doctor_id", user["sub"])
         .in_("status", ["accepted", "paid"])
         .order("scheduled_start")
@@ -159,7 +173,7 @@ def list_history(user: dict = Depends(require_doctor)):
     """Terminal bookings — everything no longer actionable."""
     rows = (
         supabase.table("bookings")
-        .select("*, users(name, phone)")
+        .select("*, users(name)")
         .eq("doctor_id", user["sub"])
         .in_("status", ["completed", "declined", "cancelled", "no_show"])
         .order("scheduled_start", desc=True)
@@ -191,7 +205,7 @@ def patient_bookings(user: dict = Depends(get_current_user)):
 def get_booking(booking_id: str, user: dict = Depends(get_current_user)):
     b = fetch_one(
         supabase.table("bookings")
-        .select("*, users(name, phone), doctors(name, photo_url, phone, categories(name))")
+        .select("*, users(name), doctors(name, photo_url, categories(name))")
         .eq("id", booking_id)
     )
     if not b:
@@ -265,6 +279,16 @@ def complete_booking(
     b = _get_booking_for_doctor(booking_id, user["sub"])
     if b["status"] not in ("accepted", "paid"):
         raise AppError(f"Cannot complete a booking with status '{b['status']}'", 400)
+    # Completing an unpaid booking stranded the fee: _amount_due only issues a
+    # consult_fee order while the booking is 'accepted', so once it went to
+    # 'completed' the money could never be collected — while still being counted
+    # as earnings. The visit has to be paid for before it can be closed.
+    if b["status"] == "accepted":
+        raise AppError(
+            "This booking has not been paid for yet. The patient must pay the "
+            "consult fee before the visit can be marked complete.",
+            409,
+        )
 
     updated = _update_status(booking_id, "completed", {"hold_expires_at": None})
     notifications.visit_completed({**b, **updated}, background)
@@ -407,6 +431,29 @@ def _format_address(address: dict) -> str:
         address.get("pincode"),
     ]
     return ", ".join(p for p in parts if p)
+
+
+def _resolve_price(doctor_id: str, channel: str) -> float:
+    """
+    The fee for this doctor on this channel, as published in doctor_pricing.
+
+    Snapshotted onto the booking rather than looked up at payment time, so that
+    a doctor editing their pricing mid-booking cannot change what a patient was
+    quoted. doctor_pricing is unique on (doctor_id, channel), so there is exactly
+    one row to find.
+    """
+    row = fetch_one(
+        supabase.table("doctor_pricing")
+        .select("price")
+        .eq("doctor_id", doctor_id)
+        .eq("channel", channel)
+    )
+    if not row or row.get("price") is None:
+        raise AppError(
+            "This doctor has not published a price for this consultation type yet",
+            409,
+        )
+    return float(row["price"])
 
 
 def _redact_address_for_doctor(booking: dict) -> dict:
