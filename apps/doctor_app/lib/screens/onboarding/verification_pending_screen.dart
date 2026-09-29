@@ -1,7 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:charak_core/charak_core.dart';
 
 class VerificationPendingScreen extends ConsumerStatefulWidget {
@@ -12,36 +13,52 @@ class VerificationPendingScreen extends ConsumerStatefulWidget {
 }
 
 class _VerificationPendingScreenState extends ConsumerState<VerificationPendingScreen> {
+  CharakPoller? _poll;
   String _status = 'pending';
   String? _rejectionReason;
 
   @override
   void initState() {
     super.initState();
-    _subscribeRealtime();
+    _refresh();
+    // Verification is a human decision minutes-to-days away, so this starts
+    // slow and eases off to five minutes. Push (`doctor.verified`) is what
+    // makes it feel immediate; this only catches a missed notification.
+    _poll = CharakPoller(
+      onPoll: _refresh,
+      interval: const Duration(seconds: 20),
+      maxInterval: const Duration(minutes: 5),
+    )..start();
   }
 
-  void _subscribeRealtime() {
-    final auth  = ref.read(authProvider);
-    final doctorId = auth.user?['id'] as String?;
-    if (doctorId == null) return;
+  /// Reads the doctor's own profile through the backend.
+  ///
+  /// A Supabase realtime subscription cannot work here: the app holds only the
+  /// anon key and authenticates with a FastAPI JWT, so `auth.uid()` is NULL
+  /// and the doctors RLS policy matches no rows. The stream never fired, so a
+  /// doctor approved by ops sat on this screen until they restarted the app.
+  /// Returns true once ops have approved, which stops the poll. A rejection
+  /// keeps polling: ops can reverse it after the doctor re-submits.
+  Future<bool> _refresh() async {
+    final me = await ApiClient.instance.get('/doctors/me')
+        as Map<String, dynamic>;
+    if (!mounted) return true;
+    final status = me['verification_status'] as String? ?? 'pending';
+    setState(() {
+      _status = status;
+      _rejectionReason = me['verification_rejection_reason'] as String?;
+    });
+    if (status == 'verified') {
+      context.go('/setup/channels');
+      return true;
+    }
+    return false;
+  }
 
-    Supabase.instance.client
-        .from('doctors')
-        .stream(primaryKey: ['id'])
-        .eq('id', doctorId)
-        .listen((rows) {
-          if (rows.isEmpty || !mounted) return;
-          final row = rows.first;
-          final status = row['verification_status'] as String;
-          setState(() {
-            _status = status;
-            _rejectionReason = row['verification_rejection_reason'] as String?;
-          });
-          if (status == 'verified' && mounted) {
-            context.go('/setup/channels');
-          }
-        });
+  @override
+  void dispose() {
+    _poll?.dispose();
+    super.dispose();
   }
 
   @override

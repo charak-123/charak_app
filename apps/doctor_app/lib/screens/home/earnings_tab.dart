@@ -49,18 +49,30 @@ class EarningsTab extends ConsumerWidget {
           data: (data) {
             final items         = List<Map<String, dynamic>>.from(data['items'] as List);
             final pendingReview = (data['pending_review_total'] as num?)?.toDouble() ?? 0;
+            final awaitingPay   = (data['awaiting_payment_total'] as num?)?.toDouble() ?? 0;
             final grandTotal    = (data['grand_total'] as num?)?.toDouble() ?? 0;
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
               children: [
                 const CharakScreenHeader(
-                    title: 'Earnings', subtitle: 'This month · V1 keeps it simple'),
+                    title: 'Earnings', subtitle: 'All time · V1 keeps it simple'),
                 const SizedBox(height: 14),
+                // /earnings/me has no date filter — it returns every completed
+                // booking ever, so labelling it with the current month stated
+                // something the number never meant.
                 _EarnTotal(
-                  label: 'Total · ${DateFormat('MMMM yyyy').format(DateTime.now())}',
+                  label: 'Total received',
                   amount: grandTotal,
                 ),
+                if (awaitingPay > 0) ...[
+                  CharakNoteBanner(
+                    icon: Icons.schedule_outlined,
+                    leadLabel: '₹${awaitingPay.toStringAsFixed(0)} approved, awaiting payment',
+                    message: '— counts as earnings once the patient pays.',
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 if (pendingReview > 0) ...[
                   CharakNoteBanner(
                     icon: Icons.shield_outlined,

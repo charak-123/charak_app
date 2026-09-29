@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
 
@@ -23,7 +22,7 @@ class RequestsTab extends ConsumerStatefulWidget {
 }
 
 class _RequestsTabState extends ConsumerState<RequestsTab> {
-  StreamSubscription? _realtimeSub;
+  CharakPoller? _poll;
   final Set<String> _seen = {};
 
   /// Requests that landed live in this session — these get the `.req-card.new`
@@ -36,29 +35,40 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
   @override
   void initState() {
     super.initState();
-    _subscribeRealtime();
+    _pollIncoming();
   }
 
-  void _subscribeRealtime() {
-    final doctorId = ref.read(authProvider).user?['id'];
-    if (doctorId == null) return;
-
-    _realtimeSub = Supabase.instance.client
-        .from('bookings')
-        .stream(primaryKey: ['id'])
-        .eq('doctor_id', doctorId)
-        .listen((rows) {
-      final newRequests = rows.where(
-        (r) => r['status'] == 'requested' && !_seen.contains(r['id'] as String),
-      );
-      if (newRequests.isNotEmpty && mounted) {
-        for (final r in newRequests) {
-          _seen.add(r['id'] as String);
-          _fresh.add(r['id'] as String);
+  /// Polls /bookings/doctor/incoming for requests that have appeared since the
+  /// last look, so the new-request highlight still works.
+  ///
+  /// Supabase realtime cannot serve this: the app holds only the anon key and
+  /// authenticates with a FastAPI JWT, so `auth.uid()` is NULL and the
+  /// bookings RLS policies match nothing — the stream never fired and the tab
+  /// only ever updated on a manual pull-to-refresh. Push (`booking.requested`)
+  /// remains the immediate signal; this is the safety net.
+  void _pollIncoming() {
+    // This one never "completes" — a doctor's inbox is open-ended — so it
+    // always returns false and simply eases off to a minute while nothing
+    // arrives, resetting the moment the doctor brings the app forward.
+    _poll = CharakPoller(
+      interval: const Duration(seconds: 15),
+      maxInterval: const Duration(minutes: 1),
+      onPoll: () async {
+        if (!mounted) return true;
+        final rows = List<Map<String, dynamic>>.from(
+            await ApiClient.instance.get('/bookings/doctor/incoming') as List);
+        final fresh = rows
+            .map((r) => r['id'] as String)
+            .where((id) => !_seen.contains(id))
+            .toList();
+        if (fresh.isNotEmpty && mounted) {
+          _seen.addAll(fresh);
+          _fresh.addAll(fresh);
+          ref.invalidate(_incomingProvider);
         }
-        ref.invalidate(_incomingProvider);
-      }
-    });
+        return false;
+      },
+    )..start();
   }
 
   Future<void> _decline(String bookingId) async {
@@ -84,7 +94,7 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
 
   @override
   void dispose() {
-    _realtimeSub?.cancel();
+    _poll?.dispose();
     super.dispose();
   }
 
