@@ -1,23 +1,41 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'tokens.dart';
 
-/// Motion ported from `charak-shared/core.css`. The easing curves are the
-/// stylesheet's `--ease-out` / `--ease-in-out` cubic-beziers, and every
-/// duration comes from [CharakDurations].
+/// Motion for CHARAK V2: quick out, soft landing (One UI style). Taps feel
+/// instant and nothing jerks. Durations and curves come from the generated
+/// [CharakMotion] tokens (`design-system/tokens.json` → `motion`).
+///
+/// Rules (design-system/README.md § Motion):
+/// 1. One hero motion per screen; the rest stays quiet.
+/// 2. Nothing longer than 450ms.
+/// 3. Enter from where it lives: sheets rise, heads-up drops, lists lift 20px.
+/// 4. Numbers never animate their value.
+/// 5. With Reduce motion on, everything becomes a 150ms fade and loops stop.
 ///
 /// This library stays router-agnostic: it exposes transition *builders* that
 /// each app hands to its own `CustomTransitionPage`, so `charak_core` needs no
 /// dependency on go_router.
-class CharakCurves {
-  CharakCurves._();
+abstract final class CharakCurves {
+  /// motion.emphasized — enter, Now Bar, sheets, card → screen.
+  static const emphasized = CharakMotion.emphasizedCurve;
 
-  /// `--ease-out: cubic-bezier(0.16, 1, 0.3, 1)` — the decelerating curve used
-  /// for screen pushes, sheets and arrivals.
-  static const out = Cubic(0.16, 1, 0.3, 1);
+  /// motion.standard — tabs, segments, status, colour.
+  static const standard = CharakMotion.standardCurve;
 
-  /// `--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1)`
-  static const inOut = Cubic(0.4, 0, 0.2, 1);
+  /// motion.exit — dismiss, heads-up out, close.
+  static const exit = CharakMotion.exitCurve;
+
+  /// motion.press — buttons, tiles, rows.
+  static const press = CharakMotion.pressCurve;
+
+  /// V1 alias for [emphasized].
+  static const out = emphasized;
+
+  /// V1 alias for [standard].
+  static const inOut = standard;
 }
 
 /// True when the platform asks for reduced motion. Transitions then collapse
@@ -104,10 +122,10 @@ class _CharakTabTransitionState extends State<CharakTabTransition>
     with SingleTickerProviderStateMixin {
   late final _ctrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 200),
+    duration: CharakMotion.standard,
     value: widget.index == widget.tabIndex ? 1 : 0,
   );
-  late final _t = CurvedAnimation(parent: _ctrl, curve: CharakCurves.out);
+  late final _t = CurvedAnimation(parent: _ctrl, curve: CharakCurves.standard);
 
   @override
   void didUpdateWidget(CharakTabTransition old) {
@@ -204,8 +222,9 @@ class _CharakStatusPulseState extends State<CharakStatusPulse>
   }
 }
 
-/// `.fade-swap` — cross-fades and lifts its child whenever the child's key
-/// changes. Use for text that swaps in place, such as a status label.
+/// Status change — cross-fades its child whenever the child's key changes
+/// (motion.standard, 300ms, no slide). Use for text that swaps in place,
+/// such as a status label.
 class CharakFadeSwap extends StatelessWidget {
   final Widget child;
 
@@ -213,21 +232,186 @@ class CharakFadeSwap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedSwitcher(
-    duration: CharakDurations.statusChange,
-    switchInCurve: CharakCurves.out,
-    switchOutCurve: CharakCurves.out,
-    transitionBuilder: (child, animation) {
-      if (charakReduceMotion(context)) {
-        return FadeTransition(opacity: animation, child: child);
-      }
-      return FadeTransition(
-        opacity: animation,
-        child: SlideTransition(
-          position: Tween(begin: const Offset(0, 0.25), end: Offset.zero).animate(animation),
-          child: child,
-        ),
-      );
-    },
+    duration: charakReduceMotion(context) ? CharakMotion.reduced : CharakMotion.standard,
+    switchInCurve: CharakCurves.standard,
+    switchOutCurve: CharakCurves.standard,
     child: child,
   );
+}
+
+/// motion.press — scales its child to 0.96 while held and springs back on
+/// release (150ms, press curve). Wrap every tappable tile, card and row.
+/// Buttons built on [CharakButton] already include it.
+class CharakPressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final HitTestBehavior behavior;
+
+  const CharakPressable({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.onLongPress,
+    this.behavior = HitTestBehavior.opaque,
+  });
+
+  @override
+  State<CharakPressable> createState() => _CharakPressableState();
+}
+
+class _CharakPressableState extends State<CharakPressable> {
+  bool _down = false;
+
+  void _set(bool v) {
+    if (_down != v) setState(() => _down = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onTap != null || widget.onLongPress != null;
+    final scale = (_down && enabled && !charakReduceMotion(context)) ? CharakMotion.pressScale : 1.0;
+    return GestureDetector(
+      behavior: widget.behavior,
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
+      onTapDown: enabled ? (_) => _set(true) : null,
+      onTapUp: enabled ? (_) => _set(false) : null,
+      onTapCancel: enabled ? () => _set(false) : null,
+      child: AnimatedScale(
+        scale: scale,
+        duration: CharakMotion.press,
+        curve: CharakCurves.press,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+/// motion.stagger — screen-enter choreography. Each child rises
+/// [CharakMotion.liftOffset] px and fades in on the emphasized curve, 40ms
+/// after the previous one. Only the first [CharakMotion.staggerMaxItems]
+/// children stagger; the rest arrive with the last of them, so the tail never
+/// exceeds 240ms.
+class CharakStaggerIn extends StatefulWidget {
+  final List<Widget> children;
+  final CrossAxisAlignment crossAxisAlignment;
+
+  const CharakStaggerIn({
+    super.key,
+    required this.children,
+    this.crossAxisAlignment = CrossAxisAlignment.stretch,
+  });
+
+  @override
+  State<CharakStaggerIn> createState() => _CharakStaggerInState();
+}
+
+class _CharakStaggerInState extends State<CharakStaggerIn> with SingleTickerProviderStateMixin {
+  static final _tailMs = CharakMotion.stagger.inMilliseconds * (CharakMotion.staggerMaxItems - 1);
+  late final _ctrl = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: CharakMotion.emphasized.inMilliseconds + _tailMs),
+  )..forward();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = charakReduceMotion(context);
+    final total = _ctrl.duration!.inMilliseconds;
+    return Column(
+      crossAxisAlignment: widget.crossAxisAlignment,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < widget.children.length; i++)
+          _item(i, total, reduce),
+      ],
+    );
+  }
+
+  Widget _item(int i, int total, bool reduce) {
+    final start = CharakMotion.stagger.inMilliseconds * math.min(i, CharakMotion.staggerMaxItems - 1);
+    final end = start + (reduce ? CharakMotion.reduced : CharakMotion.emphasized).inMilliseconds;
+    final t = CurvedAnimation(
+      parent: _ctrl,
+      curve: Interval(start / total, math.min(1.0, end / total), curve: CharakCurves.emphasized),
+    );
+    return AnimatedBuilder(
+      animation: t,
+      builder: (_, child) => Opacity(
+        opacity: t.value.clamp(0.0, 1.0),
+        child: reduce
+            ? child
+            : Transform.translate(offset: Offset(0, CharakMotion.liftOffset * (1 - t.value)), child: child),
+      ),
+      child: widget.children[i],
+    );
+  }
+}
+
+/// motion.live — a looping 1.6s pulse for anything happening now (a live
+/// consult dot, the Now Bar). Stops when Reduce motion is on.
+class CharakLivePulse extends StatefulWidget {
+  final Color color;
+  final double size;
+
+  const CharakLivePulse({super.key, required this.color, this.size = 8});
+
+  @override
+  State<CharakLivePulse> createState() => _CharakLivePulseState();
+}
+
+class _CharakLivePulseState extends State<CharakLivePulse> with SingleTickerProviderStateMixin {
+  late final _ctrl = AnimationController(vsync: this, duration: CharakMotion.live);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (charakReduceMotion(context)) {
+      _ctrl.stop();
+    } else if (!_ctrl.isAnimating) {
+      _ctrl.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.size;
+    return SizedBox(
+      width: s * 2.5,
+      height: s * 2.5,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) {
+          final v = CharakCurves.standard.transform(_ctrl.value);
+          return Stack(alignment: Alignment.center, children: [
+            Container(
+              width: s + (s * 1.5 * v),
+              height: s + (s * 1.5 * v),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.color.withValues(alpha: 0.35 * (1 - v)),
+              ),
+            ),
+            Container(
+              width: s,
+              height: s,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: widget.color),
+            ),
+          ]);
+        },
+      ),
+    );
+  }
 }

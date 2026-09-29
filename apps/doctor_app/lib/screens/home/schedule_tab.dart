@@ -64,21 +64,14 @@ class _ScheduleTabState extends ConsumerState<ScheduleTab> {
       context,
       title: 'Block a time slot',
       child: StatefulBuilder(builder: (ctx, setSheetState) {
-        Widget dateChip(DateTime d, String label) {
-          final on = DateFormat('yyyy-MM-dd').format(d) == DateFormat('yyyy-MM-dd').format(chosen);
-          return GestureDetector(
-            onTap: () => setSheetState(() => chosen = d),
-            child: Container(
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              decoration: BoxDecoration(
-                color: on ? CharakColors.ink : CharakColors.bgSubtle,
-                borderRadius: const BorderRadius.all(CharakRadius.pill),
+        Widget dateChip(DateTime d, String label) => Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: CharakChip(
+                label: label,
+                selected: DateUtils.isSameDay(d, chosen),
+                onTap: () => setSheetState(() => chosen = d),
               ),
-              child: Text(label, style: CharakText.caption.copyWith(color: on ? Colors.white : CharakColors.ink)),
-            ),
-          );
-        }
+            );
 
         return Column(
             mainAxisSize: MainAxisSize.min,
@@ -122,7 +115,7 @@ class _ScheduleTabState extends ConsumerState<ScheduleTab> {
                 } on ApiException catch (e) {
                   if (ctx.mounted) {
                     ScaffoldMessenger.of(ctx).showSnackBar(
-                      SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
+                      SnackBar(content: Text(e.message), backgroundColor: CharakPalette.statusDeclined),
                     );
                   }
                 }
@@ -139,64 +132,59 @@ class _ScheduleTabState extends ConsumerState<ScheduleTab> {
     final bookingsAsync = ref.watch(_activeBookingsProvider);
     final blocksAsync  = ref.watch(_blocksProvider);
 
-    return Scaffold(
-      backgroundColor: CharakColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-          children: [
-            // `.sched-head` — 22px title with a compact 38px auto-width action.
-            Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 14),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const Text('Schedule', style: CharakText.h1),
-                  _CompactGhostButton(label: 'Block time', onPressed: _blockSheet),
-                ],
-              ),
-            ),
-            _DayStrip(
-              weekStart: _weekStart,
-              selected: _selectedDay,
-              onSelect: (d) => setState(() => _selectedDay = d),
-            ),
-            const SizedBox(height: 16),
-            CharakSectionTitle(
-              label: DateFormat('yyyy-MM-dd').format(_selectedDay) ==
-                      DateFormat('yyyy-MM-dd').format(DateTime.now())
-                  ? 'Today, ${DateFormat('EEEE').format(_selectedDay)}'
-                  : DateFormat('EEEE, d MMM').format(_selectedDay),
-            ),
-            const SizedBox(height: 9),
-            slotsAsync.when(
-              loading: () => const _AgendaSkeleton(),
-              error: (e, _) => Text('Failed to load schedule', style: CharakText.body.copyWith(color: CharakColors.danger)),
-              data: (slots) => bookingsAsync.when(
-                loading: () => const _AgendaSkeleton(),
-                error: (e, _) => Text('Failed to load bookings', style: CharakText.body.copyWith(color: CharakColors.danger)),
-                data: (bookings) => blocksAsync.when(
-                  loading: () => const _AgendaSkeleton(),
-                  error: (e, _) => Text('Failed to load blocks', style: CharakText.body.copyWith(color: CharakColors.danger)),
-                  data: (blocks) {
-                    final rows = _buildAgenda(slots, bookings, blocks);
-                    if (rows.isEmpty) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 32),
-                        child: Center(child: Text('No hours set for this day',
-                            style: CharakText.body.copyWith(color: CharakColors.inkMuted))),
-                      );
-                    }
-                    return Column(children: rows.map((r) => _SlotRow(row: r)).toList());
-                  },
-                ),
-              ),
-            ),
-          ],
+    return CharakLargeTitleScaffold(
+      title: 'Schedule',
+      subtitle: DateFormat('MMMM yyyy').format(_selectedDay),
+      actions: [
+        CharakButton(
+          label: 'Block time',
+          icon: Icons.block_rounded,
+          variant: CharakButtonVariant.tonal,
+          compact: true,
+          expand: false,
+          onPressed: _blockSheet,
         ),
-      ),
+      ],
+      children: [
+        _DayStrip(
+          weekStart: _weekStart,
+          selected: _selectedDay,
+          onSelect: (d) => setState(() => _selectedDay = d),
+        ),
+        const SizedBox(height: 24),
+        Padding(
+          padding: const EdgeInsets.only(left: 8, bottom: 10),
+          child: CharakSectionTitle(
+            label: DateFormat('yyyy-MM-dd').format(_selectedDay) ==
+                    DateFormat('yyyy-MM-dd').format(DateTime.now())
+                ? 'Today, ${DateFormat('EEEE').format(_selectedDay)}'
+                : DateFormat('EEEE, d MMM').format(_selectedDay),
+          ),
+        ),
+        slotsAsync.when(
+          loading: () => const _AgendaSkeleton(),
+          error: (e, _) => Text('Failed to load schedule', style: CharakText.body.copyWith(color: CharakColors.danger)),
+          data: (slots) => bookingsAsync.when(
+            loading: () => const _AgendaSkeleton(),
+            error: (e, _) => Text('Failed to load bookings', style: CharakText.body.copyWith(color: CharakColors.danger)),
+            data: (bookings) => blocksAsync.when(
+              loading: () => const _AgendaSkeleton(),
+              error: (e, _) => Text('Failed to load blocks', style: CharakText.body.copyWith(color: CharakColors.danger)),
+              data: (blocks) {
+                final rows = _buildAgenda(slots, bookings, blocks);
+                if (rows.isEmpty) {
+                  return const CharakEmptyState(
+                    icon: Icons.event_available_outlined,
+                    title: 'No hours set for this day',
+                    message: 'Set your consult hours in Profile → Channels & hours.',
+                  );
+                }
+                return Column(children: rows.map((r) => _SlotRow(row: r)).toList());
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -257,8 +245,8 @@ class _AgendaSkeleton extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 9),
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
         decoration: BoxDecoration(
+        color: CharakColors.card,
           borderRadius: const BorderRadius.all(CharakRadius.card),
-          border: Border.all(color: CharakColors.border),
         ),
         child: const Row(children: [
           SizedBox(width: 54, child: CharakSkeleton(width: 40, height: 13)),
@@ -284,31 +272,26 @@ class _TimeField extends StatelessWidget {
   final VoidCallback onTap;
   const _TimeField({required this.label, required this.value, required this.onTap});
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => CharakPressable(
     onTap: onTap,
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // `.field label` — 13px/600, 7px gap above a `.input`-shaped control.
-      Text(label, style: CharakText.caption.copyWith(fontWeight: FontWeight.w600)),
-      const SizedBox(height: 7),
-      Container(
-        height: 50,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        alignment: Alignment.centerLeft,
-        decoration: BoxDecoration(
-          color: CharakColors.bg,
-          borderRadius: const BorderRadius.all(CharakRadius.button),
-          border: Border.all(color: CharakColors.border),
-        ),
-        child: Text(value.format(context),
-            style: CharakText.body.copyWith(
-                fontFeatures: const [FontFeature.tabularFigures()])),
+    child: Container(
+      height: 60,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: CharakColors.card,
+        borderRadius: const BorderRadius.all(CharakRadius.input),
+        border: Border.all(color: CharakColors.borderStrong, width: 1.5),
       ),
-    ]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+        Text(label, style: CharakText.caption.weight(600).copyWith(color: CharakColors.inkMuted)),
+        Text(value.format(context), style: CharakText.bodyLarge.tabular.copyWith(color: CharakColors.ink)),
+      ]),
+    ),
   );
 }
 
-/// `.week-strip` / `.wday` — seven equal cells on a 6px grid; the selected
-/// day inverts to the ink fill with white type.
+/// Week strip: seven day pills. The chosen day fills blue (motion.standard)
+/// and pops once so it's clear the choice landed.
 class _DayStrip extends StatelessWidget {
   final DateTime weekStart;
   final DateTime selected;
@@ -326,178 +309,96 @@ class _DayStrip extends StatelessWidget {
   );
 
   Widget _buildDay(DateTime d) {
-    final on = DateFormat('yyyy-MM-dd').format(d) == DateFormat('yyyy-MM-dd').format(selected);
-    return GestureDetector(
+    final on = DateUtils.isSameDay(d, selected);
+    final fg = on ? CharakColors.onPrimary : CharakColors.ink;
+    return CharakPressable(
       onTap: () => onSelect(d),
-      child: AnimatedContainer(
-        duration: CharakDurations.buttonPress,
-        padding: const EdgeInsets.only(top: 8, bottom: 7),
-        decoration: BoxDecoration(
-          color: on ? CharakColors.ink : CharakColors.bgSubtle,
-          borderRadius: const BorderRadius.all(CharakRadius.button),
-        ),
-        child: Column(
-          children: [
-            // `.wday .d` — 10.5px/500
-            Text(
-              DateFormat('EE').format(d).substring(0, 2),
-              style: TextStyle(
-                fontFamily: CharakText.fontFamily,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w500,
-                height: 1.3,
-                color: on ? Colors.white : CharakColors.inkMuted,
-              ),
-            ),
-            const SizedBox(height: 1),
-            // `.wday .n` — 13.5px/600 tabular
-            Text(
-              d.day.toString(),
-              style: TextStyle(
-                fontFamily: CharakText.fontFamily,
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
-                color: on ? Colors.white : CharakColors.ink,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-          ],
+      child: AnimatedScale(
+        scale: on ? 1.0 : 0.97,
+        duration: CharakMotion.standard,
+        curve: CharakCurves.emphasized,
+        child: AnimatedContainer(
+          duration: CharakMotion.standard,
+          curve: CharakCurves.standard,
+          height: 64,
+          decoration: BoxDecoration(
+            color: on ? CharakColors.primary : CharakColors.card,
+            borderRadius: const BorderRadius.all(CharakRadius.tile),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(DateFormat('EEE').format(d),
+                  style: CharakText.caption.copyWith(
+                      color: on ? CharakPalette.blue100 : CharakColors.inkMuted)),
+              const SizedBox(height: 2),
+              Text('${d.day}', style: CharakText.numeric.copyWith(fontSize: 19, color: fg)),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// `.sched-head .btn` — the ghost button shrunk to 38px tall / 13px, sized to
-/// its label rather than stretched full width.
-class _CompactGhostButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onPressed;
-  const _CompactGhostButton({required this.label, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(CharakRadius.button),
-      side: BorderSide(color: CharakColors.border),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onPressed,
-      child: Container(
-        height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontFamily: CharakText.fontFamily,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            height: 1.2,
-            color: CharakColors.ink,
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-/// `.slot-row` — a 54px / 1fr / auto grid with the four state variants:
-/// `.booked` (primarySoft, primaryDeep status), `.home` (10%-success wash,
-/// success status), `.open` (dashed border, muted status) and `.blocked`
-/// (the whole row dimmed to 0.6, danger status).
+/// Agenda row. Each state owns one status colour: booked online = Accepted
+/// blue, booked home visit = Confirmed sage, open = dashed outline, blocked =
+/// Declined red on a 50% row (it recedes without jumping).
 class _SlotRow extends StatelessWidget {
   final _AgendaRow row;
   const _SlotRow({required this.row});
 
   @override
   Widget build(BuildContext context) {
-    final (bg, borderColor, dashed, statusLabel, statusColor) = switch (row.kind) {
-      _RowKind.booked =>
-        (CharakColors.primarySoft, Colors.transparent, false, 'Booked', CharakColors.primaryDeep),
-      // `.slot-row.home` — rgba(31,170,109,0.1), keeping the default hairline.
-      _RowKind.home =>
-        (const Color(0x1A1FAA6D), CharakColors.border, false, 'Booked', CharakColors.success),
-      _RowKind.open =>
-        (CharakColors.bg, CharakColors.border, true, 'Open', CharakColors.inkMuted),
-      _RowKind.blocked =>
-        (CharakColors.bg, CharakColors.border, false, 'Blocked', CharakColors.danger),
+    final (tone, statusLabel) = switch (row.kind) {
+      _RowKind.booked => (CharakStatusTone.accepted, 'Booked'),
+      _RowKind.home => (CharakStatusTone.confirmed, 'Home visit'),
+      _RowKind.open => (CharakStatusTone.muted, 'Open'),
+      _RowKind.blocked => (CharakStatusTone.declined, 'Blocked'),
+    };
+    final dashed = row.kind == _RowKind.open;
+    final (soft, _) = charakToneColors(tone);
+    final bg = switch (row.kind) {
+      _RowKind.booked || _RowKind.home => soft,
+      _ => CharakColors.card,
     };
 
     final body = Row(
-        children: [
-          // `.slot-row .t` — 54px tabular time column.
-          SizedBox(
-            width: 54,
-            child: Text(
-              row.time,
-              style: const TextStyle(
-                fontFamily: CharakText.fontFamily,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
-                color: CharakColors.ink,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // `.tt` / `.ts`
-                Text(row.title,
-                    style: CharakText.h2.copyWith(fontSize: 13.5),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 1),
-                Text(
-                  row.subtitle,
-                  style: const TextStyle(
-                    fontFamily: CharakText.fontFamily,
-                    fontSize: 12,
-                    height: 1.4,
-                    color: CharakColors.inkMuted,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
+      children: [
+        SizedBox(
+          width: 58,
+          child: Text(row.time, style: CharakText.numeric.copyWith(fontSize: 17, color: CharakColors.ink)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(row.title,
+                  style: CharakText.body.weight(600).copyWith(color: CharakColors.ink),
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+                  overflow: TextOverflow.ellipsis),
+              Text(row.subtitle,
+                  style: CharakText.caption.tabular.copyWith(color: CharakColors.inkMuted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ],
           ),
-          const SizedBox(width: 10),
-          // `.st` — 10.5px/600 uppercase, 0.05em.
-          Text(
-            statusLabel.toUpperCase(),
-            style: TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              height: 1.3,
-              letterSpacing: 10.5 * 0.05,
-              color: statusColor,
-            ),
-          ),
-        ],
-      );
+        ),
+        const SizedBox(width: 10),
+        CharakStatusPill(label: statusLabel, tone: tone),
+      ],
+    );
 
-    // `.slot-row.open` has no solid border — Flutter needs a painter for the
-    // dashed one. Either way the row keeps its 9px bottom gutter.
-    const inset = EdgeInsets.symmetric(horizontal: 13, vertical: 11);
+    const inset = EdgeInsets.symmetric(horizontal: 16, vertical: 14);
     final framed = Padding(
-      padding: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.only(bottom: 10),
       child: dashed
           ? CustomPaint(
               painter: CharakDashedBorderPainter(
-                color: CharakColors.border,
+                color: CharakColors.borderStrong,
                 dashed: true,
-                radius: 12,
-                strokeWidth: 1,
+                radius: CharakRadii.tile,
               ),
               child: Padding(padding: inset, child: body),
             )
@@ -505,14 +406,12 @@ class _SlotRow extends StatelessWidget {
               padding: inset,
               decoration: BoxDecoration(
                 color: bg,
-                borderRadius: const BorderRadius.all(CharakRadius.card),
-                border: Border.all(color: borderColor),
+                borderRadius: const BorderRadius.all(CharakRadius.tile),
               ),
               child: body,
             ),
     );
 
-    // `.slot-row.blocked { opacity: 0.6 }`
-    return row.kind == _RowKind.blocked ? Opacity(opacity: 0.6, child: framed) : framed;
+    return row.kind == _RowKind.blocked ? Opacity(opacity: 0.5, child: framed) : framed;
   }
 }

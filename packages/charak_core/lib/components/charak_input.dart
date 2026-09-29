@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import '../design/tokens.dart';
 
-/// Labelled text input using ShadInput.
+/// Labelled text input built on ShadInput, styled as the V2 text field.
+/// Prefer [CharakField] for new screens (label inside the box).
 class CharakInput extends StatelessWidget {
   final String? label;
   final String? placeholder;
@@ -40,9 +41,9 @@ class CharakInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ShadInputFormField(
     controller: controller,
-    label: label != null ? Text(label!, style: CharakText.caption.copyWith(color: CharakColors.ink)) : null,
-    placeholder: placeholder != null ? Text(placeholder!, style: CharakText.body.copyWith(color: CharakColors.inkMuted)) : null,
-    description: description != null ? Text(description!, style: CharakText.micro.copyWith(color: CharakColors.inkMuted)) : null,
+    label: label != null ? Text(label!, style: CharakText.caption.weight(600).copyWith(color: CharakColors.inkMuted)) : null,
+    placeholder: placeholder != null ? Text(placeholder!, style: CharakText.bodyLarge.copyWith(color: CharakColors.inkFaint)) : null,
+    description: description != null ? Text(description!, style: CharakText.caption.copyWith(color: CharakColors.inkMuted)) : null,
     obscureText: obscureText,
     keyboardType: keyboardType,
     textInputAction: textInputAction,
@@ -53,10 +54,20 @@ class CharakInput extends StatelessWidget {
     trailing: trailing,
     enabled: enabled,
     validator: error != null ? (_) => error : null,
-    // Inputs stay at the 14px input radius even though the Shad theme
-    // radius follows the 20px card radius.
-    decoration: const ShadDecoration(
-      border: ShadBorder(radius: BorderRadius.all(CharakRadius.input)),
+    // V2 text field: 20px radius, 1.5px outline that turns blue on focus.
+    style: CharakText.bodyLarge.copyWith(color: CharakColors.ink),
+    decoration: ShadDecoration(
+      color: CharakColors.card,
+      border: ShadBorder.all(
+        radius: const BorderRadius.all(CharakRadius.input),
+        color: CharakColors.borderStrong,
+        width: 1.5,
+      ),
+      focusedBorder: ShadBorder.all(
+        radius: const BorderRadius.all(CharakRadius.input),
+        color: CharakColors.primary,
+        width: 2,
+      ),
     ),
   );
 }

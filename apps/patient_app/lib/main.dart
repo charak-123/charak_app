@@ -7,6 +7,8 @@ import 'router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Design System V2: the patient app runs on cream + white surfaces.
+  CharakColors.useScheme(CharakScheme.patient);
   await Supabase.initialize(
     url: const String.fromEnvironment('SUPABASE_URL',
         defaultValue: 'https://placeholder.supabase.co'),

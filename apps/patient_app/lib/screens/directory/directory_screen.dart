@@ -65,7 +65,7 @@ class _State extends ConsumerState<DirectoryScreen> {
   Widget build(BuildContext context) {
     final async = ref.watch(_directoryProvider(_params));
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: CharakTopBar(
         title: _category.isNotEmpty ? _category : 'All doctors',
         trailingIcon: Icons.tune,
@@ -89,23 +89,19 @@ class _State extends ConsumerState<DirectoryScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
             children: [
-              // ── `.dir-meta` ────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(2, 4, 2, 10),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Text('${items.length} doctors near you',
-                      style: CharakText.caption.copyWith(
-                        color: CharakColors.inkMuted,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      )),
+                      style: CharakText.label.tabular.copyWith(color: CharakColors.ink)),
                   const Spacer(),
-                  Text('Navi Mumbai',
-                      style: CharakText.caption.copyWith(
-                          color: CharakColors.inkMuted, fontWeight: FontWeight.w500)),
+                  Icon(Icons.place_outlined, size: 16, color: CharakColors.inkMuted),
+                  const SizedBox(width: 4),
+                  Text('Navi Mumbai', style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
                 ]),
               ),
 
-              // ── `.chip-row` — filters left, sort pushed hard right ─────
+              // Filters left, sort pushed hard right.
               Row(children: [
                 Expanded(
                   child: CharakChipRow(
@@ -120,7 +116,8 @@ class _State extends ConsumerState<DirectoryScreen> {
                 ),
                 const SizedBox(width: 8),
                 CharakChip(
-                  label: 'Price ▾',
+                  label: 'Price',
+                  icon: Icons.swap_vert_rounded,
                   selected: _sortByPrice,
                   onTap: () => setState(() => _sortByPrice = !_sortByPrice),
                 ),
@@ -137,13 +134,13 @@ class _State extends ConsumerState<DirectoryScreen> {
                       : 'No doctors have opened slots nearby yet.',
                   action: CharakButton(
                     label: 'Browse all doctors',
-                    outlined: true,
+                    variant: CharakButtonVariant.outline,
                     onPressed: () => setState(() { _category = ''; _channel = ''; }),
                   ),
                 )
               else
                 ...items.map((d) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: _DoctorCard(doctor: d),
                 )),
             ],
@@ -160,8 +157,11 @@ class _State extends ConsumerState<DirectoryScreen> {
   }
 }
 
-// ── `.doc-card` ───────────────────────────────────────────────────────────────
+// ── Doctor card ───────────────────────────────────────────────────────────────
 
+/// Doctor card (design-system § Components · Doctor card): rounded-square
+/// avatar, wide name, specialty line and a Chandan rating chip; a hairline;
+/// then the channels and the fee in narrow tabular figures.
 class _DoctorCard extends StatelessWidget {
   final Map<String, dynamic> doctor;
   const _DoctorCard({required this.doctor});
@@ -171,7 +171,6 @@ class _DoctorCard extends StatelessWidget {
     final name      = doctor['name'] as String? ?? 'Doctor';
     final photoUrl  = doctor['photo_url'] as String?;
     final rating    = (doctor['rating_avg'] as num?)?.toDouble() ?? 0;
-    final reviews   = (doctor['rating_count'] as num?)?.toInt() ?? 0;
     final category  = (doctor['categories'] as Map?)?['name'] as String? ?? '';
     final creds     = doctor['qualifications'] as String? ?? category;
     final pricing   = List<Map<String,dynamic>>.from(doctor['doctor_pricing'] as List? ?? []);
@@ -180,89 +179,57 @@ class _DoctorCard extends StatelessWidget {
     final verified  = doctor['verified'] as bool? ?? true;
 
     final onlinePrice = pricing.where((p) => p['channel'] == 'online_consult').firstOrNull;
+    final anyPrice = onlinePrice ?? pricing.firstOrNull;
 
-    return GestureDetector(
+    return CharakCard(
       onTap: () => context.push('/doctor/${doctor['id']}'),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: CharakColors.bg,
-          border: Border.all(color: CharakColors.border),
-          borderRadius: const BorderRadius.all(CharakRadius.card),
-        ),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          CharakAvatar(name: name, imageUrl: photoUrl, radius: 26),
-          const SizedBox(width: 12),
-
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          CharakAvatar(name: name, imageUrl: photoUrl, radius: 26, tone: 2),
+          const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Flexible(
                 child: Text(name,
-                    style: CharakText.bodyMed.copyWith(
-                        fontSize: 15.5, fontWeight: FontWeight.w600),
+                    style: CharakText.titleSmall.copyWith(fontSize: 19),
                     maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
               if (verified) ...[
                 const SizedBox(width: 6),
-                const Icon(Icons.verified_user_rounded, size: 15, color: CharakColors.success),
+                Icon(Icons.verified_rounded, size: 17, color: CharakColors.success),
               ],
             ]),
-
-            if (creds.isNotEmpty) ...[
-              const SizedBox(height: 1),
-              // `.doc-spec`
+            if (creds.isNotEmpty)
               Text(creds,
                   style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
-            ],
-
-            // `.doc-row` — rating left, price hard right.
-            const SizedBox(height: 8),
-            Row(children: [
-              const Icon(Icons.star_rounded, size: 13, color: CharakColors.warning),
-              const SizedBox(width: 3),
-              if (rating > 0)
-                Text.rich(
-                  TextSpan(children: [
-                    TextSpan(text: rating.toStringAsFixed(1)),
-                    TextSpan(
-                      text: ' ($reviews)',
-                      style: CharakText.caption.copyWith(
-                          color: CharakColors.inkMuted, fontWeight: FontWeight.w400),
-                    ),
-                  ]),
-                  style: CharakText.caption.copyWith(fontWeight: FontWeight.w600),
-                )
-              else
-                Text('New', style: CharakText.caption.copyWith(fontWeight: FontWeight.w600)),
-              const Spacer(),
-              if (onlinePrice != null)
-                Text.rich(TextSpan(children: [
-                  TextSpan(
-                      text: '₹${(onlinePrice['price'] as num).toStringAsFixed(0)}',
-                      style: CharakText.bodyMed.copyWith(
-                          fontWeight: FontWeight.w600,
-                          fontFeatures: const [FontFeature.tabularFigures()])),
-                  // `.per`
-                  TextSpan(
-                      text: '/15m',
-                      style: CharakText.micro.copyWith(
-                          color: CharakColors.inkMuted, letterSpacing: 0)),
-                ])),
-            ]),
-
-            // `.doc-badges`
-            if (online || home) ...[
-              const SizedBox(height: 8),
-              Row(children: [
-                if (online) const CharakBadge(label: 'Online', variant: CharakBadgeVariant.primary),
-                if (online && home) const SizedBox(width: 6),
-                if (home) const CharakBadge(label: 'Home Visit', variant: CharakBadgeVariant.muted),
-              ]),
-            ],
           ])),
+          const SizedBox(width: 8),
+          rating > 0
+              ? CharakRatingChip(rating: rating.toStringAsFixed(1))
+              : const CharakBadge(label: 'New', variant: CharakBadgeVariant.requested),
         ]),
-      ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.only(top: 12),
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: CharakColors.border))),
+          child: Row(children: [
+            if (online) const CharakBadge(label: 'Online', variant: CharakBadgeVariant.primary),
+            if (online && home) const SizedBox(width: 6),
+            if (home) const CharakBadge(label: 'Home visit', variant: CharakBadgeVariant.requested),
+            const Spacer(),
+            if (anyPrice != null)
+              Text.rich(TextSpan(children: [
+                TextSpan(
+                    text: '₹${(anyPrice['price'] as num).toStringAsFixed(0)}',
+                    style: CharakText.numeric.copyWith(color: CharakColors.ink)),
+                TextSpan(
+                    text: ' /15 min',
+                    style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+              ])),
+          ]),
+        ),
+      ]),
     );
   }
 }

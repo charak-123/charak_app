@@ -1,25 +1,31 @@
 import 'package:flutter/material.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' show ShadAvatar;
 
-// Six tone pairs from the wireframe (av-1 … av-6)
+import '../design/tokens.dart';
+
+// Six tone pairs from the V2 ramps (bg, initials). Avatars keep these light
+// tones on both schemes, as in the doctor app's ink mockup.
 const _toneBg = [
-  Color(0xFFE9EFFB), Color(0xFFE7F5EF), Color(0xFFFDF0E0),
-  Color(0xFFEFEAFE), Color(0xFFFDEAF0), Color(0xFFE5F4FA),
+  CharakPalette.chandan100, CharakPalette.blue100, CharakPalette.sage100,
+  Color(0xFFECE7FA), CharakPalette.chandan50, CharakPalette.ink100,
 ];
 const _toneFg = [
-  Color(0xFF24478F), Color(0xFF177C53), Color(0xFFB26A1A),
-  Color(0xFF5B3FC4), Color(0xFFB83A63), Color(0xFF0E6E9C),
+  CharakPalette.chandan700, CharakPalette.blue700, CharakPalette.sage700,
+  Color(0xFF4A3499), CharakPalette.chandan600, CharakPalette.ink700,
 ];
 
-/// Circular avatar — shows image if available, falls back to toned initials.
+/// Rounded-square avatar (One UI): shows the image when there is one,
+/// otherwise toned initials in wide Anek.
 ///
-/// [tone] is 1–6 matching the wireframe palette (deterministic from name hash
-/// if not supplied). [radius] is the circle radius (default 24 → 48px diameter).
+/// [tone] is 1–6 (deterministic from the name if omitted). [radius] is half
+/// the side length (default 24 → 48px), kept for V1 call sites.
 class CharakAvatar extends StatelessWidget {
   final String name;
   final String? imageUrl;
   final double radius;
   final int? tone;
+
+  /// Draw a circle instead of the rounded square (the account button).
+  final bool circle;
 
   const CharakAvatar({
     super.key,
@@ -27,38 +33,46 @@ class CharakAvatar extends StatelessWidget {
     this.imageUrl,
     this.radius = 24,
     this.tone,
+    this.circle = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final initials = _initials(name);
     final t = ((tone ?? _toneFromName(name)) - 1).clamp(0, 5);
-    final diameter = radius * 2;
+    final side = radius * 2;
+    final shape = circle
+        ? const StadiumBorder()
+        : RoundedRectangleBorder(borderRadius: BorderRadius.circular(side / 3));
+    final initials = _Initials(initials: _initials(name), fg: _toneFg[t], fontSize: radius * 0.72);
 
-    if (imageUrl != null && imageUrl!.isNotEmpty) {
-      return ShadAvatar(
-        imageUrl,
-        size: Size(diameter, diameter),
-        placeholder: _Initials(initials: initials, fg: _toneFg[t],
-            fontSize: radius * 0.67, bg: _toneBg[t], diameter: diameter),
-        backgroundColor: _toneBg[t],
-      );
-    }
-
-    // No image — always show toned initials circle
-    return _Initials(initials: initials, fg: _toneFg[t],
-        fontSize: radius * 0.67, bg: _toneBg[t], diameter: diameter);
+    return Container(
+      width: side,
+      height: side,
+      clipBehavior: Clip.antiAlias,
+      decoration: ShapeDecoration(color: _toneBg[t], shape: shape),
+      alignment: Alignment.center,
+      child: (imageUrl != null && imageUrl!.isNotEmpty)
+          ? Image.network(
+              imageUrl!,
+              width: side,
+              height: side,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => initials,
+              loadingBuilder: (_, child, progress) => progress == null ? child : initials,
+            )
+          : initials,
+    );
   }
 
   static String _initials(String name) {
-    final parts = name.trim().split(' ');
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+    return name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : '?';
   }
 
-  static int _toneFromName(String name) => (name.codeUnitAt(0) % 6) + 1;
+  static int _toneFromName(String name) => name.isEmpty ? 1 : (name.codeUnitAt(0) % 6) + 1;
 
-  // Expose for callers that want foreground color for overlaid text
+  // Expose for callers that want the tone colours for overlaid content.
   static Color fgForTone(int tone) => _toneFg[(tone - 1).clamp(0, 5)];
   static Color bgForTone(int tone) => _toneBg[(tone - 1).clamp(0, 5)];
 }
@@ -66,19 +80,12 @@ class CharakAvatar extends StatelessWidget {
 class _Initials extends StatelessWidget {
   final String initials;
   final Color fg;
-  final Color bg;
   final double fontSize;
-  final double diameter;
-  const _Initials({required this.initials, required this.fg, required this.bg,
-      required this.fontSize, required this.diameter});
+  const _Initials({required this.initials, required this.fg, required this.fontSize});
+
   @override
-  Widget build(BuildContext context) => Container(
-    width: diameter, height: diameter,
-    decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-    alignment: Alignment.center,
-    child: Text(initials,
-        style: TextStyle(
-            color: fg, fontSize: fontSize,
-            fontWeight: FontWeight.w600, height: 1)),
+  Widget build(BuildContext context) => Text(
+    initials,
+    style: CharakText.titleSmall.copyWith(color: fg, fontSize: fontSize, height: 1),
   );
 }

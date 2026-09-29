@@ -50,7 +50,7 @@ class HistoryDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_historyDetailProvider(bookingId));
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: const CharakTopBar(title: 'Visit details'),
       body: async.when(
         loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),

@@ -81,8 +81,8 @@ class _State extends ConsumerState<SlotSelectionScreen> {
         data: (d) => (d['categories'] as Map?)?['name'] as String?, orElse: () => null);
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
-      appBar: const CharakTopBar(title: 'Pick a slot'),
+      backgroundColor: CharakColors.ground,
+      appBar: const CharakTopBar(title: ''),
       body: async.when(
         loading: () => const _SlotsLoading(),
         error: (e, _) => Center(child: Text('Error: $e')),
@@ -97,30 +97,32 @@ class _State extends ConsumerState<SlotSelectionScreen> {
           return Column(children: [
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                 children: [
-                  if (doctorName != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: Text(
-                        doctorSpec != null ? '$doctorName · $doctorSpec' : doctorName,
-                        style: charakScreenSubStyle,
-                      ),
+                  // Look up top: the question, big and wide.
+                  Text('Pick a day and time', style: charakScreenTitleStyle),
+                  if (doctorName != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      doctorSpec != null ? 'Dr. $doctorName · $doctorSpec' : 'Dr. $doctorName',
+                      style: charakScreenSubStyle,
                     ),
-
-                  // ── `.date-strip` ─────────────────────────────────────
+                  ],
+                  const SizedBox(height: 24),
+                  CharakSectionTitle(label: _monthRange()),
+                  const SizedBox(height: 10),
                   SizedBox(
-                    height: 56,
+                    height: 72,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.only(top: 2, bottom: 12),
+                      clipBehavior: Clip.none,
                       itemCount: _days.length,
                       separatorBuilder: (_, __) => const SizedBox(width: 8),
                       itemBuilder: (_, i) {
                         final d = _days[i];
                         final selected = DateFormat('yyyy-MM-dd').format(d) == dayKey;
                         return _DateChip(
-                          weekday: DateFormat('EEE').format(d),
+                          weekday: i == 0 ? 'Today' : DateFormat('EEE').format(d),
                           day: DateFormat('d').format(d),
                           selected: selected,
                           onTap: () => setState(() {
@@ -131,69 +133,67 @@ class _State extends ConsumerState<SlotSelectionScreen> {
                       },
                     ),
                   ),
-
-                  // ── `.time-grid` ──────────────────────────────────────
+                  const SizedBox(height: 24),
                   if (slots.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 40),
-                      child: Center(
-                        child: Text('No slots available on this day',
-                            style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
-                      ),
+                    const CharakEmptyState(
+                      icon: Icons.event_busy_outlined,
+                      title: 'No slots this day',
+                      message: 'Try another day. Only the doctor\'s open slots are shown.',
                     )
-                  else
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        padding: EdgeInsets.zero,
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                          mainAxisExtent: 44,
-                        ),
-                        itemCount: slots.length,
-                        itemBuilder: (_, i) {
-                          final s = slots[i];
-                          final t = s['start'] as String;
-                          return _TimeSlot(
-                            label: _fmt12h(t),
-                            selected: _selectedSlot == t,
-                            taken: _isTaken(s),
-                            onTap: () => setState(() => _selectedSlot = t),
-                          );
-                        },
+                  else ...[
+                    const CharakSectionTitle(label: 'Available slots'),
+                    const SizedBox(height: 10),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: EdgeInsets.zero,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        mainAxisExtent: 48,
                       ),
+                      itemCount: slots.length,
+                      itemBuilder: (_, i) {
+                        final s = slots[i];
+                        final t = s['start'] as String;
+                        return _TimeSlot(
+                          label: _fmt12h(t),
+                          selected: _selectedSlot == t,
+                          taken: _isTaken(s),
+                          onTap: () => setState(() => _selectedSlot = t),
+                        );
+                      },
                     ),
-
-                  // ── `.slot-hint` ──────────────────────────────────────
-                  Padding(
-                    padding: const EdgeInsets.only(top: 14),
-                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Icon(Icons.info_outline, size: 14, color: CharakColors.inkMuted),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _selectedSlot != null
-                              ? 'Selected: ${_dayLabel(_selectedDay, selectedIndex)}, '
-                                  '${_fmt12h(_selectedSlot!)}'
-                              : anyTaken
-                                  ? 'Greyed slots are already booked'
-                                  : "Only the doctor's available slots are shown",
-                          style: charakHintStyle,
-                        ),
-                      ),
-                    ]),
+                    if (anyTaken) ...[
+                      const SizedBox(height: 10),
+                      const CharakHintLine(text: 'Struck-through slots are already booked.'),
+                    ],
+                  ],
+                  const SizedBox(height: 20),
+                  // What happens next, on the tint surface.
+                  CharakCard(
+                    tone: CharakCardTone.tint,
+                    padding: const EdgeInsets.all(16),
+                    child: CharakHintLine(
+                      icon: Icons.info_outline_rounded,
+                      text: 'You describe the problem next. '
+                          '${doctorName != null ? 'Dr. $doctorName' : 'The doctor'} reads it and decides. '
+                          'You pay only after the doctor accepts.',
+                    ),
                   ),
                 ],
               ),
             ),
 
+            // Button wakes up: grey until a slot is picked, then blue with
+            // an arrow.
             CharakCtaBar.single(
               CharakButton(
-                label: 'Continue',
+                label: _selectedSlot != null
+                    ? '${_dayLabel(_selectedDay, selectedIndex)}, ${_fmt12h(_selectedSlot!)} · Continue'
+                    : 'Pick a slot to continue',
+                trailingIcon: _selectedSlot != null ? Icons.arrow_forward_rounded : null,
                 onPressed: _selectedSlot != null ? () => _proceed(slotData) : null,
               ),
             ),
@@ -202,12 +202,19 @@ class _State extends ConsumerState<SlotSelectionScreen> {
       ),
     );
   }
+
+  String _monthRange() {
+    if (_days.isEmpty) return '';
+    final a = DateFormat('MMM').format(_days.first).toUpperCase();
+    final b = DateFormat('MMM').format(_days.last).toUpperCase();
+    return a == b ? a : '$a – $b';
+  }
 }
 
-// ── `.date-chip` ──────────────────────────────────────────────────────────────
+// ── Day chip ──────────────────────────────────────────────────────────────────
 
-/// 58px-wide stacked day chip: weekday over day-of-month, inverted to solid
-/// `ink` when picked.
+/// Day chip: weekday over the date in narrow tabular figures. The pick fills
+/// blue (motion.standard) and pops so it's clear the choice landed.
 class _DateChip extends StatelessWidget {
   final String weekday;
   final String day;
@@ -222,45 +229,36 @@ class _DateChip extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => CharakPressable(
     onTap: onTap,
-    child: AnimatedContainer(
-      duration: CharakDurations.buttonPress,
-      width: 58,
-      padding: const EdgeInsets.only(top: 9, bottom: 8),
-      decoration: BoxDecoration(
-        color: selected ? CharakColors.ink : CharakColors.bgSubtle,
-        borderRadius: const BorderRadius.all(CharakRadius.button),
-        border: Border.all(color: Colors.transparent),
+    child: _Pop(
+      on: selected,
+      child: AnimatedContainer(
+        duration: CharakMotion.standard,
+        curve: CharakCurves.standard,
+        width: 60,
+        decoration: BoxDecoration(
+          color: selected ? CharakColors.primary : CharakColors.card,
+          borderRadius: const BorderRadius.all(CharakRadius.tile),
+        ),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(weekday,
+              style: CharakText.caption.copyWith(
+                  color: selected ? CharakPalette.blue100 : CharakColors.inkMuted)),
+          const SizedBox(height: 2),
+          Text(day,
+              style: CharakText.numeric.copyWith(
+                  color: selected ? CharakColors.onPrimary : CharakColors.ink)),
+        ]),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(weekday,
-            style: TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              height: 1.3,
-              color: selected ? Colors.white : CharakColors.inkMuted,
-            )),
-        const SizedBox(height: 1),
-        Text(day,
-            style: TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              height: 1.3,
-              color: selected ? Colors.white : CharakColors.inkMuted,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            )),
-      ]),
     ),
   );
 }
 
-// ── `.time-slot` ──────────────────────────────────────────────────────────────
+// ── Time slot ─────────────────────────────────────────────────────────────────
 
-/// 44px grid cell. Free slots are outlined, the pick fills primary, and a
-/// taken slot greys out and strikes through with taps disabled.
+/// Slot pill (48px). Free slots are outlined, the pick fills blue and pops
+/// 0.9 → 1.05 → 1, a taken slot greys out and strikes through.
 class _TimeSlot extends StatelessWidget {
   final String label;
   final bool selected;
@@ -274,42 +272,59 @@ class _TimeSlot extends StatelessWidget {
     required this.onTap,
   });
 
-  /// `.time-slot.off` colour — not a token, defined only for this state.
-  static const _offInk = Color(0xFFB9C1CE);
+  @override
+  Widget build(BuildContext context) {
+    final fg = taken ? CharakColors.inkFaint : (selected ? CharakColors.onPrimary : CharakColors.ink);
+    return CharakPressable(
+      onTap: taken ? null : onTap,
+      child: _Pop(
+        on: selected,
+        child: AnimatedContainer(
+          duration: CharakMotion.standard,
+          curve: CharakCurves.standard,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: taken
+                ? CharakColors.bgSubtle
+                : (selected ? CharakColors.primary : CharakColors.card),
+            borderRadius: const BorderRadius.all(CharakRadius.pill),
+            border: Border.all(
+              color: (taken || selected) ? Colors.transparent : CharakColors.borderStrong,
+              width: 1.5,
+            ),
+          ),
+          child: Text(label,
+              style: CharakText.label.tabular.copyWith(
+                fontSize: 16,
+                color: fg,
+                decoration: taken ? TextDecoration.lineThrough : null,
+                decorationColor: fg,
+              )),
+        ),
+      ),
+    );
+  }
+}
+
+/// The "pop" when a choice lands: 0.9 → 1.05 → 1 over motion.standard.
+class _Pop extends StatelessWidget {
+  final bool on;
+  final Widget child;
+  const _Pop({required this.on, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    final body = AnimatedContainer(
-      duration: CharakDurations.buttonPress,
-      height: 44,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: taken
-            ? CharakColors.bgSubtle
-            : (selected ? CharakColors.primary : CharakColors.bg),
-        borderRadius: const BorderRadius.all(CharakRadius.button),
-        border: Border.all(
-          color: taken
-              ? Colors.transparent
-              : (selected ? CharakColors.primary : CharakColors.border),
-        ),
-      ),
-      child: Text(label,
-          style: TextStyle(
-            fontFamily: CharakText.fontFamily,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            height: 1.3,
-            color: taken
-                ? _offInk
-                : (selected ? Colors.white : CharakColors.ink),
-            decoration: taken ? TextDecoration.lineThrough : null,
-            decorationColor: _offInk,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          )),
+    if (!on || charakReduceMotion(context)) return child;
+    return TweenAnimationBuilder<double>(
+      key: const ValueKey('pop'),
+      tween: Tween(begin: 0, end: 1),
+      duration: CharakMotion.standard,
+      builder: (_, t, c) {
+        final scale = t < 0.5 ? 0.9 + (0.15 * t / 0.5) : 1.05 - (0.05 * (t - 0.5) / 0.5);
+        return Transform.scale(scale: scale, child: c);
+      },
+      child: child,
     );
-    if (taken) return body;
-    return GestureDetector(onTap: onTap, child: body);
   }
 }
 

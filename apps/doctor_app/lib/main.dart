@@ -9,6 +9,8 @@ import 'router.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  // Design System V2: the doctor app runs on ink surfaces.
+  CharakColors.useScheme(CharakScheme.doctor);
 
   await Supabase.initialize(
     url: const String.fromEnvironment('SUPABASE_URL'),

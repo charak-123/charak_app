@@ -22,7 +22,7 @@ class ActiveBookingScreen extends ConsumerWidget {
       orElse: () => null,
     );
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: CharakTopBar(
           title: docName != null ? 'Dr. $docName' : 'Booking'),
       body: async.when(
@@ -156,7 +156,7 @@ class _Body extends StatelessWidget {
               onPressed: () => context.push('/booking/$bookingId/call'),
             ),
             const SizedBox(height: 10),
-            const Text('Join opens 5 minutes before the slot.',
+            Text('Join opens 5 minutes before the slot.',
                 style: charakHintStyle, textAlign: TextAlign.center),
           ],
 
@@ -220,7 +220,6 @@ class _ActCard extends StatelessWidget {
     padding: const EdgeInsets.all(CharakSpacing.base),
     decoration: BoxDecoration(
       color: CharakColors.bg,
-      border: Border.all(color: CharakColors.border),
       borderRadius: const BorderRadius.all(CharakRadius.card),
     ),
     child: child,
@@ -250,7 +249,7 @@ class _ActRow extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(vertical: 11),
     decoration: BoxDecoration(
-      border: last ? null : const Border(bottom: BorderSide(color: CharakColors.border)),
+      border: last ? null : Border(bottom: BorderSide(color: CharakColors.border)),
     ),
     child: Row(children: [
       Icon(icon, size: 17, color: CharakColors.primary),
@@ -264,14 +263,7 @@ class _ActRow extends StatelessWidget {
           textAlign: TextAlign.right,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontFamily: CharakText.fontFamily,
-            fontSize: 14,
-            height: 1.4,
-            fontWeight: muted ? FontWeight.w400 : FontWeight.w500,
-            color: muted ? CharakColors.inkMuted : CharakColors.ink,
-            fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
-          ),
+          style: CharakText.body.tabular.copyWith(color: muted ? CharakColors.inkMuted : CharakColors.ink, fontWeight: muted ? FontWeight.w400 : FontWeight.w500, fontSize: 15),
         ),
       ),
     ]),

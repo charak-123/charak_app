@@ -36,7 +36,7 @@ class _State extends ConsumerState<RateScreen> {
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
+          SnackBar(content: Text(e.message), backgroundColor: CharakPalette.statusDeclined),
         );
       }
     } finally {
@@ -57,7 +57,7 @@ class _State extends ConsumerState<RateScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.bg,
+    backgroundColor: CharakColors.ground,
     appBar: const CharakTopBar(title: 'Rate your visit'),
     body: _submitted ? _success() : _form(),
   );
@@ -87,10 +87,10 @@ class _State extends ConsumerState<RateScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
         children: [
-          const Text('How was your visit?',
+          Text('How was your visit?',
               style: charakScreenTitleStyle, textAlign: TextAlign.center),
           const SizedBox(height: 5),
-          const Text('Only the stars are required — the comment is optional.',
+          Text('Only the stars are required — the comment is optional.',
               style: charakScreenSubStyle, textAlign: TextAlign.center),
 
           // `.stars` — 26px above, 8px below, 40px glyphs.

@@ -13,15 +13,17 @@ void showCharakToast(
   ShadToaster.of(context).show(
     ShadToast(
       description: Text(message,
-          style: isError ? const TextStyle(color: Colors.white) : null),
-      backgroundColor: isError ? CharakColors.danger : null,
+          style: CharakText.body.copyWith(color: isError ? CharakColors.onDangerSoft : CharakColors.onChrome)),
+      backgroundColor: isError ? CharakColors.dangerSoft : CharakColors.chrome,
+      border: const Border.fromBorderSide(BorderSide.none),
+      radius: const BorderRadius.all(CharakRadius.tile),
+      shadows: const [],
       action: action != null
           ? ShadButton.ghost(
               onPressed: onAction,
               child: Text(action,
-                  style: CharakText.caption.copyWith(
-                    color: isError ? Colors.white : CharakColors.primary,
-                    fontWeight: FontWeight.w600,
+                  style: CharakText.label.copyWith(
+                    color: isError ? CharakColors.onDangerSoft : CharakPalette.blue300,
                   )),
             )
           : null,

@@ -1,50 +1,58 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Anek+Latin:wdth,wght@75..125,100..800&family=Anek+Devanagari:wdth,wght@75..125,100..800&display=swap');
+@import "./styles/charak-tokens.css";
 @import "tw-animate-css";
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* CHARAK Design System V2 for the admin console.
+   Colour values come from ./styles/charak-tokens.css, which is GENERATED from
+   design-system/tokens.json. Change tokens there, never here. The admin runs
+   the patient (light) scheme with an ink sidebar, like the doctor app chrome.
+   shadcn variables are RGB channel triples so Tailwind alpha modifiers work. */
 @layer base {
   :root {
-    /* Charak brand mapped to shadcn CSS vars (oklch) */
-    --background:        oklch(1 0 0);
-    --foreground:        oklch(0.145 0.02 251);
-    --card:              oklch(1 0 0);
-    --card-foreground:   oklch(0.145 0.02 251);
-    --popover:           oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0.02 251);
-    --primary:           oklch(0.567 0.19 258);
-    --primary-foreground: oklch(1 0 0);
-    --secondary:         oklch(0.975 0.005 220);
-    --secondary-foreground: oklch(0.145 0.02 251);
-    --muted:             oklch(0.975 0.005 220);
-    --muted-foreground:  oklch(0.46 0.02 240);
-    --accent:            oklch(0.93 0.06 258);
-    --accent-foreground: oklch(0.567 0.19 258);
-    --destructive:       oklch(0.577 0.22 27);
-    --destructive-foreground: oklch(1 0 0);
-    --border:            oklch(0.92 0.01 240);
-    --input:             oklch(0.92 0.01 240);
-    --ring:              oklch(0.567 0.19 258);
-    --radius:            0.625rem;
+    --background:           var(--rgb-ground);
+    --foreground:           var(--rgb-text);
+    --card:                 var(--rgb-card);
+    --card-foreground:      var(--rgb-text);
+    --popover:              var(--rgb-card);
+    --popover-foreground:   var(--rgb-text);
+    --primary:              var(--rgb-primary);
+    --primary-foreground:   var(--rgb-on-primary);
+    --secondary:            var(--rgb-fill);
+    --secondary-foreground: var(--rgb-text);
+    --muted:                var(--rgb-fill);
+    --muted-foreground:     var(--rgb-text-muted);
+    --accent:               var(--rgb-primary-soft);
+    --accent-foreground:    var(--rgb-on-primary-soft);
+    --destructive:          var(--rgb-danger);
+    --destructive-foreground: 255 255 255;
+    --border:               var(--rgb-line);
+    --input:                var(--rgb-line-strong);
+    --ring:                 var(--rgb-primary);
+    --radius:               1.25rem; /* 20px tile radius; cards use rounded-card (26) */
 
-    /* Semantic extras for pages */
-    --success:           oklch(0.6 0.15 158);
-    --warning:           oklch(0.7 0.17 65);
+    --success:              var(--rgb-success);
+    --warning:              var(--rgb-warning);
 
-    /* Sidebar */
-    --sidebar:           oklch(0.145 0.02 251);
-    --sidebar-foreground: oklch(1 0 0);
-    --sidebar-primary:   oklch(0.567 0.19 258);
-    --sidebar-primary-foreground: oklch(1 0 0);
-    --sidebar-accent:    oklch(0.2 0.02 251);
-    --sidebar-accent-foreground: oklch(0.9 0 0);
-    --sidebar-border:    oklch(0.22 0.02 251);
-    --sidebar-ring:      oklch(0.567 0.19 258);
+    /* Sidebar: ink chrome */
+    --sidebar:                    var(--rgb-ink-900);
+    --sidebar-foreground:         255 255 255;
+    --sidebar-primary:            var(--rgb-primary);
+    --sidebar-primary-foreground: 255 255 255;
+    --sidebar-accent:             var(--rgb-ink-800);
+    --sidebar-accent-foreground:  var(--rgb-ink-100);
+    --sidebar-border:             var(--rgb-ink-800);
+    --sidebar-ring:               var(--rgb-primary);
   }
 
   * { @apply border-border outline-ring/50; }
-  body { @apply bg-background text-foreground font-sans; margin: 0; }
-  html { font-family: 'Inter', sans-serif; }
+  body { @apply bg-background text-foreground font-sans; margin: 0; font-size: 15px; }
+  html { font-family: var(--font-sans); }
+  h1, h2, h3 { font-stretch: 118%; letter-spacing: -0.005em; }
+  h1 { font-weight: 700; font-stretch: 122%; }
+  /* Fees, times, counts line up. */
+  td, .tnum { font-variant-numeric: tabular-nums; }
 }

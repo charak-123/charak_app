@@ -18,7 +18,7 @@ class ProcedureBillScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_billProvider(bookingId));
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: const CharakTopBar(title: 'Visit complete'),
       body: async.when(
         loading: () => const _BillLoading(),
@@ -95,7 +95,7 @@ class _BillBody extends StatelessWidget {
                   'asked to pay once approved.',
             ),
             const SizedBox(height: 10),
-            const Text("We'll notify you the moment the review finishes.",
+            Text("We'll notify you the moment the review finishes.",
                 style: charakHintStyle, textAlign: TextAlign.center),
           ] else
             CharakInfoStrip(

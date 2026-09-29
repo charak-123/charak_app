@@ -83,7 +83,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -96,7 +96,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                     // `.step-dots` — step 2 of 3.
                     const CharakStepDots(current: 1),
                     const SizedBox(height: 10),
-                    const Text('Verify your license', style: CharakText.h1),
+                    const Text('Verify your license', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text('Manual check by our team — usually within 1 working day. You can explore the app meanwhile.',
                         style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
@@ -110,14 +110,8 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    const Text('Degree certificate / council ID',
-                        style: TextStyle(
-                          fontFamily: CharakText.fontFamily,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          height: 1.4,
-                          color: CharakColors.ink,
-                        )),
+                    Text('Degree certificate / council ID',
+                        style: CharakText.caption.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 7),
                     CharakUploadTile(
                       icon: Icons.upload_outlined,

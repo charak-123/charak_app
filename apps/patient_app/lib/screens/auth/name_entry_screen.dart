@@ -33,16 +33,16 @@ class _State extends ConsumerState<NameEntryScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.bg,
+    backgroundColor: CharakColors.ground,
     body: SafeArea(
       child: Column(children: [
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('What should we call you?', style: charakScreenTitleStyle),
+              Text('What should we call you?', style: charakScreenTitleStyle),
               const SizedBox(height: 5),
-              const Text('This is how doctors will see you.', style: charakScreenSubStyle),
+              Text('This is how doctors will see you.', style: charakScreenSubStyle),
               const SizedBox(height: 26),
               CharakField(
                 label: 'Full name',
