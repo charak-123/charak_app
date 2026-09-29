@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -29,6 +31,9 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
         'doctor_id':       b['doctor_id'] as String,
         'channel':         b['channel'] as String,
         'scheduled_start': b['scheduled_start'] as String,
+        // Home visits book against a saved address; the backend needs its
+        // coordinates to check the doctor's service radius.
+        if (b['address_id'] != null) 'address_id': b['address_id'] as String,
       }) as Map<String, dynamic>;
 
       final bookingId = created['id'] as String;
@@ -41,13 +46,11 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
         });
       }
 
-      final transcript = b['voice_transcript'] as String?;
-      if (transcript != null && transcript.isNotEmpty) {
-        await ApiClient.instance.post('/bookings/$bookingId/intake', {
-          'media_type': 'voice',
-          'transcript_text': transcript,
-        });
-      }
+      // Photos, video and the voice note are files, not text — they go through
+      // the upload endpoint. The voice note is what triggers transcription
+      // server-side, so sending only a transcript string would leave the
+      // doctor reading a placeholder.
+      await _uploadIntakeMedia(bookingId, b);
 
       if (mounted) context.go('/book/sent/$bookingId');
     } on ApiException catch (e) {
@@ -58,6 +61,49 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
       }
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// Upload every attachment the patient added during intake.
+  ///
+  /// A failed attachment must not lose the booking — it is already created and
+  /// the doctor has been notified — so each upload is reported and skipped
+  /// rather than thrown. `_mediaWarning` surfaces that on the next screen.
+  Future<void> _uploadIntakeMedia(String bookingId, Map<String, dynamic> b) async {
+    final failures = <String>[];
+
+    Future<void> send(String path, String mediaType, String kind) async {
+      try {
+        final file = File(path);
+        if (!await file.exists()) {
+          failures.add(kind);
+          return;
+        }
+        await ApiClient.instance.postFile(
+          '/uploads/bookings/$bookingId/intake?media_type=$mediaType',
+          bytes: await file.readAsBytes(),
+          filename: path.split('/').last,
+        );
+      } catch (_) {
+        failures.add(kind);
+      }
+    }
+
+    for (final path in (b['images'] as List? ?? const [])) {
+      await send(path as String, 'image', 'a photo');
+    }
+    for (final path in (b['videos'] as List? ?? const [])) {
+      await send(path as String, 'video', 'a video');
+    }
+    final voice = b['voice_path'] as String?;
+    if (voice != null && voice.isNotEmpty) {
+      await send(voice, 'voice', 'your voice note');
+    }
+
+    if (failures.isNotEmpty && mounted) {
+      showCharakToast(context,
+          message: 'Booking sent, but ${failures.toSet().join(' and ')} '
+              "couldn't be attached.");
     }
   }
 

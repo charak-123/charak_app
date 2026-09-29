@@ -119,7 +119,8 @@ class _BillBody extends StatelessWidget {
                   )
                 : CharakButton(
                     label: 'Pay ₹${total.toStringAsFixed(0)}',
-                    onPressed: () => context.go('/booking/$bookingId/pay'),
+                    onPressed: () => context
+                        .go('/booking/$bookingId/pay?type=procedure_bill'),
                   ),
       ),
     ]);

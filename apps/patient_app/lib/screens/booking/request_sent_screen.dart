@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:charak_core/charak_core.dart';
 
@@ -14,51 +13,51 @@ class RequestSentScreen extends ConsumerStatefulWidget {
 }
 
 class _State extends ConsumerState<RequestSentScreen> {
-  StreamSubscription? _sub;
-  String _status = 'requested';
+  CharakPoller? _poll;
   Map<String, dynamic>? _booking;
 
   @override
   void initState() {
     super.initState();
     _loadBooking();
-    _subscribeRealtime();
+    // A doctor may take minutes or hours to accept, and the `booking.accepted`
+    // push is the real signal — so this starts at 5s and eases off to two
+    // minutes rather than asking 720 times an hour, and sleeps entirely while
+    // the app is backgrounded.
+    _poll = CharakPoller(onPoll: _loadBooking)..start();
   }
 
-  Future<void> _loadBooking() async {
-    try {
-      final rows = await Supabase.instance.client
-          .from('bookings')
-          .select('*, doctors(name, categories(name), doctor_pricing(channel, price))')
-          .eq('id', widget.bookingId)
-          .limit(1);
-      if (rows.isNotEmpty && mounted) {
-        setState(() => _booking = rows.first);
-      }
-    } catch (_) {}
-  }
+  /// Polls the backend rather than reading Supabase directly.
+  ///
+  /// These apps carry only the anon key and authenticate with a FastAPI JWT,
+  /// so `auth.uid()` is NULL and the bookings RLS policies in migration 0004
+  /// (`patient_id = auth.uid()`) match nothing. The direct select returned no
+  /// rows and the realtime stream never fired, so this screen sat on its
+  /// placeholder copy and never advanced when the doctor accepted.
+  /// Returns true once the booking has left `requested`, which stops the poll.
+  /// A thrown request is caught by the poller and simply backs off — a dropped
+  /// poll is not a decision.
+  Future<bool> _loadBooking() async {
+    final b = await ApiClient.instance.get('/bookings/${widget.bookingId}')
+        as Map<String, dynamic>;
+    if (!mounted) return true;
 
-  void _subscribeRealtime() {
-    _sub = Supabase.instance.client
-        .from('bookings')
-        .stream(primaryKey: ['id'])
-        .eq('id', widget.bookingId)
-        .listen((rows) {
-      if (rows.isEmpty || !mounted) return;
-      final newStatus = rows.first['status'] as String? ?? 'requested';
-      if (newStatus != _status) {
-        setState(() => _status = newStatus);
-        if (newStatus == 'accepted') {
-          context.go('/booking/${widget.bookingId}/pay');
-        } else if (newStatus == 'declined') {
-          context.go('/booking/${widget.bookingId}/status');
-        }
-      }
-    });
+    setState(() => _booking = b);
+
+    switch (b['status'] as String? ?? 'requested') {
+      case 'accepted':
+        context.go('/booking/${widget.bookingId}/pay');
+        return true;
+      case 'declined':
+        context.go('/booking/${widget.bookingId}/status');
+        return true;
+      default:
+        return false;
+    }
   }
 
   @override
-  void dispose() { _sub?.cancel(); super.dispose(); }
+  void dispose() { _poll?.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {

@@ -9,7 +9,8 @@ import 'package:intl/intl.dart';
 final _slotsProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, doctorId) async {
   final from = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  final res  = await ApiClient.instance.get('/doctors/$doctorId/slots?from=$from&days=6');
+  final res  = await ApiClient.instance.get(
+      '/doctors/$doctorId/slots?from_date=$from&days=6');
   return res as Map<String, dynamic>;
 });
 
@@ -27,11 +28,6 @@ String _fmt12h(String t24) {
   final h12 = h % 12 == 0 ? 12 : h % 12;
   return '$h12:$m $period';
 }
-
-/// A slot the doctor has already given away still shows, struck through, so
-/// the grid reads as a real day rather than a filtered list.
-bool _isTaken(Map<String, dynamic> slot) =>
-    slot['available'] == false || slot['booked'] == true;
 
 // ── SlotSelectionScreen ───────────────────────────────────────────────────────
 
@@ -92,7 +88,6 @@ class _State extends ConsumerState<SlotSelectionScreen> {
               (slotData[dayKey] as List? ?? []));
           final selectedIndex = _days.indexWhere(
               (d) => DateFormat('yyyy-MM-dd').format(d) == dayKey);
-          final anyTaken = slots.any(_isTaken);
 
           return Column(children: [
             Expanded(
@@ -161,7 +156,6 @@ class _State extends ConsumerState<SlotSelectionScreen> {
                           return _TimeSlot(
                             label: _fmt12h(t),
                             selected: _selectedSlot == t,
-                            taken: _isTaken(s),
                             onTap: () => setState(() => _selectedSlot = t),
                           );
                         },
@@ -179,9 +173,7 @@ class _State extends ConsumerState<SlotSelectionScreen> {
                           _selectedSlot != null
                               ? 'Selected: ${_dayLabel(_selectedDay, selectedIndex)}, '
                                   '${_fmt12h(_selectedSlot!)}'
-                              : anyTaken
-                                  ? 'Greyed slots are already booked'
-                                  : "Only the doctor's available slots are shown",
+                              : "Only the doctor's available slots are shown",
                           style: charakHintStyle,
                         ),
                       ),
@@ -259,58 +251,47 @@ class _DateChip extends StatelessWidget {
 
 // ── `.time-slot` ──────────────────────────────────────────────────────────────
 
-/// 44px grid cell. Free slots are outlined, the pick fills primary, and a
-/// taken slot greys out and strikes through with taps disabled.
+/// 44px grid cell. Free slots are outlined and the pick fills primary.
+///
+/// There is no "taken" state: `get_available_slots` filters booked slots out
+/// server-side and returns only `{start, end}`, so a struck-through cell could
+/// never render. The flags the old code tested for were never in the payload.
 class _TimeSlot extends StatelessWidget {
   final String label;
   final bool selected;
-  final bool taken;
   final VoidCallback onTap;
 
   const _TimeSlot({
     required this.label,
     required this.selected,
-    required this.taken,
     required this.onTap,
   });
 
-  /// `.time-slot.off` colour — not a token, defined only for this state.
-  static const _offInk = Color(0xFFB9C1CE);
-
   @override
-  Widget build(BuildContext context) {
-    final body = AnimatedContainer(
-      duration: CharakDurations.buttonPress,
-      height: 44,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: taken
-            ? CharakColors.bgSubtle
-            : (selected ? CharakColors.primary : CharakColors.bg),
-        borderRadius: const BorderRadius.all(CharakRadius.button),
-        border: Border.all(
-          color: taken
-              ? Colors.transparent
-              : (selected ? CharakColors.primary : CharakColors.border),
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: CharakDurations.buttonPress,
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? CharakColors.primary : CharakColors.bg,
+            borderRadius: const BorderRadius.all(CharakRadius.button),
+            border: Border.all(
+              color: selected ? CharakColors.primary : CharakColors.border,
+            ),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                fontFamily: CharakText.fontFamily,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                height: 1.3,
+                color: selected ? Colors.white : CharakColors.ink,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              )),
         ),
-      ),
-      child: Text(label,
-          style: TextStyle(
-            fontFamily: CharakText.fontFamily,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            height: 1.3,
-            color: taken
-                ? _offInk
-                : (selected ? Colors.white : CharakColors.ink),
-            decoration: taken ? TextDecoration.lineThrough : null,
-            decorationColor: _offInk,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          )),
-    );
-    if (taken) return body;
-    return GestureDetector(onTap: onTap, child: body);
-  }
+      );
 }
 
 /// Loading state: `.skel` blocks for the `.date-strip` chips and the 3-column

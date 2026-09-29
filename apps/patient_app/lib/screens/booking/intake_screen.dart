@@ -52,14 +52,54 @@ class _State extends ConsumerState<IntakeScreen> {
     _IntakeType.video => _videos.isNotEmpty,
   };
 
+  /// Backend caps (see storage.LIMITS): 10MB per intake image, 50MB per video.
+  /// Both are enforced *after* the upload finishes, so anything oversized costs
+  /// the patient a full upload on mobile data before being refused. These
+  /// limits keep that from happening in the first place.
+  static const _maxRecordingSeconds = 180;
+  static const _maxImageBytes = 10 * 1024 * 1024;
+  static const _maxVideoBytes = 50 * 1024 * 1024;
+
   Future<void> _pickImage() async {
-    final x = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
-    if (x != null && mounted) setState(() => _images.add(File(x.path)));
+    // A modern phone camera shoots 4000px+; a doctor looking at a rash or a
+    // wound gains nothing past 1600px, and the difference is megabytes on a
+    // connection that may be metered.
+    final x = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 70,
+    );
+    if (x == null || !mounted) return;
+    final file = File(x.path);
+    if (!await _withinLimit(file, _maxImageBytes, 'photo')) return;
+    if (mounted) setState(() => _images.add(file));
   }
 
   Future<void> _pickVideo() async {
-    final x = await _picker.pickVideo(source: ImageSource.camera);
-    if (x != null && mounted) setState(() => _videos.add(File(x.path)));
+    // Unbounded 1080p passes 50MB in well under a minute. Forty-five seconds
+    // is more than enough to show a symptom, and keeps the clip uploadable.
+    final x = await _picker.pickVideo(
+      source: ImageSource.camera,
+      maxDuration: const Duration(seconds: 45),
+    );
+    if (x == null || !mounted) return;
+    final file = File(x.path);
+    if (!await _withinLimit(file, _maxVideoBytes, 'video')) return;
+    if (mounted) setState(() => _videos.add(file));
+  }
+
+  /// Rejects an oversized attachment here rather than after the upload.
+  Future<bool> _withinLimit(File f, int maxBytes, String label) async {
+    final size = await f.length();
+    if (size <= maxBytes) return true;
+    if (mounted) {
+      showCharakToast(context,
+          message: 'That $label is '
+              '${(size / (1024 * 1024)).toStringAsFixed(1)}MB — the limit is '
+              '${maxBytes ~/ (1024 * 1024)}MB.');
+    }
+    return false;
   }
 
   Future<void> _toggleRecording() async {
@@ -68,10 +108,8 @@ class _State extends ConsumerState<IntakeScreen> {
       _tick?.cancel();
       if (path != null && mounted) {
         setState(() {
-          _voiceFile       = File(path);
-          _voiceTranscript = '[Voice note recorded — transcript pending]';
-          _transcriptCtrl.text = _voiceTranscript!;
-          _recording       = false;
+          _voiceFile = File(path);
+          _recording = false;
         });
       }
     } else {
@@ -83,7 +121,18 @@ class _State extends ConsumerState<IntakeScreen> {
       _elapsed = 0;
       _tick?.cancel();
       _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() => _elapsed++);
+        if (!mounted) return;
+        setState(() => _elapsed++);
+        // Stop at the cap rather than letting the recording run: every second
+        // is upload bytes on a metered connection and billable audio at the
+        // transcription step. Three minutes is far longer than anyone needs to
+        // describe a complaint.
+        if (_elapsed >= _maxRecordingSeconds) {
+          _toggleRecording();
+          showCharakToast(context,
+              message: 'Recording stopped at three minutes — that is the limit '
+                  'for a voice note.');
+        }
       });
       setState(() => _recording = true);
     }
@@ -96,6 +145,7 @@ class _State extends ConsumerState<IntakeScreen> {
       'text': _textCtrl.text.trim(),
       'images': _images.map((f) => f.path).toList(),
       'videos': _videos.map((f) => f.path).toList(),
+      'voice_path': _voiceFile?.path,
       'voice_transcript': _voiceTranscript,
     });
   }
@@ -172,7 +222,7 @@ class _State extends ConsumerState<IntakeScreen> {
                 ],
               ]),
             ),
-            if (_voiceTranscript != null) ...[
+            if (_voiceFile != null) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -182,7 +232,7 @@ class _State extends ConsumerState<IntakeScreen> {
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   // `.transcript b` — 11px/600 uppercase success label.
-                  Text('TRANSCRIBED · EDITABLE',
+                  Text('VOICE NOTE ATTACHED',
                       style: CharakText.micro.copyWith(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -190,19 +240,30 @@ class _State extends ConsumerState<IntakeScreen> {
                         color: CharakColors.success,
                       )),
                   const SizedBox(height: 5),
+                  Text(
+                    'Your doctor will get this recording, transcribed and '
+                    'summarised. Add anything else in your own words below.',
+                    style: CharakText.caption
+                        .copyWith(color: CharakColors.inkMuted),
+                  ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: _transcriptCtrl,
                     maxLines: null,
                     cursorColor: CharakColors.primary,
                     style: CharakText.body.copyWith(fontSize: 13.5, height: 1.6),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
                       isDense: true,
                       contentPadding: EdgeInsets.zero,
+                      hintText: 'Optional — anything to add?',
+                      hintStyle: CharakText.body.copyWith(
+                          fontSize: 13.5, color: CharakColors.inkMuted),
                     ),
-                    onChanged: (v) => _voiceTranscript = v,
+                    onChanged: (v) =>
+                        _voiceTranscript = v.trim().isEmpty ? null : v,
                   ),
                 ]),
               ),
@@ -261,7 +322,13 @@ class _State extends ConsumerState<IntakeScreen> {
             ),
             SizedBox(width: 8),
             Expanded(
-              child: Text('Reviewed by your doctor directly — never analyzed by AI.',
+              // States the real boundary. The previous line promised nothing
+              // was "analyzed by AI", which stopped being true when voice
+              // notes began going to Gemini for transcription and summary —
+              // a claim the store listing and privacy policy have to match.
+              child: Text('Your doctor reads this directly. AI only transcribes '
+                  'and summarises your voice note — your photos and video are '
+                  'never analysed.',
                   style: charakHintStyle),
             ),
           ]),

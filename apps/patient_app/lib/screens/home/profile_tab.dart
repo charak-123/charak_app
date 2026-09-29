@@ -51,12 +51,6 @@ class ProfileTab extends ConsumerWidget {
               onTap: () => _comingSoon(context, 'Edit profile'),
             ),
             CharakListRow(
-              icon: Icons.credit_card_outlined,
-              title: 'Payment Methods',
-              trailingText: 'UPI · HDFC •• 4821',
-              onTap: () => _comingSoon(context, 'Payment methods'),
-            ),
-            CharakListRow(
               icon: Icons.report_gmailerrorred_outlined,
               title: 'Submit a Complaint',
               onTap: () => context.push('/complaint'),

@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
 
+import 'address_picker.dart';
+
 // ── Provider for doctor pricing ───────────────────────────────────────────────
 
 final _pricingProvider =
@@ -24,10 +26,11 @@ class ChannelConfirmScreen extends ConsumerStatefulWidget {
 
 class _State extends ConsumerState<ChannelConfirmScreen> {
   late String _channel = widget.extra['channel'] as String? ?? 'online_consult';
-  final _addressCtrl = TextEditingController();
 
-  @override
-  void dispose() { _addressCtrl.dispose(); super.dispose(); }
+  /// Which saved address a home visit goes to. The backend books against this
+  /// id — it needs the stored coordinates to check the doctor's service radius,
+  /// which a typed-in address could never supply.
+  String? _addressId;
 
   bool get _isHome => _channel == 'home_visit';
 
@@ -35,7 +38,7 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
     context.push('/book/${widget.doctorId}/intake', extra: {
       ...widget.extra,
       'channel': _channel,
-      if (_isHome) 'address': _addressCtrl.text.trim(),
+      if (_isHome) 'address_id': _addressId,
     });
   }
 
@@ -115,20 +118,11 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
             // ── Address (home only) ───────────────────────────────────────
             if (_isHome) ...[
               const SizedBox(height: 18),
-              CharakField(
-                label: 'Your address',
-                controller: _addressCtrl,
-                placeholder: 'Flat, building, street, landmark…',
-                maxLines: null,
-                minLines: 3,
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 12),
-              CharakInfoStrip(
-                icon: Icons.location_on_outlined,
-                label: _addressCtrl.text.trim().isNotEmpty
-                    ? '${_addressCtrl.text.trim()} — in range for Home Visit'
-                    : "Enter your address to confirm you're in range for Home Visit",
+              const CharakSectionTitle(label: 'Where should the doctor come?'),
+              const SizedBox(height: 10),
+              AddressPickerSection(
+                selectedId: _addressId,
+                onSelected: (id) => setState(() => _addressId = id),
               ),
             ],
           ],
@@ -140,9 +134,7 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
                 ? 'Continue · ₹${confirmPrice.toStringAsFixed(0)}'
                     '${_isHome ? ' + procedures' : ''}'
                 : 'Continue',
-            onPressed: (!_isHome || _addressCtrl.text.trim().length > 5)
-                ? _proceed
-                : null,
+            onPressed: (!_isHome || _addressId != null) ? _proceed : null,
           ),
         ),
       ]),

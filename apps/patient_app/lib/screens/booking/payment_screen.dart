@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:charak_core/charak_core.dart';
 
 /// Consult-fee payment.
@@ -25,7 +24,18 @@ import 'package:charak_core/charak_core.dart';
 /// on a signature-verified Razorpay webhook.
 class PaymentScreen extends ConsumerStatefulWidget {
   final String bookingId;
-  const PaymentScreen({super.key, required this.bookingId});
+
+  /// "consult_fee" or "procedure_bill". The backend prices the order from
+  /// this, and defaults to the consult fee — so a procedure bill that did not
+  /// pass it was priced as a consult, charging the wrong amount for the wrong
+  /// thing.
+  final String type;
+
+  const PaymentScreen({
+    super.key,
+    required this.bookingId,
+    this.type = 'consult_fee',
+  });
   @override
   ConsumerState<PaymentScreen> createState() => _State();
 }
@@ -43,7 +53,7 @@ class _State extends ConsumerState<PaymentScreen> {
   final _upiCtrl = TextEditingController();
 
   Razorpay? _razorpay;
-  StreamSubscription? _bookingSub;
+  CharakPoller? _bookingPoll;
   Timer? _confirmationTimeout;
 
   @override
@@ -61,7 +71,7 @@ class _State extends ConsumerState<PaymentScreen> {
   void dispose() {
     // Razorpay holds a native handler; clear() is not optional.
     _razorpay?.clear();
-    _bookingSub?.cancel();
+    _bookingPoll?.dispose();
     _confirmationTimeout?.cancel();
     _upiCtrl.dispose();
     super.dispose();
@@ -73,7 +83,7 @@ class _State extends ConsumerState<PaymentScreen> {
     setState(() => _loading = true);
     try {
       final res = await ApiClient.instance.post(
-          '/payments/${widget.bookingId}/order', {});
+          '/payments/${widget.bookingId}/order', {'type': widget.type});
       setState(() => _order = res as Map<String, dynamic>);
     } on ApiException catch (e) {
       _fail(e.message);
@@ -86,25 +96,46 @@ class _State extends ConsumerState<PaymentScreen> {
 
   /// The authoritative signal. Runs from the moment the screen opens, so a
   /// payment that lands while the patient is still in GPay is caught either way.
+  ///
+  /// This polls the backend rather than subscribing to Supabase realtime. The
+  /// apps hold only the anon key and authenticate with a FastAPI JWT, so
+  /// `auth.uid()` is NULL for them — and every bookings RLS policy in
+  /// migration 0004 is `patient_id = auth.uid()`. A realtime subscription
+  /// therefore matched no rows and never fired, which left every live payment
+  /// sitting on "taking longer than usual" even when it had succeeded.
   void _watchBooking() {
-    _bookingSub = Supabase.instance.client
-        .from('bookings')
-        .stream(primaryKey: ['id'])
-        .eq('id', widget.bookingId)
-        .listen((rows) {
-      if (rows.isEmpty || !mounted) return;
-      final status = rows.first['status'] as String? ?? '';
-      if (status == 'paid') {
-        _confirmationTimeout?.cancel();
-        context.go('/booking/${widget.bookingId}/confirmed');
-      } else if (status == 'cancelled' || status == 'declined') {
-        // The hold expired while the patient was away, or the doctor withdrew.
-        // Any money that lands now is refunded by the backend, so say so here
-        // rather than leaving them on a dead payment screen.
-        _confirmationTimeout?.cancel();
-        context.go('/booking/${widget.bookingId}/status');
-      }
-    });
+    // Payment resolves in seconds, so this starts tight. The 90s timeout is
+    // what gives up, long before the backoff matters.
+    _bookingPoll = CharakPoller(
+      interval: const Duration(seconds: 3),
+      maxInterval: const Duration(seconds: 15),
+      onPoll: () async {
+        if (!mounted) return true;
+        final b = await ApiClient.instance.get('/bookings/${widget.bookingId}')
+            as Map<String, dynamic>;
+        if (!mounted) return true;
+        final status = b['status'] as String? ?? '';
+        if (status == 'paid') {
+          _stopWatching();
+          context.go('/booking/${widget.bookingId}/confirmed');
+          return true;
+        }
+        if (status == 'cancelled' || status == 'declined') {
+          // The hold expired while the patient was away, or the doctor
+          // withdrew. Any money that lands now is refunded by the backend, so
+          // say so here rather than leaving them on a dead payment screen.
+          _stopWatching();
+          context.go('/booking/${widget.bookingId}/status');
+          return true;
+        }
+        return false;
+      },
+    )..start();
+  }
+
+  void _stopWatching() {
+    _bookingPoll?.stop();
+    _confirmationTimeout?.cancel();
   }
 
   // ── Pay ─────────────────────────────────────────────────────────────────────
@@ -120,7 +151,8 @@ class _State extends ConsumerState<PaymentScreen> {
       setState(() => _loading = true);
       try {
         await ApiClient.instance.post(
-            '/payments/${widget.bookingId}/stub-complete', {});
+            '/payments/${widget.bookingId}/stub-complete',
+            {'type': widget.type});
         if (mounted) context.go('/booking/${widget.bookingId}/confirmed');
       } on ApiException catch (e) {
         _fail(e.message);
