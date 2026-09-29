@@ -237,7 +237,7 @@ export default function Overview() {
                   {m.doctors.suspended > 0 && (
                     <Link
                       to="/directory"
-                      className="inline-flex items-center gap-1.5 rounded-md bg-destructive/10 px-2.5 py-1.5 text-sm text-destructive hover:bg-destructive/15"
+                      className="inline-flex items-center gap-1.5 rounded-pill bg-destructive/10 px-2.5 py-1.5 text-sm text-destructive hover:bg-destructive/15"
                     >
                       <Ban size={14} />
                       {m.doctors.suspended} suspended

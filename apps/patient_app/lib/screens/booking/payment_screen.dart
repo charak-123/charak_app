@@ -228,7 +228,7 @@ class _State extends ConsumerState<PaymentScreen> {
         (_order?['razorpay_key'] as String? ?? '').startsWith('stub');
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: const CharakTopBar(title: 'Payment'),
       body: _loading && _order == null
           // Initial order fetch — content is arriving, so `.skel` stands in.
@@ -251,7 +251,7 @@ class _State extends ConsumerState<PaymentScreen> {
                         icon: Icons.lock_outline),
                   ]),
                   const SizedBox(height: 4),
-                  const Text('Consultation fee · paid before the visit',
+                  Text('Consultation fee · paid before the visit',
                       style: charakHintStyle),
                   const SizedBox(height: 18),
 

@@ -23,8 +23,11 @@ export default function Layout() {
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="w-56 bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border shrink-0">
-        <div className="px-5 py-5 text-lg font-semibold border-b border-sidebar-border">
-          charak <span className="text-primary text-sm font-normal">admin</span>
+        <div className="px-5 py-5 border-b border-sidebar-border flex items-baseline gap-2">
+          {/* Wordmark: CHARAK wide + चरक in Chandan (design-system/README.md § Brand) */}
+          <span className="text-lg font-extrabold tracking-wide" style={{ fontStretch: '125%' }}>CHARAK</span>
+          <span className="text-lg font-bold text-chandan-300" style={{ fontFamily: '"Anek Devanagari"' }}>चरक</span>
+          <span className="text-xs font-medium text-sidebar-foreground/60 ml-1">admin</span>
         </div>
         <nav className="flex-1 px-2 py-2 space-y-0.5">
           {NAV.map(({ to, icon: Icon, label }) => (
@@ -36,8 +39,8 @@ export default function Layout() {
                 cn(
                   'flex items-center gap-3 px-3 py-2 text-sm transition-colors',
                   isActive
-                    ? 'bg-sidebar-primary text-sidebar-primary-foreground rounded-md'
-                    : 'text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-md'
+                    ? 'bg-sidebar-primary text-sidebar-primary-foreground rounded-full'
+                    : 'text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-full'
                 )
               }
             >

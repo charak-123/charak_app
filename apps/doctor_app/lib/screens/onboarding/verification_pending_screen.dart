@@ -69,7 +69,7 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
         : (CharakColors.bgSubtle, CharakColors.inkMuted);
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         // `.ok-state` — 40px top padding, 24px gutters, centred column.
         child: SingleChildScrollView(
@@ -105,12 +105,7 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
                       : "Our team is verifying your license. You can set up your practice now — "
                           "you'll appear in the directory the moment you're approved.",
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: CharakText.fontFamily,
-                    fontSize: 14.5,
-                    height: 1.6,
-                    color: CharakColors.inkMuted,
-                  ),
+                  style: CharakText.body.copyWith(color: CharakColors.inkMuted, fontSize: 15),
                 ),
               ),
 

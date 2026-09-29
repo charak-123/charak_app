@@ -18,7 +18,7 @@ class BookingStatusScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_bookingProvider(bookingId));
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: const CharakTopBar(title: 'Booking status'),
       body: async.when(
         loading: () => const _StatusLoading(),
@@ -137,7 +137,7 @@ class _StatusBody extends StatelessWidget {
                 ]),
                 if (status == 'accepted') ...[
                   const SizedBox(height: 10),
-                  const Text('Payment via UPI or card · Razorpay secure checkout',
+                  Text('Payment via UPI or card · Razorpay secure checkout',
                       style: charakHintStyle, textAlign: TextAlign.center),
                 ],
               ]),

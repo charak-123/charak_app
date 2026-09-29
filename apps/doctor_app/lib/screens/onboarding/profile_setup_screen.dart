@@ -97,7 +97,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     final cats = ref.watch(_categoriesProvider);
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -111,7 +111,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                     // `.step-dots` — step 1 of 3.
                     const CharakStepDots(current: 0),
                     const SizedBox(height: 10),
-                    const Text('Set up your profile', style: CharakText.h1),
+                    const Text('Set up your profile', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text('One screen, fill it once — this is what patients see in the directory.',
                         style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
@@ -121,7 +121,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                         controller: _nameCtrl, onChanged: (_) => setState(() {})),
                     const SizedBox(height: 12),
 
-                    const Text('Specialty', style: _fieldLabel),
+                    Text('Specialty', style: _fieldLabel),
                     const SizedBox(height: 7),
                     cats.when(
                       data: (list) => ShadSelect<String>(
@@ -137,7 +137,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    const Text('Profile photo', style: _fieldLabel),
+                    Text('Profile photo', style: _fieldLabel),
                     const SizedBox(height: 7),
                     CharakUploadTile(
                       icon: Icons.camera_alt_outlined,
@@ -175,10 +175,4 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 }
 
 /// `.field label` — 13px/600 ink.
-const _fieldLabel = TextStyle(
-  fontFamily: CharakText.fontFamily,
-  fontSize: 13,
-  fontWeight: FontWeight.w600,
-  height: 1.4,
-  color: CharakColors.ink,
-);
+final _fieldLabel = CharakText.caption.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600);

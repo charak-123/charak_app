@@ -155,13 +155,13 @@ class _State extends ConsumerState<IntakeScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.bg,
+    backgroundColor: CharakColors.ground,
     appBar: const CharakTopBar(title: 'Describe the issue'),
     body: Column(children: [
       Expanded(child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
-          const Text('Share as much as you like — the doctor reads it directly.',
+          Text('Share as much as you like — the doctor reads it directly.',
               style: charakScreenSubStyle),
           const SizedBox(height: 14),
 
@@ -200,7 +200,7 @@ class _State extends ConsumerState<IntakeScreen> {
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                border: Border.all(color: CharakColors.border),
+        color: CharakColors.card,
                 borderRadius: const BorderRadius.all(CharakRadius.card),
               ),
               child: Column(children: [
@@ -226,13 +226,13 @@ class _State extends ConsumerState<IntakeScreen> {
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: CharakColors.bgSubtle,
-                  borderRadius: BorderRadius.all(CharakRadius.card),
+                  borderRadius: const BorderRadius.all(CharakRadius.card),
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   // `.transcript b` — 11px/600 uppercase success label.
-                  Text('VOICE NOTE ATTACHED',
+                  Text('TRANSCRIBED · EDITABLE',
                       style: CharakText.micro.copyWith(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -284,11 +284,11 @@ class _State extends ConsumerState<IntakeScreen> {
               )),
               _AttachTile(
                 onTap: _pickImage,
-                child: const Icon(Icons.add, size: 22, color: CharakColors.inkMuted),
+                child: Icon(Icons.add, size: 22, color: CharakColors.inkMuted),
               ),
             ]),
             const SizedBox(height: 10),
-            const Text('Rashes, wounds, reports — anything visual helps.',
+            Text('Rashes, wounds, reports — anything visual helps.',
                 style: charakHintStyle),
           ],
 
@@ -299,28 +299,28 @@ class _State extends ConsumerState<IntakeScreen> {
               ..._videos.map((f) => _AttachTile(
                 attached: true,
                 onTap: () => setState(() => _videos.remove(f)),
-                child: const Icon(Icons.videocam,
+                child: Icon(Icons.videocam,
                     size: 22, color: CharakColors.primaryDeep),
               )),
               _AttachTile(
                 onTap: _pickVideo,
-                child: const Icon(Icons.add, size: 22, color: CharakColors.inkMuted),
+                child: Icon(Icons.add, size: 22, color: CharakColors.inkMuted),
               ),
             ]),
             const SizedBox(height: 10),
-            const Text('Show how you move or the affected area. Max 2 minutes.',
+            Text('Show how you move or the affected area. Max 2 minutes.',
                 style: charakHintStyle),
           ],
 
           // ── `.reassure` ────────────────────────────────────────────────
           const SizedBox(height: 12),
-          const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Padding(
-              padding: EdgeInsets.only(top: 1),
+              padding: const EdgeInsets.only(top: 1),
               child: Icon(Icons.verified_user_outlined,
                   size: 15, color: CharakColors.success),
             ),
-            SizedBox(width: 8),
+            const SizedBox(width: 8),
             Expanded(
               // States the real boundary. The previous line promised nothing
               // was "analyzed by AI", which stopped being true when voice
@@ -409,7 +409,7 @@ class _AttachTile extends StatelessWidget {
             top: -6, right: -6,
             child: Container(
               width: 18, height: 18,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                   color: CharakColors.success, shape: BoxShape.circle),
               alignment: Alignment.center,
               child: const Icon(Icons.check, size: 11, color: Colors.white),

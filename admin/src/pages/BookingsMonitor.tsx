@@ -94,7 +94,7 @@ export default function BookingsMonitor() {
         </Section>
 
         <Section title="Funnel" hint="Where the book stands">
-          <div className="rounded-xl border bg-card p-4">
+          <div className="rounded-card bg-card p-4">
             <FunnelBars
               rows={[
                 { label: 'Requested', value: count('requested') },

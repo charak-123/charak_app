@@ -6,23 +6,23 @@ import '../design/tokens.dart';
 import 'charak_avatar.dart';
 
 /// The in-call surface, shared by the patient's video consult and the
-/// doctor's clarification call. Colours come from the `.call-*` rules in
-/// `charak-shared/core.css` — a near-black field with a radial lift behind
-/// the peer, translucent white controls, and a red end-call button.
+/// doctor's clarification call. The field is always ink (ink-900 with an
+/// ink-800 lift behind the peer), controls are translucent white, and the
+/// end-call button is the declined red. Same on both schemes.
 class CharakCallColors {
   CharakCallColors._();
 
   /// `.call-grid` background.
-  static const field = Color(0xFF0B1220);
+  static const field = CharakPalette.ink900;
 
   /// Top stop of `.call-peer`'s radial gradient.
-  static const fieldLift = Color(0xFF16233D);
+  static const fieldLift = CharakPalette.blue900;
 
   /// `.call-self` picture-in-picture tile.
-  static const selfTile = Color(0xFF1C2A45);
+  static const selfTile = CharakPalette.ink700;
 
   /// `.call-top .rec` recording indicator.
-  static const recording = Color(0xFFFF5D5D);
+  static const recording = CharakPalette.statusDeclined;
 
   static const controlBg = Color(0x24FFFFFF); // rgba(255,255,255,0.14)
   static const controlBgActive = Color(0x47FFFFFF); // rgba(255,255,255,0.28)

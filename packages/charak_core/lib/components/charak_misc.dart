@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:shadcn_ui/shadcn_ui.dart';
+import '../design/motion.dart';
 import '../design/tokens.dart';
+import 'charak_nav.dart' show CharakSwitch;
 
 /// Pulsing status dot — used inside warning/status pills (e.g. "Under review").
 class CharakPulsingDot extends StatefulWidget {
-  final Color color;
+  final Color? color;
   final double size;
-  const CharakPulsingDot({super.key, this.color = CharakColors.warning, this.size = 7});
+  const CharakPulsingDot({super.key, this.color, this.size = 7});
 
   @override
   State<CharakPulsingDot> createState() => _CharakPulsingDotState();
@@ -25,7 +26,7 @@ class _CharakPulsingDotState extends State<CharakPulsingDot> with SingleTickerPr
     opacity: _anim,
     child: Container(
       width: widget.size, height: widget.size,
-      decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+      decoration: BoxDecoration(color: widget.color ?? CharakColors.warning, shape: BoxShape.circle),
     ),
   );
 }
@@ -56,8 +57,9 @@ class CharakStepDots extends StatelessWidget {
   );
 }
 
-/// Toggle card — icon chip + title/subtitle + a pill switch, whole card
-/// outlined+tinted when on. Matches the wireframe's `.tog-card`.
+/// Toggle card (One UI settings row as its own block): a tinted icon
+/// square, title + caption, and a [CharakSwitch]. Flat card; only the icon
+/// square and caption colour change with the value.
 class CharakToggleCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -74,38 +76,37 @@ class CharakToggleCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => CharakPressable(
     onTap: () => onChanged(!value),
     child: AnimatedContainer(
-      duration: CharakDurations.buttonPress,
+      duration: CharakMotion.standard,
+      curve: CharakCurves.standard,
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(CharakSpacing.base),
-      // `.tog-card` — card stays white when on; only the border and the icon
-      // chip change. 13px gap, flex-start alignment.
+      padding: const EdgeInsets.all(CharakSpacing.gutter),
       decoration: BoxDecoration(
-        color: CharakColors.bg,
-        borderRadius: BorderRadius.all(CharakRadius.card),
-        border: Border.all(color: value ? CharakColors.primary : CharakColors.border),
+        color: CharakColors.card,
+        borderRadius: const BorderRadius.all(CharakRadius.card),
       ),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          width: 42, height: 42,
+      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+        AnimatedContainer(
+          duration: CharakMotion.standard,
+          width: 44, height: 44,
           decoration: BoxDecoration(
             color: value ? CharakColors.primarySoft : CharakColors.bgSubtle,
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: const BorderRadius.all(Radius.circular(14)),
           ),
           alignment: Alignment.center,
-          child: Icon(icon,
-              color: value ? CharakColors.primaryDeep : CharakColors.inkMuted, size: 19),
+          child: Icon(icon, color: value ? CharakColors.primaryDeep : CharakColors.inkMuted, size: 20),
         ),
-        const SizedBox(width: 13),
+        const SizedBox(width: 14),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: CharakText.bodyMed.copyWith(fontSize: 15.5, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 3),
-          Text(subtitle, style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+          Text(title, style: CharakText.body.weight(650).copyWith(fontSize: 17, color: CharakColors.ink)),
+          const SizedBox(height: 2),
+          Text(subtitle, style: CharakText.caption.copyWith(
+              color: value ? CharakColors.primary : CharakColors.inkMuted)),
         ])),
         const SizedBox(width: 8),
-        ShadSwitch(value: value, onChanged: onChanged),
+        CharakSwitch(value: value, onChanged: onChanged),
       ]),
     ),
   );
@@ -128,36 +129,32 @@ class CharakUploadTile extends StatelessWidget {
     required this.onTap,
   });
 
-  // `.upload-tile` — 86px tall, 1.5px dashed border that turns solid primary
-  // once a file is attached.
+  // 96px tall, 1.5px dashed outline that turns solid blue once attached.
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => CharakPressable(
     onTap: onTap,
     child: CustomPaint(
       painter: CharakDashedBorderPainter(
-        color: done ? CharakColors.primary : CharakColors.border,
+        color: done ? CharakColors.primary : CharakColors.borderStrong,
         dashed: !done,
-        radius: 12,
+        radius: CharakRadii.tile,
       ),
       child: Container(
         width: double.infinity,
-        height: 86,
+        height: 96,
         decoration: BoxDecoration(
-          color: done ? CharakColors.primarySoft : CharakColors.bgSubtle,
-          borderRadius: BorderRadius.all(CharakRadius.card),
+          color: done ? CharakColors.primarySoft : CharakColors.card,
+          borderRadius: const BorderRadius.all(CharakRadius.tile),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(done ? Icons.check_circle : icon,
-                color: done ? CharakColors.primaryDeep : CharakColors.primary, size: 20),
+            Icon(done ? Icons.check_circle_rounded : icon,
+                color: done ? CharakColors.primaryDeep : CharakColors.primary, size: 22),
             const SizedBox(height: 7),
             Text(
               done ? (doneLabel ?? 'Attached') : label,
-              style: TextStyle(
-                fontFamily: CharakText.fontFamily,
-                fontSize: 12.5,
-                height: 1.4,
+              style: CharakText.caption.copyWith(
                 color: done ? CharakColors.primaryDeep : CharakColors.inkMuted,
               ),
               textAlign: TextAlign.center,

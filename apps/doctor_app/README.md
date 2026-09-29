@@ -1,15 +1,23 @@
 # Charak Partner — doctor app
 
+CHARAK Doctor App (Flutter), running the ink scheme of CHARAK Design System V2.
+
 The doctor side of Charak. A doctor signs up, submits their licence for
 verification, configures a live practice (channels, schedule, service radius,
 pricing), then receives patient requests, calls to clarify, treats, bills, and
 sees what they have earned.
+
+UI is built entirely from the shared components in `packages/charak_core` —
+this app declares no fonts or brand assets of its own. Before changing any
+screen, read [`design-system/README.md`](../../design-system/README.md) (the
+spec) and the root `CLAUDE.md` (the rules and checks).
 
 ## Running it
 
 ```bash
 flutter pub get
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+flutter analyze
 ```
 
 `API_BASE_URL` is the only define the app needs. It authenticates with a
@@ -18,8 +26,8 @@ client-side Supabase access, because the apps carry no Supabase auth session
 and every RLS policy is written against `auth.uid()`.
 
 `10.0.2.2` is the Android emulator's route to the host, where `backend/` runs.
-All three defines have to be passed — they are compile-time constants, so a
-missing one fails at runtime, not at build.
+`scripts/run-app.sh doctor` at the repo root does this for you, pointed at
+this machine's LAN address instead, which is what a real phone needs.
 
 ## Layout
 
@@ -49,6 +57,10 @@ components, the call session, push — lives in `packages/charak_core`, not here
   authenticate with a FastAPI JWT rather than a Supabase auth session, so RLS
   rejects a direct write. Photos and verification documents go through
   `POST /uploads/...` via `ApiClient.postFile`.
+- **The requests tab and verification-pending screen poll, not stream.**
+  Supabase Realtime cannot work here for the same RLS reason above — see
+  `CharakPoller` in `charak_core`. Push is the immediate signal when configured;
+  polling is the safety net.
 - **Video calls degrade cleanly.** Without `AGORA_APP_ID` /
   `AGORA_APP_CERTIFICATE` the backend mints a stub token, no engine is created,
   and the call screen says so rather than hanging on "Connecting…".

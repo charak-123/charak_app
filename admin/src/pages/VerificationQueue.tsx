@@ -112,7 +112,7 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
         {rejectOpen && (
           <div className="space-y-2 border-t pt-3">
             <textarea
-              className="min-h-[80px] w-full resize-none rounded-md border border-border p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="min-h-[80px] w-full resize-none rounded-tile border border-border p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="Reason for rejection…"
               value={reason}
               onChange={e => setReason(e.target.value)}

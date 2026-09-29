@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+
+import '../design/motion.dart';
 import '../design/tokens.dart';
 
-/// Fixed screen header matching the wireframe's `.topbar`: a 44×44 circular
-/// back button, a centered title (+ optional subtitle), and either a
-/// trailing circular icon button or a same-width spacer to keep the title
-/// centered. No elevation/shadow — flat, matching `CharakColors.bg`.
+/// Slim top bar for pushed screens: a 44px round back button on a card-
+/// coloured circle, a centred title.small (+ optional caption), and an
+/// optional trailing round action. Flat, on the ground colour.
+///
+/// Tab-root screens don't use this; they use [CharakLargeTitleScaffold],
+/// whose big title folds into the same slim bar on scroll.
 class CharakTopBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final String? subtitle;
@@ -22,19 +26,20 @@ class CharakTopBar extends StatelessWidget implements PreferredSizeWidget {
   });
 
   @override
-  Size get preferredSize => Size.fromHeight(subtitle != null ? 64 : 52);
+  Size get preferredSize => Size.fromHeight(subtitle != null ? 68 : 58);
 
   @override
   Widget build(BuildContext context) => Material(
-    color: CharakColors.bg,
+    color: CharakColors.ground,
     child: SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+        padding: const EdgeInsets.fromLTRB(12, 7, 12, 0),
         child: Row(
           children: [
-            _CircleIconButton(
-              icon: Icons.arrow_back,
+            CharakRoundIconButton(
+              icon: Icons.arrow_back_rounded,
+              semanticLabel: 'Back',
               onTap: onBack ?? () => Navigator.of(context).maybePop(),
             ),
             Expanded(
@@ -46,7 +51,7 @@ class CharakTopBar extends StatelessWidget implements PreferredSizeWidget {
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: CharakText.h2,
+                    style: CharakText.titleSmall.copyWith(fontSize: 18, color: CharakColors.ink),
                   ),
                   if (subtitle != null)
                     Text(
@@ -60,7 +65,7 @@ class CharakTopBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
             if (trailingIcon != null)
-              _CircleIconButton(icon: trailingIcon!, onTap: onTrailingTap)
+              CharakRoundIconButton(icon: trailingIcon!, semanticLabel: title, onTap: onTrailingTap)
             else
               const SizedBox(width: 44, height: 44),
           ],
@@ -70,22 +75,36 @@ class CharakTopBar extends StatelessWidget implements PreferredSizeWidget {
   );
 }
 
-class _CircleIconButton extends StatelessWidget {
+/// 44px round icon button on a card-coloured circle (back, bell, more).
+class CharakRoundIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
-  const _CircleIconButton({required this.icon, this.onTap});
+  final String semanticLabel;
+  final bool filled;
+
+  const CharakRoundIconButton({
+    super.key,
+    required this.icon,
+    required this.semanticLabel,
+    this.onTap,
+    this.filled = true,
+  });
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 44,
-    height: 44,
-    child: Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Icon(icon, size: 21, color: CharakColors.ink),
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: semanticLabel,
+    child: CharakPressable(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: filled ? CharakColors.card : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        alignment: Alignment.center,
+        child: Icon(icon, size: 22, color: CharakColors.ink),
       ),
     ),
   );

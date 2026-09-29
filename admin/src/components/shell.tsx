@@ -24,7 +24,9 @@ export function PageHeader({
     <div className="border-b bg-background px-6 py-5">
       <div className="flex items-start justify-between gap-6">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+          {/* font-heading: Anek's wide axis for page titles (design-system
+              §2, "Anek goes wide for headers"). */}
+          <h1 className="font-heading text-xl font-semibold tracking-tight">{title}</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
         </div>
         {right && <div className="shrink-0">{right}</div>}
@@ -108,7 +110,10 @@ export function StatTile({
     <Card
       className={cn(
         'relative h-full overflow-hidden transition-all',
-        to && 'group-hover:-translate-y-0.5 group-hover:shadow-md',
+        // V2 is flat — shadow-md resolves to `none` (tailwind.config.js), so a
+        // shadow-based hover lift never rendered. A tonal fill reads on a flat
+        // surface; the lift and the left rail brightening still do the rest.
+        to && 'group-hover:-translate-y-0.5 group-hover:bg-accent/40',
         to && 'group-focus-visible:ring-2 group-focus-visible:ring-ring',
       )}
     >

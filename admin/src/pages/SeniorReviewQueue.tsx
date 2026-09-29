@@ -129,7 +129,7 @@ export default function SeniorReviewQueue() {
                       </div>
 
                       {items.length > 0 && (
-                        <div className="overflow-hidden rounded-lg border">
+                        <div className="overflow-hidden rounded-card border">
                           <Table>
                             <TableHeader>
                               <TableRow>

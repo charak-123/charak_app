@@ -67,7 +67,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
           decoration: BoxDecoration(
             border: i == 6
                 ? null
-                : const Border(bottom: BorderSide(color: CharakColors.border)),
+                : Border(bottom: BorderSide(color: CharakColors.border)),
           ),
           child: Row(
             children: [
@@ -76,27 +76,16 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
                 width: 34,
                 child: Text(
                   _days[i],
-                  style: TextStyle(
-                    fontFamily: CharakText.fontFamily,
-                    fontSize: 13,
-                    height: 1.4,
-                    fontWeight: dayBlocks.isEmpty ? FontWeight.w500 : FontWeight.w600,
-                    color: dayBlocks.isEmpty ? CharakColors.inkMuted : CharakColors.ink,
-                  ),
+                  style: CharakText.caption.copyWith(color: dayBlocks.isEmpty ? CharakColors.inkMuted : CharakColors.ink, fontWeight: dayBlocks.isEmpty ? FontWeight.w500 : FontWeight.w600),
                 ),
               ),
               const SizedBox(width: 10),
               // `.block-chips` — wrapping 6px grid that takes the free space.
               Expanded(
                 child: dayBlocks.isEmpty
-                    ? const Text(
+                    ? Text(
                         'No hours',
-                        style: TextStyle(
-                          fontFamily: CharakText.fontFamily,
-                          fontSize: 12.5,
-                          height: 1.4,
-                          color: CharakColors.inkMuted,
-                        ),
+                        style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
                       )
                     : Wrap(
                         spacing: 6,
@@ -128,28 +117,21 @@ class _BlockChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: const BoxDecoration(
+    decoration: BoxDecoration(
       color: CharakColors.primarySoft,
-      borderRadius: BorderRadius.all(CharakRadius.pill),
+      borderRadius: const BorderRadius.all(CharakRadius.pill),
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           label,
-          style: const TextStyle(
-            fontFamily: CharakText.fontFamily,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            height: 1.3,
-            color: CharakColors.primaryDeep,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
+          style: CharakText.caption.tabular.copyWith(color: CharakColors.primaryDeep, fontWeight: FontWeight.w500),
         ),
         const SizedBox(width: 5),
         GestureDetector(
           onTap: onRemove,
-          child: const Icon(Icons.close, size: 11, color: CharakColors.primaryDeep),
+          child: Icon(Icons.close, size: 11, color: CharakColors.primaryDeep),
         ),
       ],
     ),
@@ -171,7 +153,7 @@ class _BlockAdd extends StatelessWidget {
         radius: 8,
         strokeWidth: 1,
       ),
-      child: const SizedBox(
+      child: SizedBox(
         width: 30,
         height: 30,
         child: Icon(Icons.add, size: 14, color: CharakColors.inkMuted),

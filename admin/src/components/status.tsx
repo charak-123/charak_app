@@ -65,7 +65,10 @@ export function MetaChip({ children, mono }: { children: React.ReactNode; mono?:
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-xs text-muted-foreground',
+        // rounded-full, matching StatusPill and the design system's pill
+        // controls (design-system/README.md: "radii: pills 999") — this was
+        // the one chip on the panel still using Tailwind's default radius.
+        'inline-flex items-center rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-xs text-muted-foreground',
         mono && 'font-mono',
       )}
     >

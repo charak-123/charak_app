@@ -97,7 +97,7 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -107,7 +107,7 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Home visits', style: CharakText.h1),
+                    const Text('Home visits', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text('Schedule, radius and base location.',
                         style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
@@ -150,7 +150,6 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
                       decoration: BoxDecoration(
                         color: CharakColors.bg,
                         borderRadius: const BorderRadius.all(CharakRadius.card),
-                        border: Border.all(color: CharakColors.border),
                       ),
                       child: ScheduleEditor(
                         blocks: _blocks,
@@ -234,7 +233,6 @@ class _BaseLocationCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: CharakColors.bg,
         borderRadius: const BorderRadius.all(CharakRadius.card),
-        border: Border.all(color: CharakColors.border),
       ),
       child: Row(
         children: [
@@ -246,7 +244,7 @@ class _BaseLocationCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             alignment: Alignment.center,
-            child: const Icon(Icons.location_on_outlined,
+            child: Icon(Icons.location_on_outlined,
                 size: 16, color: CharakColors.primaryDeep),
           ),
           const SizedBox(width: 11),
@@ -261,13 +259,7 @@ class _BaseLocationCard extends StatelessWidget {
                 const SizedBox(height: 1),
                 Text(
                   locating ? 'Detecting location…' : (address ?? 'Tap to detect via GPS'),
-                  style: const TextStyle(
-                    fontFamily: CharakText.fontFamily,
-                    fontSize: 12,
-                    height: 1.4,
-                    color: CharakColors.inkMuted,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
+                  style: CharakText.caption.tabular.copyWith(color: CharakColors.inkMuted),
                 ),
               ],
             ),
@@ -276,7 +268,7 @@ class _BaseLocationCard extends StatelessWidget {
             const SizedBox(
                 width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
           else
-            const Icon(Icons.chevron_right, size: 16, color: CharakColors.inkMuted),
+            Icon(Icons.chevron_right, size: 16, color: CharakColors.inkMuted),
         ],
       ),
     ),

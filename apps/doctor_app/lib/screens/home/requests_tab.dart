@@ -32,6 +32,10 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
   /// Requests mid-dismissal, playing `.req-item.leaving` before the refetch.
   final Set<String> _leaving = {};
 
+  /// False until the realtime stream has delivered its first snapshot; rows
+  /// in that snapshot were already waiting, so they don't raise a heads-up.
+  bool _synced = false;
+
   @override
   void initState() {
     super.initState();
@@ -39,7 +43,7 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
   }
 
   /// Polls /bookings/doctor/incoming for requests that have appeared since the
-  /// last look, so the new-request highlight still works.
+  /// last look, so the new-request highlight and heads-up prompt still work.
   ///
   /// Supabase realtime cannot serve this: the app holds only the anon key and
   /// authenticates with a FastAPI JWT, so `auth.uid()` is NULL and the
@@ -57,24 +61,41 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
         if (!mounted) return true;
         final rows = List<Map<String, dynamic>>.from(
             await ApiClient.instance.get('/bookings/doctor/incoming') as List);
-        final fresh = rows
-            .map((r) => r['id'] as String)
-            .where((id) => !_seen.contains(id))
-            .toList();
-        if (fresh.isNotEmpty && mounted) {
-          _seen.addAll(fresh);
-          _fresh.addAll(fresh);
+        final freshRows =
+            rows.where((r) => !_seen.contains(r['id'] as String)).toList();
+        final isFirstSync = !_synced;
+        _synced = true;
+        if (freshRows.isNotEmpty && mounted) {
+          for (final r in freshRows) {
+            _seen.add(r['id'] as String);
+            if (!isFirstSync) _fresh.add(r['id'] as String);
+          }
           ref.invalidate(_incomingProvider);
+          // Heads-up: a new request drops in from the top (not for the rows
+          // already there when polling first starts).
+          if (!isFirstSync) _headsUp(freshRows.last);
         }
         return false;
       },
     )..start();
   }
 
+  Future<void> _headsUp(Map<String, dynamic> row) async {
+    final id = row['id'] as String;
+    final channel = row['channel'] == 'home_visit' ? 'Home visit' : 'Online consult';
+    final review = await showCharakHeadsUp(
+      context,
+      overline: 'New request · now',
+      message: channel,
+    );
+    if (review && mounted) context.push('/request/$id');
+  }
+
   Future<void> _decline(String bookingId) async {
-    // `.req-item.leaving` — 240ms slide-out before the list refetches.
+    // Declined: the card fades and slides away (motion.exit) before the
+    // list refetches.
     setState(() => _leaving.add(bookingId));
-    await Future<void>.delayed(CharakDurations.sheetOpen);
+    await Future<void>.delayed(CharakMotion.exit);
     if (!mounted) return;
     try {
       await ApiClient.instance.patch('/bookings/$bookingId/decline', {});
@@ -101,91 +122,69 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
   @override
   Widget build(BuildContext context) {
     final incoming = ref.watch(_incomingProvider);
-    return Scaffold(
-      backgroundColor: CharakColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: incoming.when(
-          // `.skel` placeholders shaped like the real `.req-card` stack so the
-          // header stays put and the cards don't jump in.
-          loading: () => ListView(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-            children: const [
-              CharakScreenHeader(
-                title: 'Requests',
-                subtitle: 'Decide on each — new requests arrive live.',
-              ),
-              SizedBox(height: 14),
-              _RequestCardSkeleton(),
-              _RequestCardSkeleton(),
-              _RequestCardSkeleton(),
-            ],
-          ),
-          error: (e, _) => Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.error_outline, color: CharakColors.danger, size: 40),
-              const SizedBox(height: 8),
-              Text('Failed to load requests', style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
-              TextButton(onPressed: () => ref.invalidate(_incomingProvider), child: const Text('Retry')),
-            ]),
-          ),
-          data: (bookings) => RefreshIndicator(
-            onRefresh: () => ref.refresh(_incomingProvider.future),
-            child: ListView(
-              // `.body` — 20px gutters, this tab's `padding-top:14px`.
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-              children: [
-                CharakScreenHeader(
-                  title: 'Requests',
-                  subtitle: 'Decide on each — new requests arrive live.',
-                  trailing: bookings.isNotEmpty
-                      ? CharakBadge(label: '${bookings.length} new', variant: CharakBadgeVariant.primary)
-                      : null,
-                ),
-                const SizedBox(height: 14),
-                if (bookings.isEmpty)
-                  CharakEmptyState(
-                    icon: Icons.inbox_outlined,
-                    title: 'All caught up',
-                    message: 'New booking requests will appear here the moment a patient sends one.',
-                    action: CharakButton(
-                      label: 'Refresh',
-                      outlined: true,
-                      onPressed: () => ref.invalidate(_incomingProvider),
-                    ),
-                  )
-                else
-                  ...bookings.map((b) {
-                    final id = b['id'] as String;
-                    return _RequestItem(
-                      key: ValueKey(id),
-                      leaving: _leaving.contains(id),
-                      arrive: _fresh.contains(id),
-                      // `.pulse` — an existing row flashes primarySoft when its
-                      // status changes. Arrival/dismissal motion lives in
-                      // _RequestItem, so the two never overlap.
-                      child: CharakStatusPulse(
-                        trigger: b['status'],
-                        child: _RequestCard(
-                          booking: b,
-                          isNew: _fresh.contains(id),
-                          onDecline: () => _decline(id),
-                        ),
-                      ),
-                    );
-                  }),
-              ],
+    final doctorName = ref.watch(authProvider).user?['name'] as String?;
+    final count = incoming.valueOrNull?.length;
+    return CharakLargeTitleScaffold(
+      eyebrow: doctorName == null ? null : 'Dr. $doctorName',
+      title: 'Requests',
+      subtitle: count == null
+          ? 'New requests arrive live.'
+          : count == 0
+              ? 'Nothing waiting. New requests arrive live.'
+              : '$count waiting for your decision',
+      subtitleColor: (count ?? 0) > 0 ? CharakColors.greeting : null,
+      onRefresh: () => ref.refresh(_incomingProvider.future),
+      children: incoming.when(
+        loading: () => const [_RequestCardSkeleton(), _RequestCardSkeleton(), _RequestCardSkeleton()],
+        error: (e, _) => [
+          CharakEmptyState(
+            icon: Icons.cloud_off_rounded,
+            title: 'Couldn\'t load requests',
+            message: 'Check your connection and try again.',
+            action: CharakButton(
+              label: 'Retry',
+              variant: CharakButtonVariant.outline,
+              onPressed: () => ref.invalidate(_incomingProvider),
             ),
           ),
-        ),
+        ],
+        data: (bookings) => bookings.isEmpty
+            ? [
+                CharakEmptyState(
+                  icon: Icons.inbox_outlined,
+                  title: 'All caught up',
+                  message: 'New booking requests will appear here the moment a patient sends one.',
+                  action: CharakButton(
+                    label: 'Refresh',
+                    variant: CharakButtonVariant.outline,
+                    onPressed: () => ref.invalidate(_incomingProvider),
+                  ),
+                ),
+              ]
+            : [
+                for (final b in bookings)
+                  _RequestItem(
+                    key: ValueKey(b['id']),
+                    leaving: _leaving.contains(b['id']),
+                    arrive: _fresh.contains(b['id']),
+                    child: CharakStatusPulse(
+                      trigger: b['status'],
+                      child: _RequestCard(
+                        booking: b,
+                        isNew: _fresh.contains(b['id']),
+                        onDecline: () => _decline(b['id'] as String),
+                      ),
+                    ),
+                  ),
+              ],
       ),
     );
   }
 }
 
-/// Wraps a request card in the two list motions from `core.css`:
-/// `.arrive` (slide down from -16px, 320ms) on first build, and
-/// `.req-item.leaving` (slide right 60px, collapse, 240ms) on dismissal.
+/// Wraps a request card in its two list motions: a live arrival slides down
+/// into the list (motion.emphasized, 450ms) and a declined card fades,
+/// slides and collapses (motion.exit, 200ms).
 class _RequestItem extends StatefulWidget {
   final Widget child;
   final bool leaving;
@@ -217,32 +216,29 @@ class _RequestItemState extends State<_RequestItem> with SingleTickerProviderSta
 
   @override
   Widget build(BuildContext context) {
-    // `@keyframes req-out` — translateX(60px), fade, then max-height/margin
-    // collapse, all inside 240ms.
     return AnimatedSlide(
-      duration: CharakDurations.sheetOpen,
-      curve: Curves.easeOut,
+      duration: CharakMotion.exit,
+      curve: CharakCurves.exit,
       offset: widget.leaving ? const Offset(0.18, 0) : Offset.zero,
       child: AnimatedOpacity(
-        duration: CharakDurations.sheetOpen,
+        duration: CharakMotion.exit,
         opacity: widget.leaving ? 0 : 1,
         child: AnimatedSize(
-          duration: CharakDurations.sheetOpen,
-          curve: Curves.easeOut,
+          duration: CharakMotion.exit,
+          curve: CharakCurves.exit,
           alignment: Alignment.topCenter,
           child: widget.leaving
               ? const SizedBox(width: double.infinity, height: 0)
               : AnimatedBuilder(
                   animation: _ctrl,
                   builder: (_, child) {
-                    final t = Curves.easeOut.transform(_ctrl.value);
+                    final t = CharakCurves.emphasized.transform(_ctrl.value);
                     return Opacity(
                       opacity: t,
-                      child: Transform.translate(offset: Offset(0, -16 * (1 - t)), child: child),
+                      child: Transform.translate(offset: Offset(0, -CharakMotion.liftOffset * (1 - t)), child: child),
                     );
                   },
-                  // `.req-card` — 10px bottom gutter between cards.
-                  child: Padding(padding: const EdgeInsets.only(bottom: 10), child: widget.child),
+                  child: Padding(padding: const EdgeInsets.only(bottom: 12), child: widget.child),
                 ),
         ),
       ),
@@ -250,53 +246,18 @@ class _RequestItemState extends State<_RequestItem> with SingleTickerProviderSta
   }
 }
 
-/// Loading placeholder shaped like `.req-card`: the 48px avatar + two-line
-/// identity stack, the `.req-mid` time/price line and the 42px `.req-actions`
-/// pair, so the real card lands without shifting anything.
+/// Loading placeholder shaped like the request card.
 class _RequestCardSkeleton extends StatelessWidget {
   const _RequestCardSkeleton();
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 10),
-    padding: const EdgeInsets.all(15),
-    decoration: BoxDecoration(
-      color: CharakColors.bg,
-      borderRadius: const BorderRadius.all(CharakRadius.card),
-      border: Border.all(color: CharakColors.border),
-      boxShadow: const [CharakShadow.card],
-    ),
-    child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        CharakSkeleton(width: 48, height: 48, radius: 24),
-        SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            CharakSkeleton(width: 132, height: 15.5),
-            SizedBox(height: 6),
-            CharakSkeleton(width: 88, height: 12.5),
-          ]),
-        ),
-      ]),
-      SizedBox(height: 13),
-      Row(children: [
-        Expanded(child: CharakSkeleton(width: 150, height: 13)),
-        SizedBox(width: 10),
-        CharakSkeleton(width: 62, height: 15),
-      ]),
-      SizedBox(height: 13),
-      Row(children: [
-        Expanded(child: CharakSkeleton(height: 42, radius: 10)),
-        SizedBox(width: 10),
-        Expanded(child: CharakSkeleton(height: 42, radius: 10)),
-      ]),
-    ]),
-  );
+  Widget build(BuildContext context) => const CharakSkeletonCard();
 }
 
-/// `.req-card` — 15px padding on the card radius. The `.new` variant adds a
-/// primary border plus a `0 0 0 1px` primary ring and hangs a "NEW" pill off
-/// the top edge at `top:-9px; left:14px`.
+/// Request card (V2 doctor mock): avatar, patient and channel, a "Waiting"
+/// chip; the complaint; a hairline, then time · channel and the fee in
+/// narrow tabular figures; then Decline (soft red) and Review (blue).
+/// A live arrival carries a blue "New" chip instead of "Waiting".
 class _RequestCard extends StatelessWidget {
   final Map<String, dynamic> booking;
   final bool isNew;
@@ -314,171 +275,69 @@ class _RequestCard extends StatelessWidget {
     final price   = (booking['price_confirmed'] as num?)?.toDouble();
     final id      = booking['id'] as String;
     final address = booking['patient_address'] as String?;
+    final channelLabel = channel == 'home_visit' ? 'Home visit' : 'Online';
 
-    final card = Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: CharakColors.bg,
-        borderRadius: const BorderRadius.all(CharakRadius.card),
-        border: Border.all(color: isNew ? CharakColors.primary : CharakColors.border),
-        // `.req-card.new` — box-shadow: 0 0 0 1px var(--color-primary)
-        boxShadow: isNew
-            ? const [BoxShadow(color: CharakColors.primary, blurRadius: 0, spreadRadius: 1)]
-            : const [CharakShadow.card],
-      ),
+    return CharakCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // `.req-top` — 48px avatar, 12px gap.
         Row(children: [
           CharakAvatar(name: name, radius: 24),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(name,
-                style: CharakText.h2.copyWith(fontSize: 15.5),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 1),
-            Text(
-              channel == 'home_visit' ? 'Home Visit' : 'Online Consult',
-              style: _sub,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ])),
-        ]),
-        // `.req-mid` — 13px muted line with the price pushed right.
-        const SizedBox(height: 11),
-        Row(children: [
-          const Icon(Icons.access_time_rounded, size: 14, color: CharakColors.inkMuted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(dateStr,
+            Text(name, style: CharakText.titleSmall.copyWith(fontSize: 19), maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text(channel == 'home_visit' ? 'Home visit request' : 'Online consult request',
                 style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
-          if (price != null)
-            Text.rich(TextSpan(children: [
-              TextSpan(
-                text: '₹${price.toStringAsFixed(0)}',
-                style: CharakText.h2.copyWith(
-                  fontSize: 15,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              // `.per` — 11px/500 muted unit.
-              const TextSpan(text: '/15m', style: _per),
-            ])),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+          ])),
+          const SizedBox(width: 8),
+          isNew
+              ? const CharakBadge(label: 'New', variant: CharakBadgeVariant.primary)
+              : const CharakBadge(label: 'Waiting', variant: CharakBadgeVariant.muted),
         ]),
         if (address != null && address.isNotEmpty) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: 12),
           Row(children: [
-            const Icon(Icons.place_outlined, size: 13, color: CharakColors.inkMuted),
+            Icon(Icons.place_outlined, size: 16, color: CharakColors.inkMuted),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(address, style: _sub, maxLines: 1, overflow: TextOverflow.ellipsis),
+              child: Text(address,
+                  style: CharakText.body.copyWith(color: CharakColors.inkMuted),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
           ]),
         ],
-        // `.req-actions` — 42px / 14px buttons, not the default 50px CTA.
-        const SizedBox(height: 13),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.only(top: 12),
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: CharakColors.border))),
+          child: Row(children: [
+            Icon(Icons.schedule_rounded, size: 16, color: CharakColors.inkMuted),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text.rich(
+                TextSpan(children: [
+                  TextSpan(text: dateStr, style: CharakText.label.tabular.copyWith(color: CharakColors.ink)),
+                  TextSpan(text: ' · $channelLabel'),
+                ]),
+                style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (price != null)
+              Text('₹${price.toStringAsFixed(0)}', style: CharakText.numeric.copyWith(color: CharakColors.ink)),
+          ]),
+        ),
+        const SizedBox(height: 14),
         Row(children: [
-          Expanded(child: _ReqAction(label: 'Decline', onPressed: onDecline)),
+          Expanded(
+            child: CharakButton(label: 'Decline', variant: CharakButtonVariant.danger, onPressed: onDecline),
+          ),
           const SizedBox(width: 10),
           Expanded(
-            child: _ReqAction(
-              label: 'Review',
-              primary: true,
-              onPressed: () => context.push('/request/$id'),
-            ),
+            child: CharakButton(label: 'Review', onPressed: () => context.push('/request/$id')),
           ),
         ]),
       ]),
     );
-
-    if (!isNew) return card;
-    return Stack(clipBehavior: Clip.none, children: [
-      card,
-      const Positioned(
-        top: -9,
-        left: 14,
-        child: _ReqTag(),
-      ),
-    ]);
   }
-
-  static const _sub = TextStyle(
-    fontFamily: CharakText.fontFamily,
-    fontSize: 12.5,
-    height: 1.4,
-    color: CharakColors.inkMuted,
-  );
-
-  static const _per = TextStyle(
-    fontFamily: CharakText.fontFamily,
-    fontSize: 11,
-    fontWeight: FontWeight.w500,
-    color: CharakColors.inkMuted,
-  );
-}
-
-/// `.req-tag` — solid primary pill, 10.5px/600 uppercase with 0.05em tracking.
-class _ReqTag extends StatelessWidget {
-  const _ReqTag();
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-    decoration: const BoxDecoration(
-      color: CharakColors.primary,
-      borderRadius: BorderRadius.all(CharakRadius.pill),
-    ),
-    child: const Text(
-      'NEW',
-      style: TextStyle(
-        fontFamily: CharakText.fontFamily,
-        fontSize: 10.5,
-        fontWeight: FontWeight.w600,
-        height: 1.3,
-        letterSpacing: 10.5 * 0.05,
-        color: Colors.white,
-      ),
-    ),
-  );
-}
-
-/// `.req-actions .btn` — the compact 42px / 14px in-card action pair.
-class _ReqAction extends StatelessWidget {
-  final String label;
-  final bool primary;
-  final VoidCallback? onPressed;
-  const _ReqAction({required this.label, this.primary = false, this.onPressed});
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: primary ? CharakColors.primary : Colors.transparent,
-    shape: RoundedRectangleBorder(
-      borderRadius: const BorderRadius.all(CharakRadius.button),
-      side: primary ? BorderSide.none : const BorderSide(color: CharakColors.border),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onPressed,
-      child: SizedBox(
-        height: 42,
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              height: 1.2,
-              color: primary ? Colors.white : CharakColors.ink,
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
 }

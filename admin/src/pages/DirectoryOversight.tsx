@@ -109,7 +109,7 @@ export default function DirectoryOversight() {
         </Section>
 
         <Section title="Verification mix">
-          <div className="rounded-xl border bg-card p-4">
+          <div className="rounded-card bg-card p-4">
             <CompositionBar
               format={n => String(n)}
               segments={[

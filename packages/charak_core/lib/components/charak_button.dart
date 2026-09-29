@@ -1,20 +1,38 @@
 import 'package:flutter/material.dart';
-import 'package:shadcn_ui/shadcn_ui.dart';
+
+import '../design/motion.dart';
 import '../design/tokens.dart';
 
-/// Controls use `--radius-control` (pill), cards use the 20px card radius the
-/// ShadApp theme applies globally.
-const _controlShape = ShadDecoration(
-  border: ShadBorder(radius: BorderRadius.all(CharakRadius.button)),
-);
+/// Button variants (design-system/README.md § Buttons). Every button is a
+/// pill, at least 52px tall, and presses to scale 0.96.
+enum CharakButtonVariant {
+  /// Solid blue: the one main action on a screen (Send request, Pay, Book).
+  primary,
+  /// Blue-tinted: a supporting action (Add family member).
+  tonal,
+  /// Outlined: a neutral alternative (Reschedule).
+  outline,
+  /// Solid ink: a decisive confirm next to a soft decline (doctor Accept).
+  ink,
+  /// Soft red: a decline or cancel that shouldn't shout.
+  danger,
+  /// White on a blue or ink card (Pay ₹800 on the booking hero).
+  inverse,
+}
 
-/// Primary CTA button — full-width, 52px tall, built on [ShadButton].
+/// Pill button. Full width by default; pass [expand] false to hug content.
 class CharakButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
-  final bool outlined;
   final bool isLoading;
   final IconData? icon;
+  final IconData? trailingIcon;
+  final CharakButtonVariant variant;
+  final bool expand;
+  final bool compact;
+
+  /// V1 flag: `outlined: true` is the same as `variant: outline`.
+  final bool outlined;
 
   const CharakButton({
     super.key,
@@ -23,63 +41,87 @@ class CharakButton extends StatelessWidget {
     this.outlined = false,
     this.isLoading = false,
     this.icon,
+    this.trailingIcon,
+    this.variant = CharakButtonVariant.primary,
+    this.expand = true,
+    this.compact = false,
   });
+
+  CharakButtonVariant get _variant => outlined ? CharakButtonVariant.outline : variant;
 
   @override
   Widget build(BuildContext context) {
-    final child = isLoading
-        ? SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: outlined ? CharakColors.ink : Colors.white,
-            ),
-          )
-        : Text(
-            label,
-            style: CharakText.bodyMed.copyWith(fontSize: 16, fontWeight: FontWeight.w600),
-          );
-    final leading = (icon != null && !isLoading) ? Icon(icon, size: 18) : null;
-
-    // "Busy" is not "disabled": while loading the button keeps its full
-    // primary fill and glow (only `.btn:disabled` drops to 0.45 opacity), but
-    // taps are swallowed. Fading it would leave a white spinner on a washed
-    // out field with almost no contrast.
     final available = onPressed != null;
-    // `.btn` — 50px tall, pill control radius; `.btn.primary` carries a
-    // coloured glow (0 2px 8px rgba(55,108,213,0.28)) that outline/ghost lack.
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: const BorderRadius.all(CharakRadius.button),
-        boxShadow: (!outlined && available)
-            ? const [BoxShadow(color: Color(0x47376CD5), blurRadius: 8, offset: Offset(0, 2))]
-            : null,
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        height: 50,
-        child: outlined
-            ? ShadButton.outline(
-                enabled: available,
-                onPressed: isLoading ? null : onPressed,
-                leading: leading,
-                decoration: _controlShape,
-                child: child,
-              )
-            : ShadButton(
-                enabled: available,
-                onPressed: isLoading ? null : onPressed,
-                leading: leading,
-                decoration: _controlShape,
-                child: child,
+    final (bg, fg, edge) = charakButtonColors(_variant);
+    // "Busy" is not "disabled": while loading the button keeps its colour but
+    // swallows taps. Unavailable buttons turn quiet grey ("Button wakes up"
+    // fades them to blue once they become available).
+    final fill = available || isLoading ? bg : CharakColors.bgSubtle;
+    final ink = available || isLoading ? fg : CharakColors.inkFaint;
+    final height = compact ? CharakSizes.buttonCompact : CharakSizes.buttonMinHeight;
+
+    final content = isLoading
+        ? SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2.2, color: ink),
+          )
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[Icon(icon, size: 20, color: ink), const SizedBox(width: 8)],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: CharakText.label.copyWith(fontSize: compact ? 15 : 16, color: ink),
+                ),
               ),
+              if (trailingIcon != null) ...[
+                const SizedBox(width: 8),
+                Icon(trailingIcon, size: 20, color: ink),
+              ],
+            ],
+          );
+
+    final button = CharakPressable(
+      onTap: isLoading ? null : onPressed,
+      child: AnimatedContainer(
+        duration: CharakMotion.standard,
+        curve: CharakCurves.standard,
+        height: height,
+        width: expand ? double.infinity : null,
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: const BorderRadius.all(CharakRadius.button),
+          border: edge != null && (available || isLoading)
+              ? Border.all(color: edge, width: 1.5)
+              : null,
+        ),
+        child: content,
       ),
     );
+
+    return Semantics(button: true, enabled: available, label: label, excludeSemantics: true, child: button);
   }
 }
 
-/// Ghost / text-style button — used for secondary actions.
+/// (fill, label, outline) for a button variant on the active scheme.
+(Color, Color, Color?) charakButtonColors(CharakButtonVariant v) => switch (v) {
+  CharakButtonVariant.primary => (CharakColors.primary, CharakColors.onPrimary, null),
+  CharakButtonVariant.tonal => (CharakColors.primarySoft, CharakColors.primaryDeep, null),
+  CharakButtonVariant.outline => (CharakColors.card, CharakColors.ink, CharakColors.borderStrong),
+  CharakButtonVariant.ink => CharakColors.isInk
+      ? (CharakColors.primary, CharakColors.onPrimary, null)
+      : (CharakColors.chrome, CharakColors.onChrome, null),
+  CharakButtonVariant.danger => (CharakColors.dangerSoft, CharakColors.onDangerSoft, null),
+  CharakButtonVariant.inverse => (Colors.white, CharakPalette.blue700, null),
+};
+
+/// Text button: blue label, no fill ("View all", "See all").
 class CharakGhostButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -92,27 +134,28 @@ class CharakGhostButton extends StatelessWidget {
     this.icon,
   });
 
-  // `.btn.text` — 44px tall, primary-coloured label, no fill.
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 44,
-    child: ShadButton.ghost(
-      enabled: onPressed != null,
-      onPressed: onPressed,
-      leading: icon != null ? Icon(icon, size: 16, color: CharakColors.primary) : null,
-      decoration: _controlShape,
-      child: Text(
-        label,
-        style: CharakText.bodyMed.copyWith(
-          color: CharakColors.primary,
-          fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final color = onPressed != null ? CharakColors.primary : CharakColors.inkFaint;
+    return CharakPressable(
+      onTap: onPressed,
+      child: Container(
+        height: CharakSizes.touchMin,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[Icon(icon, size: 18, color: color), const SizedBox(width: 6)],
+            Text(label, style: CharakText.label.copyWith(fontSize: 16, color: color)),
+          ],
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
-/// Destructive button — for cancel / delete actions.
+/// Soft-red pill for cancel / decline / delete.
 class CharakDestructiveButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -126,21 +169,47 @@ class CharakDestructiveButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: double.infinity,
-    height: 50,
-    child: ShadButton.destructive(
-      // Busy keeps full opacity; only unavailable fades. See [CharakButton].
-      enabled: onPressed != null,
-      onPressed: isLoading ? null : onPressed,
-      decoration: _controlShape,
-      child: isLoading
-          ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-            )
-          : Text(label, style: CharakText.bodyMed.copyWith(fontWeight: FontWeight.w600)),
+  Widget build(BuildContext context) => CharakButton(
+    label: label,
+    onPressed: onPressed,
+    isLoading: isLoading,
+    variant: CharakButtonVariant.danger,
+  );
+}
+
+/// Round icon button (video, call, mic): 52px tinted circle, blue glyph.
+class CharakIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final String semanticLabel;
+  final double size;
+  final bool solid;
+
+  const CharakIconButton({
+    super.key,
+    required this.icon,
+    required this.semanticLabel,
+    this.onPressed,
+    this.size = CharakSizes.buttonMinHeight,
+    this.solid = false,
+  });
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: semanticLabel,
+    child: CharakPressable(
+      onTap: onPressed,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: solid ? CharakColors.primary : CharakColors.primarySoft,
+          shape: BoxShape.circle,
+        ),
+        alignment: Alignment.center,
+        child: Icon(icon, size: size * 0.42, color: solid ? CharakColors.onPrimary : CharakColors.primaryDeep),
+      ),
     ),
   );
 }

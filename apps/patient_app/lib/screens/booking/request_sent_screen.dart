@@ -79,7 +79,7 @@ class _State extends ConsumerState<RequestSentScreen> {
         : null;
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(children: [
           Expanded(
@@ -100,7 +100,7 @@ class _State extends ConsumerState<RequestSentScreen> {
                   ),
                   const SizedBox(height: 18),
 
-                  const Text('Request sent',
+                  Text('Request sent',
                       style: charakScreenTitleStyle, textAlign: TextAlign.center),
                   const SizedBox(height: 5),
                   Text(
@@ -124,7 +124,7 @@ class _State extends ConsumerState<RequestSentScreen> {
                   ],
 
                   const SizedBox(height: 10),
-                  const Text(
+                  Text(
                     'This is not a confirmed appointment yet — you can close '
                     'the app and we\'ll notify you.',
                     style: charakHintStyle,
@@ -183,7 +183,7 @@ class _PulsingIconState extends State<_PulsingIcon> with SingleTickerProviderSta
         width: 88, height: 88,
         decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
         alignment: Alignment.center,
-        child: const Icon(Icons.send_rounded, color: CharakColors.warning, size: 40),
+        child: Icon(Icons.send_rounded, color: CharakColors.warning, size: 40),
       ),
     );
   }

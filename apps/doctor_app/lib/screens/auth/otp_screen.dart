@@ -67,27 +67,21 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // `.otp-cell` — 46×54, 1px border on the control radius, 22px/600.
+    // OTP cell: a 48×60 field block, narrow tabular digits; the outline
+    // turns 2px blue on focus (no glow, V2 is flat).
     final defaultPinTheme = PinTheme(
-      width: 46,
-      height: 54,
-      textStyle: const TextStyle(
-        fontFamily: CharakText.fontFamily,
-        fontSize: 22,
-        fontWeight: FontWeight.w600,
-        height: 1.2,
-        color: CharakColors.ink,
-        fontFeatures: [FontFeature.tabularFigures()],
-      ),
+      width: 48,
+      height: 60,
+      textStyle: CharakText.numeric.copyWith(fontSize: 26, color: CharakColors.ink),
       decoration: BoxDecoration(
-        color: CharakColors.bg,
-        borderRadius: const BorderRadius.all(CharakRadius.button),
-        border: Border.all(color: CharakColors.border),
+        color: CharakColors.card,
+        borderRadius: const BorderRadius.all(CharakRadius.tile),
+        border: Border.all(color: CharakColors.borderStrong, width: 1.5),
       ),
     );
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -97,7 +91,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Enter the code', style: CharakText.h1),
+                    const Text('Enter the code', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text('Sent to ${widget.phone}',
                         style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
@@ -112,16 +106,12 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                         defaultPinTheme: defaultPinTheme,
                         focusedPinTheme: defaultPinTheme.copyWith(
                           decoration: defaultPinTheme.decoration!.copyWith(
-                            border: Border.all(color: CharakColors.primary),
-                            // `.otp-cell:focus` ring.
-                            boxShadow: const [
-                              BoxShadow(color: Color(0x1F376CD5), blurRadius: 0, spreadRadius: 3),
-                            ],
+                            border: Border.all(color: CharakColors.primary, width: 2),
                           ),
                         ),
                         errorPinTheme: defaultPinTheme.copyWith(
                           decoration: defaultPinTheme.decoration!.copyWith(
-                            border: Border.all(color: CharakColors.danger),
+                            border: Border.all(color: CharakColors.danger, width: 2),
                           ),
                         ),
                         onChanged: (_) => setState(() {}),

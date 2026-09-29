@@ -10,6 +10,12 @@
  * oklch() wrapper; Recharts needs a literal colour.
  */
 
+// Left as the validated generic palette rather than swapped for CHARAK's own
+// blue/chandan/sage hues: the ΔE figures above were measured for THIS set.
+// Substituting brand hues here needs the same validator re-run against the
+// new set, not an eyeballed swap — an accessibility regression is worse than
+// an off-brand chart. INK and STATUS below carry no such risk: they're
+// neutrals and single-value accents, not an adjacent categorical set.
 export const SERIES = {
   blue:   '#2a78d6',
   orange: '#eb6834',
@@ -17,21 +23,32 @@ export const SERIES = {
   yellow: '#eda100',
 } as const
 
-/** Ink and furniture, matching the app's foreground/muted tokens. */
+/**
+ * Ink and furniture — the CHARAK ink ramp (design-system/tokens.json), not a
+ * generic grey scale. `primary`/`secondary` are exactly `--foreground` and
+ * `--muted-foreground` (see charak-tokens.css); a chart label now reads the
+ * same grey as the rest of the page around it.
+ */
 export const INK = {
-  primary:   '#25272b',
-  secondary: '#5b6472',
-  muted:     '#8b93a1',
-  grid:      '#eceef1',
+  primary:   '#0E1726', // ink-900 — --foreground
+  secondary: '#566072', // ink-500 — --muted-foreground
+  muted:     '#7A8494', // ink-400 — a step fainter, for axis ticks
+  grid:      '#E6E8EC', // ink-100
   surface:   '#ffffff',
 }
 
-/** Status hues, reserved — never reused as a categorical slot. */
+/**
+ * Status hues — the exact `--success`/`--warning`/`--destructive` values
+ * (charak-tokens.css, patient scheme), not a separate chart-only palette.
+ * Without this, "confirmed" could render teal-green in a StatusPill and
+ * olive-green in a chart for the same booking. Reserved: never reused as a
+ * categorical slot.
+ */
 export const STATUS = {
-  good:     '#1baf7a',
-  warning:  '#eda100',
-  critical: '#e34948',
-  neutral:  '#8b93a1',
+  good:     '#5E7F3A', // --patient-success
+  warning:  '#E07A1F', // --patient-warning
+  critical: '#D23B3B', // --patient-danger
+  neutral:  '#566072', // --patient-text-muted (= INK.secondary)
 }
 
 export const MARK = {

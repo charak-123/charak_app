@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:charak_core/charak_core.dart';
 // intl is a direct dependency; don't rely on shadcn_ui re-exporting DateFormat.
 // ignore: unnecessary_import
@@ -104,20 +103,15 @@ class _State extends ConsumerState<ActiveVisitScreen> {
       .toList();
 
   Future<void> _markComplete(Map<String, dynamic> booking) async {
-    final confirmed = await showShadDialog<bool>(
-      context: context,
-      builder: (ctx) => ShadDialog(
-        title: const Text('Mark visit complete?'),
-        description: Text(_selectedItems.isEmpty
-            ? 'No procedures selected. Only the consult fee will be charged.'
-            : '${_selectedItems.length} procedure(s) totalling ₹${_total.toStringAsFixed(0)} will be billed.'),
-        actions: [
-          ShadButton.outline(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ShadButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Complete')),
-        ],
-      ),
+    final confirmed = await showCharakConfirm(
+      context,
+      title: 'Mark visit complete?',
+      message: _selectedItems.isEmpty
+          ? 'No procedures selected. Only the consult fee will be charged.'
+          : '${_selectedItems.length} procedure(s) totalling ₹${_total.toStringAsFixed(0)} will be billed.',
+      confirmLabel: 'Complete',
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
 
     setState(() => _completing = true);
     try {
@@ -223,7 +217,7 @@ class _State extends ConsumerState<ActiveVisitScreen> {
   Widget build(BuildContext context) {
     final async = ref.watch(_activeVisitProvider(widget.bookingId));
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: const CharakTopBar(title: 'Active visit'),
       body: async.when(
         // `.skel` blocks matching the real body — `.act-doctor-card`, the
@@ -374,7 +368,6 @@ class _PatientInfoCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: CharakColors.bg,
         borderRadius: const BorderRadius.all(CharakRadius.card),
-        border: Border.all(color: CharakColors.border),
       ),
       child: Row(children: [
         CharakAvatar(name: name, radius: 24),
@@ -387,13 +380,7 @@ class _PatientInfoCard extends StatelessWidget {
           const SizedBox(height: 1),
           Text(
             dt != null ? '$label · ${_slotFormat.format(dt)}' : label,
-            style: const TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 12.5,
-              height: 1.4,
-              color: CharakColors.inkMuted,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
+            style: CharakText.caption.tabular.copyWith(color: CharakColors.inkMuted),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -432,7 +419,6 @@ class _VisitLinesCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: CharakColors.bg,
         borderRadius: const BorderRadius.all(CharakRadius.card),
-        border: Border.all(color: CharakColors.border),
       ),
       child: Column(children: [
         CharakVisitLine(
@@ -478,20 +464,14 @@ class _ProcedureChecklist extends StatelessWidget {
     decoration: BoxDecoration(
       color: CharakColors.bg,
       borderRadius: const BorderRadius.all(CharakRadius.card),
-      border: Border.all(color: CharakColors.border),
     ),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const CharakSectionTitle(label: 'Procedures performed'),
       const SizedBox(height: 2),
-      const Text(
+      Text(
         'Tap the procedures done this visit — fixed rates apply. Patient is billed '
         'after the visit.',
-        style: TextStyle(
-          fontFamily: CharakText.fontFamily,
-          fontSize: 12.5,
-          height: 1.5,
-          color: CharakColors.inkMuted,
-        ),
+        style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
       ),
       const SizedBox(height: 10),
       if (procedures.isEmpty)
@@ -509,19 +489,13 @@ class _ProcedureChecklist extends StatelessWidget {
               decoration: BoxDecoration(
                 border: i == procedures.length - 1
                     ? null
-                    : const Border(bottom: BorderSide(color: CharakColors.border)),
+                    : Border(bottom: BorderSide(color: CharakColors.border)),
               ),
               child: Row(children: [
                 Expanded(child: Text(p.name, style: CharakText.body.copyWith(fontSize: 14))),
                 Text(
                   '₹${p.unitPrice.toStringAsFixed(0)}',
-                  style: const TextStyle(
-                    fontFamily: CharakText.fontFamily,
-                    fontSize: 14,
-                    height: 1.4,
-                    color: CharakColors.inkMuted,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
+                  style: CharakText.body.tabular.copyWith(color: CharakColors.inkMuted, fontSize: 15),
                 ),
                 const SizedBox(width: 10),
                 // `.proc-check input` — 18px, primary accent.
@@ -531,7 +505,7 @@ class _ProcedureChecklist extends StatelessWidget {
                   child: Checkbox(
                     value: p.selected,
                     activeColor: CharakColors.primary,
-                    side: const BorderSide(color: CharakColors.border, width: 1.5),
+                    side: BorderSide(color: CharakColors.border, width: 1.5),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     visualDensity: VisualDensity.compact,
                     onChanged: (_) => onToggle(i),
@@ -545,14 +519,9 @@ class _ProcedureChecklist extends StatelessWidget {
       Padding(
         padding: const EdgeInsets.only(top: 12),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text(
+          Text(
             'Procedures total',
-            style: TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 13.5,
-              height: 1.4,
-              color: CharakColors.inkMuted,
-            ),
+            style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
           ),
           Text(
             '₹${total.toStringAsFixed(0)}',
@@ -600,7 +569,7 @@ class _VisitTimer extends StatelessWidget {
           border: Border.all(color: CharakColors.border),
         ),
         child: Row(children: [
-          const Icon(Icons.timer_outlined, size: 17, color: CharakColors.inkMuted),
+          Icon(Icons.timer_outlined, size: 17, color: CharakColors.inkMuted),
           const SizedBox(width: 9),
           Text('Time on visit',
               style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),

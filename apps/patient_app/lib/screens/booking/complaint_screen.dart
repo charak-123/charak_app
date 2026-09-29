@@ -45,7 +45,7 @@ class _State extends ConsumerState<ComplaintScreen> {
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakColors.danger),
+          SnackBar(content: Text(e.message), backgroundColor: CharakPalette.statusDeclined),
         );
       }
     } finally {
@@ -55,7 +55,7 @@ class _State extends ConsumerState<ComplaintScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.bg,
+    backgroundColor: CharakColors.ground,
     appBar: const CharakTopBar(title: 'Submit a complaint'),
     body: _refId != null
         ? _SuccessBody(refId: _refId!)
@@ -110,8 +110,8 @@ class _PickerForm extends ConsumerWidget {
           canSubmit: selectedId != null && descCtrl.text.trim().isNotEmpty,
           onSubmit: onSubmit,
           picker: eligible.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.only(bottom: 18),
+              ? Padding(
+                  padding: const EdgeInsets.only(bottom: 18),
                   child: Text('No completed visits yet to file a complaint against.',
                       style: charakScreenSubStyle),
                 )
@@ -144,22 +144,7 @@ class _CompPick extends StatelessWidget {
   const _CompPick({required this.label, required this.selected, required this.onTap});
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: CharakDurations.buttonPress,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        color: selected ? CharakColors.ink : CharakColors.bgSubtle,
-        borderRadius: const BorderRadius.all(CharakRadius.pill),
-      ),
-      child: Text(label,
-          style: CharakText.caption.copyWith(
-            fontWeight: FontWeight.w500,
-            color: selected ? Colors.white : CharakColors.inkMuted,
-          )),
-    ),
-  );
+  Widget build(BuildContext context) => CharakChip(label: label, selected: selected, onTap: onTap);
 }
 
 class _FormBody extends StatelessWidget {
@@ -181,7 +166,7 @@ class _FormBody extends StatelessWidget {
     Expanded(child: ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       children: [
-        const Text('Tied to a booking — handled by our team, not the doctor.',
+        Text('Tied to a booking — handled by our team, not the doctor.',
             style: charakScreenSubStyle),
         const SizedBox(height: 14),
         if (picker != null) picker!,
@@ -195,13 +180,13 @@ class _FormBody extends StatelessWidget {
         ),
         // `.exp-line`
         const SizedBox(height: 14),
-        const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
-            padding: EdgeInsets.only(top: 1),
+            padding: const EdgeInsets.only(top: 1),
             child: Icon(Icons.verified_user_outlined,
                 size: 15, color: CharakColors.primary),
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               'A member of our team will review this within 1–2 working days '
@@ -247,7 +232,7 @@ class _SuccessBody extends ConsumerWidget {
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text('Ref CMP-$shortRef',
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 13,
                   height: 1.4,

@@ -8,6 +8,10 @@
 
 ## 1. Design Direction
 
+> **Superseded for visuals.** §1 describes the V1 direction (white + blue, Inter). The current
+> look is **CHARAK Design System V2**: see [`design-system/README.md`](design-system/README.md)
+> for colour, type, components and motion. The screen inventory (§2 onward) still applies.
+
 **The brief:** somewhere between *minimal, reliable* and *modern, premium*. Not sterile-hospital-clinical, not startup-flashy. Think: a product you'd trust with your parent's health data, that also doesn't look like it was built in 2016.
 
 **Reference feeling:** closer to a well-designed banking app (Revolut, Mercury) crossed with a calm health app (Headspace's restraint, Ada Health's clarity) — confident whitespace, one accent color doing all the work, no visual noise competing with the content.

@@ -40,7 +40,7 @@ class _PhoneEntryScreenState extends ConsumerState<PhoneEntryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -52,7 +52,7 @@ class _PhoneEntryScreenState extends ConsumerState<PhoneEntryScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Your phone number', style: CharakText.h1),
+                    const Text('Your phone number', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text(
                       'Same OTP flow as patients — one identity per doctor.',
@@ -66,21 +66,7 @@ class _PhoneEntryScreenState extends ConsumerState<PhoneEntryScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // `.input` used as a static 92px country-code box.
-                        Container(
-                          width: 92,
-                          height: 50,
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          alignment: Alignment.centerLeft,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: CharakColors.border),
-                            borderRadius: const BorderRadius.all(CharakRadius.button),
-                          ),
-                          child: Text(
-                            '+91',
-                            style: CharakText.bodyMed.copyWith(color: CharakColors.inkMuted),
-                          ),
-                        ),
+                        CharakField.staticBox('+91'),
                         const SizedBox(width: 10),
                         Expanded(
                           child: _PhoneField(
@@ -151,21 +137,19 @@ class _PhoneFieldState extends State<_PhoneField> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         AnimatedContainer(
-          duration: CharakDurations.buttonPress,
-          height: 50,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          duration: CharakMotion.standard,
+          curve: CharakCurves.standard,
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: CharakColors.bg,
-            borderRadius: const BorderRadius.all(CharakRadius.button),
+            color: CharakColors.card,
+            borderRadius: const BorderRadius.all(CharakRadius.input),
             border: Border.all(
               color: hasError
                   ? CharakColors.danger
-                  : (focused ? CharakColors.primary : CharakColors.border),
+                  : (focused ? CharakColors.primary : CharakColors.borderStrong),
+              width: (focused || hasError) ? 2 : 1.5,
             ),
-            // `.input:focus` — 0 0 0 3px rgba(47,111,237,0.12)
-            boxShadow: focused && !hasError
-                ? const [BoxShadow(color: Color(0x1F376CD5), blurRadius: 0, spreadRadius: 3)]
-                : null,
           ),
           alignment: Alignment.center,
           child: TextField(
@@ -177,9 +161,7 @@ class _PhoneFieldState extends State<_PhoneField> {
               FilteringTextInputFormatter.digitsOnly,
               LengthLimitingTextInputFormatter(10),
             ],
-            style: CharakText.body.copyWith(
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+            style: CharakText.bodyLarge.tabular.copyWith(color: CharakColors.ink),
             decoration: InputDecoration(
               isDense: true,
               border: InputBorder.none,

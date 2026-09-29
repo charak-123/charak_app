@@ -8,7 +8,7 @@ export function TooltipShell({
   rows: { key: string; color?: string; name: string; value: string }[]
 }) {
   return (
-    <div className="rounded-lg border border-border bg-popover px-3 py-2 shadow-md">
+    <div className="rounded-lg border border-border bg-popover px-3 py-2">
       <p className="mb-1.5 text-xs font-medium text-foreground">{label}</p>
       <div className="space-y-1">
         {rows.map(r => (

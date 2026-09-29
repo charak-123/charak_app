@@ -21,10 +21,10 @@ class DoctorProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_doctorProvider(doctorId));
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: CharakTopBar(
-        title: 'Doctor',
-        trailingIcon: Icons.bookmark_outline_rounded,
+        title: '',
+        trailingIcon: Icons.favorite_border_rounded,
         onTrailingTap: () => ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Saved to your doctors')),
         ),
@@ -70,75 +70,44 @@ class _Body extends StatelessWidget {
     return Column(children: [
       Expanded(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
           children: [
-            // ── `.dp-hero` ────────────────────────────────────────────────
+            // ── Hero: look up top ─────────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(0, 14, 0, 4),
-              child: Column(children: [
-                CharakAvatar(name: name, imageUrl: photoUrl, radius: 42),
-                const SizedBox(height: 12),
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Flexible(
-                    child: Text(name,
-                        style: CharakText.h1.copyWith(fontSize: 21),
-                        textAlign: TextAlign.center),
-                  ),
+              padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  CharakAvatar(name: name, imageUrl: photoUrl, radius: 40),
+                  const Spacer(),
+                  if (rating > 0) CharakRatingChip(rating: rating.toStringAsFixed(1)),
+                ]),
+                const SizedBox(height: 16),
+                Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Flexible(child: Text(name, style: CharakText.titleLarge)),
                   if (verified) ...[
-                    const SizedBox(width: 7),
-                    const Icon(Icons.verified_user_rounded,
-                        size: 17, color: CharakColors.success),
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Icon(Icons.verified_rounded, size: 22, color: CharakColors.success),
+                    ),
                   ],
                 ]),
-                if (creds.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(creds,
-                      style: CharakText.body.copyWith(
-                          fontSize: 14, color: CharakColors.inkMuted),
-                      textAlign: TextAlign.center),
-                ],
-              ]),
-            ),
-
-            // ── `.dp-stats` — bordered strip of equal cells ───────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(0, 14, 0, 6),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border.all(color: CharakColors.border),
-                  borderRadius: const BorderRadius.all(CharakRadius.card),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    if (creds.isNotEmpty) creds,
+                    if (rating > 0) '$reviews ratings' else 'No ratings yet',
+                  ].join(' · '),
+                  style: CharakText.body.copyWith(color: CharakColors.inkMuted),
                 ),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  _Stat(
-                    value: rating > 0 ? rating.toStringAsFixed(1) : '—',
-                    icon: Icons.star_rounded,
-                    label: rating > 0 ? '$reviews ratings' : 'No ratings yet',
-                    tabular: true,
-                  ),
-                  if (verified) ...[
-                    const _StatDivider(),
-                    const _Stat(value: 'Verified', label: 'License checked'),
-                  ],
-                  if (onlinePricing != null) ...[
-                    const _StatDivider(),
-                    _Stat(
-                      value: money(onlinePricing['price']),
-                      per: '/15m',
-                      label: 'Online consult',
-                      tabular: true,
-                    ),
-                  ],
-                  if (homePricing != null) ...[
-                    const _StatDivider(),
-                    _Stat(
-                      value: money(homePricing['price']),
-                      per: '/15m',
-                      label: 'Home visit',
-                      tabular: true,
-                    ),
-                  ],
+                const SizedBox(height: 16),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  if (onlinePricing != null)
+                    _PricePill(label: 'Online', price: money(onlinePricing['price']), warm: false),
+                  if (homePricing != null)
+                    _PricePill(label: 'Home visit', price: money(homePricing['price']), warm: true),
                 ]),
-              ),
+              ]),
             ),
 
             // ── About ────────────────────────────────────────────────────
@@ -162,8 +131,8 @@ class _Body extends StatelessWidget {
                         '₹${extra.toStringAsFixed(0)}', muted: true),
                 ]),
                 const SizedBox(height: 10),
-                const Text.rich(
-                  TextSpan(children: [
+                Text.rich(
+                  const TextSpan(children: [
                     TextSpan(text: 'Price covers a '),
                     TextSpan(text: '15-minute', style: TextStyle(fontWeight: FontWeight.w600)),
                     TextSpan(text: " consult. Each extra 15 min is charged at "
@@ -184,7 +153,7 @@ class _Body extends StatelessWidget {
                     tone: CharakStatusTone.primary,
                   ),
                 if (homePricing != null) ...[
-                  _WideBadge(label: 'Home Visit · ${money(homePricing['price'])}/15m'),
+                  _WideBadge(label: 'Home visit · ${money(homePricing['price'])}/15m'),
                   if (radius != null) _WideBadge(label: 'Within $radius km'),
                 ],
               ]),
@@ -195,8 +164,8 @@ class _Body extends StatelessWidget {
               _Section(
                 title: 'Procedure prices · fixed',
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text.rich(
-                    TextSpan(children: [
+                  Text.rich(
+                    const TextSpan(children: [
                       TextSpan(text: 'Flat rates for procedures done during a '),
                       TextSpan(text: 'home visit', style: TextStyle(fontWeight: FontWeight.w600)),
                       TextSpan(text: " — billed after the visit, only for "
@@ -245,116 +214,57 @@ class _Body extends StatelessWidget {
   }
 }
 
-/// `.dp-bio` — 14px on a generous 1.6 leading.
-const _bioStyle = TextStyle(
-  fontFamily: CharakText.fontFamily,
-  fontSize: 14,
-  height: 1.6,
-  color: CharakColors.inkMuted,
-);
+/// About / procedure copy: body, muted.
+TextStyle get _bioStyle => CharakText.body.copyWith(color: CharakColors.inkMuted);
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
 
-/// `.dp-stat` — 16px/600 value (optionally with a star or a `/15m` suffix)
-/// over an 11px wide-tracked caption.
-class _Stat extends StatelessWidget {
-  final String value;
+/// "Online · ₹650" price pill: tint for online, warm for home visit.
+class _PricePill extends StatelessWidget {
   final String label;
-  final String? per;
-  final IconData? icon;
-  final bool tabular;
-  const _Stat({
-    required this.value,
-    required this.label,
-    this.per,
-    this.icon,
-    this.tabular = false,
-  });
+  final String price;
+  final bool warm;
+  const _PricePill({required this.label, required this.price, required this.warm});
 
   @override
-  Widget build(BuildContext context) => Expanded(
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          if (icon != null) ...[
-            Icon(icon, size: 14, color: CharakColors.warning),
-            const SizedBox(width: 3),
-          ],
-          Text(value,
-              style: CharakText.h2.copyWith(
-                fontSize: 16,
-                fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
-              )),
-          if (per != null)
-            Text(per!,
-                style: CharakText.micro.copyWith(
-                    color: CharakColors.inkMuted, letterSpacing: 0)),
-        ]),
-        const SizedBox(height: 2),
-        Text(label,
-            style: const TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 11,
-              height: 1.3,
-              letterSpacing: 11 * 0.03,
-              color: CharakColors.inkMuted,
-            ),
-            textAlign: TextAlign.center),
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+    decoration: BoxDecoration(
+      color: warm ? CharakColors.warm : CharakColors.tint,
+      borderRadius: const BorderRadius.all(CharakRadius.pill),
+    ),
+    child: Text.rich(
+      TextSpan(children: [
+        TextSpan(text: '$label · '),
+        TextSpan(text: price, style: CharakText.label.tabular),
       ]),
+      style: CharakText.label.copyWith(color: warm ? CharakColors.onChandanSoft : CharakColors.primaryDeep),
     ),
   );
 }
 
-class _StatDivider extends StatelessWidget {
-  const _StatDivider();
-  @override
-  Widget build(BuildContext context) =>
-      const SizedBox(width: 1, child: ColoredBox(color: CharakColors.border));
-}
-
-/// `.dp-sec` — 18px above, an uppercase `.sec-title`, then the content.
+/// Section: overline title, then the content, 28px apart.
 class _Section extends StatelessWidget {
   final String title;
   final Widget child;
   const _Section({required this.title, required this.child});
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 18),
+    padding: const EdgeInsets.only(top: 28),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       CharakSectionTitle(label: title),
-      const SizedBox(height: 8),
+      const SizedBox(height: 10),
       child,
     ]),
   );
 }
 
-/// `.chip-rows .badge` — the roomier badge variant: 6/12 padding, 12px text.
+/// Service chip: sentence case on a soft status fill.
 class _WideBadge extends StatelessWidget {
   final String label;
   final CharakStatusTone tone;
   const _WideBadge({required this.label, this.tone = CharakStatusTone.muted});
 
   @override
-  Widget build(BuildContext context) {
-    final (bg, fg) = charakToneColors(tone);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: const BorderRadius.all(CharakRadius.pill),
-      ),
-      child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          fontFamily: CharakText.fontFamily,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          height: 1.3,
-          letterSpacing: 12 * 0.04,
-          color: fg,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => CharakStatusPill(label: label, tone: tone);
 }

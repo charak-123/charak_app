@@ -73,7 +73,7 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
     final (successBg, _) = charakToneColors(CharakStatusTone.success);
 
     return Scaffold(
-      backgroundColor: CharakColors.bg,
+      backgroundColor: CharakColors.ground,
       appBar: const CharakTopBar(title: 'How should the visit happen?'),
       body: Column(children: [
         Expanded(child: ListView(
@@ -171,19 +171,18 @@ class _ChannelCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => CharakPressable(
     onTap: onTap,
     child: AnimatedContainer(
-      duration: CharakDurations.buttonPress,
+      duration: CharakMotion.standard,
+      curve: CharakCurves.standard,
       decoration: BoxDecoration(
-        color: CharakColors.bg,
+        color: CharakColors.card,
         borderRadius: const BorderRadius.all(CharakRadius.card),
-        border: Border.all(color: selected ? CharakColors.primary : CharakColors.border),
-        boxShadow: selected
-            ? const [BoxShadow(color: CharakColors.primary, spreadRadius: 1)]
-            : null,
+        // Selected: a 2px blue outline, no shadow (V2 is flat).
+        border: Border.all(color: selected ? CharakColors.primary : Colors.transparent, width: 2),
       ),
-      padding: const EdgeInsets.all(CharakSpacing.base),
+      padding: const EdgeInsets.all(CharakSpacing.gutter - 2),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
           width: 44, height: 44,
@@ -200,14 +199,7 @@ class _ChannelCard extends StatelessWidget {
               style: CharakText.caption.copyWith(
                   color: CharakColors.inkMuted, height: 1.5)),
           const SizedBox(height: 4),
-          // `.chan-note`
-          Text(note,
-              style: const TextStyle(
-                fontFamily: CharakText.fontFamily,
-                fontSize: 12,
-                height: 1.4,
-                color: CharakColors.inkMuted,
-              )),
+          Text(note, style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
         ])),
 
         const SizedBox(width: 10),
@@ -215,13 +207,11 @@ class _ChannelCard extends StatelessWidget {
           TextSpan(children: [
             TextSpan(
               text: '₹${price.toStringAsFixed(0)}',
-              style: CharakText.h2.copyWith(
-                  fontSize: 16,
-                  fontFeatures: const [FontFeature.tabularFigures()]),
+              style: CharakText.numeric.copyWith(fontSize: 18),
             ),
             TextSpan(
               text: '/15m',
-              style: CharakText.micro
+              style: CharakText.caption
                   .copyWith(color: CharakColors.inkMuted, letterSpacing: 0),
             ),
           ]),
