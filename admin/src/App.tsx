@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { isAuthed } from '@/lib/auth'
 import Layout from '@/components/Layout'
 import Login from '@/pages/Login'
+import Overview from '@/pages/Overview'
 import VerificationQueue from '@/pages/VerificationQueue'
 import BookingsMonitor from '@/pages/BookingsMonitor'
 import ComplaintInbox from '@/pages/ComplaintInbox'
@@ -18,7 +19,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route element={<Guard><Layout /></Guard>}>
-          <Route index element={<VerificationQueue />} />
+          <Route index element={<Overview />} />
+          <Route path="verification" element={<VerificationQueue />} />
           <Route path="bookings"      element={<BookingsMonitor />} />
           <Route path="complaints"    element={<ComplaintInbox />} />
           <Route path="directory"     element={<DirectoryOversight />} />

@@ -4,11 +4,12 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import {
-  ShieldCheck, BookOpen, MessageSquare, Users, ClipboardList, LogOut
+  LayoutDashboard, ShieldCheck, BookOpen, MessageSquare, Users, ClipboardList, LogOut
 } from 'lucide-react'
 
 const NAV = [
-  { to: '/',              icon: ShieldCheck,   label: 'Verification' },
+  { to: '/',              icon: LayoutDashboard, label: 'Overview' },
+  { to: '/verification',  icon: ShieldCheck,   label: 'Verification' },
   { to: '/bookings',      icon: BookOpen,      label: 'Bookings' },
   { to: '/complaints',    icon: MessageSquare, label: 'Complaints' },
   { to: '/directory',     icon: Users,         label: 'Directory' },

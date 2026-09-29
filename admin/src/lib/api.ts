@@ -1,8 +1,17 @@
+import { mockRequest } from '@/lib/mock'
+
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+
+/** Dev flag: serve fixtures instead of calling the backend. See lib/mock.ts. */
+const MOCK = import.meta.env.VITE_MOCK === '1'
 
 function token() { return localStorage.getItem('charak_admin_token') ?? '' }
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
+  if (MOCK) {
+    const body = opts.body ? JSON.parse(opts.body as string) : undefined
+    return mockRequest(path, opts.method ?? 'GET', body) as Promise<T>
+  }
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
     headers: {

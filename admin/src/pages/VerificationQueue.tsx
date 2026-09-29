@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { Key, Calendar, CheckCircle } from 'lucide-react'
+import { Key, Calendar, ShieldCheck, FileText, Clock } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import {
+  PageBody, PageHeader, Section, StatGrid, StatTile,
+  EmptyState, ErrorState, ListSkeleton,
+} from '@/components/shell'
+import { StatusPill } from '@/components/status'
 
 interface PendingDoctor {
   id: string
@@ -17,36 +21,12 @@ interface PendingDoctor {
   created_at: string
 }
 
-function SkeletonCard() {
-  return (
-    <Card>
-      <CardContent className="p-4 animate-pulse space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full bg-muted" />
-          <div className="space-y-1 flex-1">
-            <div className="h-4 w-40 rounded bg-muted" />
-            <div className="h-3 w-28 rounded bg-muted" />
-          </div>
-        </div>
-        <div className="h-3 w-36 rounded bg-muted" />
-        <div className="h-3 w-24 rounded bg-muted" />
-        <div className="flex gap-2">
-          <div className="h-8 w-28 rounded bg-muted" />
-          <div className="h-8 w-20 rounded bg-muted" />
-          <div className="h-8 w-20 rounded bg-muted" />
-        </div>
-      </CardContent>
-    </Card>
-  )
+function getInitials(name: string) {
+  return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 }
 
-function getInitials(name: string) {
-  return name
-    .split(' ')
-    .map(w => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
+function daysWaiting(iso: string) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
 }
 
 function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
@@ -59,49 +39,42 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
       api.patch(`/admin/doctors/${doctor.id}/verify`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-doctors'] })
+      queryClient.invalidateQueries({ queryKey: ['admin-metrics'] })
     },
   })
 
-  function handleApprove() {
-    verifyMutation.mutate({ action: 'approve' })
-  }
-
-  function handleReject() {
-    if (!reason.trim()) return
-    verifyMutation.mutate({ action: 'reject', reason: reason.trim() })
-  }
-
   const isLoading = verifyMutation.isPending
+  const waited = daysWaiting(doctor.created_at)
 
   return (
     <Card>
-      <CardContent className="p-4 space-y-3">
-        {/* Top row: avatar + name + phone + badge */}
+      <CardContent className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <Avatar>
               <AvatarFallback>{getInitials(doctor.name)}</AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-semibold text-sm">{doctor.name}</p>
+              <p className="text-sm font-semibold">{doctor.name}</p>
               <p className="text-sm text-muted-foreground">{doctor.phone}</p>
             </div>
           </div>
-          <Badge variant="outline" className="border-warning text-warning shrink-0">
-            Pending
-          </Badge>
+          <StatusPill status="pending" />
         </div>
 
-        {/* License row */}
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Key size={14} />
-          <span>{doctor.license_number}</span>
-        </div>
-
-        {/* Submitted date row */}
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Calendar size={14} />
-          <span>Submitted {format(new Date(doctor.created_at), 'd MMM yyyy')}</span>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <Key size={14} />{doctor.license_number}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Calendar size={14} />
+            Submitted {format(new Date(doctor.created_at), 'd MMM yyyy')}
+          </span>
+          {waited >= 2 && (
+            <span className="inline-flex items-center gap-1.5 text-warning">
+              <Clock size={14} />Waiting {waited} days
+            </span>
+          )}
         </div>
 
         {verifyMutation.isError && (
@@ -110,27 +83,25 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
           </p>
         )}
 
-        {/* Action row */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           <Button
-            variant="outline"
-            size="sm"
+            variant="outline" size="sm"
             disabled={!doctor.verification_document_url}
             onClick={() => window.open(doctor.verification_document_url!, '_blank')}
           >
-            View Document
+            <FileText size={14} />
+            {doctor.verification_document_url ? 'View document' : 'No document'}
           </Button>
           <Button
             size="sm"
-            className="bg-success hover:bg-success/90 text-white"
+            className="bg-success text-white hover:bg-success/90"
             disabled={isLoading || rejectOpen}
-            onClick={handleApprove}
+            onClick={() => verifyMutation.mutate({ action: 'approve' })}
           >
             Approve
           </Button>
           <Button
-            variant="destructive"
-            size="sm"
+            variant="destructive" size="sm"
             disabled={isLoading}
             onClick={() => setRejectOpen(v => !v)}
           >
@@ -138,11 +109,10 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
           </Button>
         </div>
 
-        {/* Rejection area */}
         {rejectOpen && (
           <div className="space-y-2 border-t pt-3">
             <textarea
-              className="w-full border border-border rounded-md p-2 text-sm min-h-[80px] mt-2 resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              className="min-h-[80px] w-full resize-none rounded-md border border-border p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="Reason for rejection…"
               value={reason}
               onChange={e => setReason(e.target.value)}
@@ -150,17 +120,14 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
             />
             <div className="flex gap-2">
               <Button
-                variant="destructive"
-                size="sm"
+                variant="destructive" size="sm"
                 disabled={isLoading || !reason.trim()}
-                onClick={handleReject}
+                onClick={() => verifyMutation.mutate({ action: 'reject', reason: reason.trim() })}
               >
-                Confirm Rejection
+                Confirm rejection
               </Button>
               <Button
-                variant="ghost"
-                size="sm"
-                disabled={isLoading}
+                variant="ghost" size="sm" disabled={isLoading}
                 onClick={() => { setRejectOpen(false); setReason('') }}
               >
                 Cancel
@@ -179,48 +146,58 @@ export default function VerificationQueue() {
     queryFn: () => api.get('/admin/doctors/pending'),
   })
 
+  const rows = data ?? []
+  const waiting = rows.map(d => daysWaiting(d.created_at))
+  const stale = waiting.filter(d => d >= 3).length
+  const missingDoc = rows.filter(d => !d.verification_document_url).length
+
   return (
     <div>
-      <div className="p-6 border-b bg-background">
-        <h1 className="text-xl font-semibold">Verification Queue</h1>
-        <p className="text-sm text-muted-foreground">Doctors awaiting identity verification</p>
-      </div>
+      <PageHeader
+        title="Verification"
+        description="Doctors awaiting identity and licence verification"
+      />
 
-      <div className="p-6 space-y-4">
-        {isLoading && (
-          <>
-            <SkeletonCard />
-            <SkeletonCard />
-            <SkeletonCard />
-          </>
-        )}
+      <PageBody>
+        <Section title="At a glance" hint={`${rows.length} in queue`}>
+          <StatGrid>
+            <StatTile
+              icon={ShieldCheck} tone="warning" value={rows.length}
+              label="Awaiting review"
+            />
+            <StatTile
+              icon={Clock} tone={stale > 0 ? 'critical' : 'neutral'} value={stale}
+              label="Waiting 3+ days"
+            />
+            <StatTile
+              icon={FileText} tone={missingDoc > 0 ? 'critical' : 'neutral'} value={missingDoc}
+              label="No document attached"
+            />
+            <StatTile
+              icon={Calendar} tone="neutral"
+              value={waiting.length ? Math.max(...waiting) : 0}
+              label="Longest wait" hint="Days"
+            />
+          </StatGrid>
+        </Section>
 
-        {isError && (
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-sm text-destructive">
-                Failed to load pending doctors: {(error as Error).message}
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {!isLoading && !isError && data && data.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <CheckCircle size={48} className="text-success" />
-            <p className="text-base font-semibold">No pending verifications</p>
-            <p className="text-sm text-muted-foreground">All doctors have been reviewed.</p>
-          </div>
-        )}
-
-        {!isLoading && !isError && data && data.length > 0 && (
-          <div className="space-y-3">
-            {data.map(doctor => (
-              <DoctorCard key={doctor.id} doctor={doctor} />
-            ))}
-          </div>
-        )}
-      </div>
+        <Section title="Queue" hint="Oldest first">
+          {isLoading && <ListSkeleton rows={3} height="h-24" />}
+          {isError && <ErrorState what="pending doctors" error={error} />}
+          {!isLoading && !isError && rows.length === 0 && (
+            <EmptyState
+              icon={ShieldCheck}
+              title="No pending verifications"
+              hint="Every doctor has been reviewed."
+            />
+          )}
+          {!isLoading && !isError && rows.length > 0 && (
+            <div className="space-y-3">
+              {rows.map(doctor => <DoctorCard key={doctor.id} doctor={doctor} />)}
+            </div>
+          )}
+        </Section>
+      </PageBody>
     </div>
   )
 }
