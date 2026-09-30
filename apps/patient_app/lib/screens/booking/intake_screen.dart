@@ -364,7 +364,7 @@ class _MicButton extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: Icon(recording ? Icons.stop_rounded : Icons.mic_rounded,
-          color: Colors.white, size: 24),
+          color: CharakColors.onPrimary, size: 24),
     ),
   );
 }
@@ -412,7 +412,7 @@ class _AttachTile extends StatelessWidget {
               decoration: BoxDecoration(
                   color: CharakColors.success, shape: BoxShape.circle),
               alignment: Alignment.center,
-              child: const Icon(Icons.check, size: 11, color: Colors.white),
+              child: Icon(Icons.check, size: 11, color: CharakColors.onPrimary),
             ),
           ),
       ]),

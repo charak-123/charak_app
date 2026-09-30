@@ -331,12 +331,7 @@ class _SummaryLine extends StatelessWidget {
           const SizedBox(height: 5),
           Text(
             text,
-            style: TextStyle(
-              fontFamily: CharakText.fontFamily,
-              fontSize: 13,
-              height: 1.5,
-              color: CharakColors.ink,
-            ),
+            style: CharakText.body.copyWith(fontSize: 13, height: 1.5, color: CharakColors.ink),
           ),
         ]),
       );

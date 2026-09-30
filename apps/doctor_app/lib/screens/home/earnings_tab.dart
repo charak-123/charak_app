@@ -115,7 +115,7 @@ class _EarnTotal extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             '₹${NumberFormat.decimalPattern('en_IN').format(amount.round())}',
-            style: CharakText.numeric.copyWith(fontSize: 48, height: 1.05, color: Colors.white).weight(700),
+            style: CharakText.numeric.copyWith(fontSize: 48, height: 1.05, color: CharakColors.onPrimary).weight(700),
           ),
           const SizedBox(height: 4),
           Text('$visits completed visit${visits == 1 ? '' : 's'}',

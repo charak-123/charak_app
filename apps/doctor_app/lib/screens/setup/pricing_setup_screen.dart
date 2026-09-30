@@ -153,6 +153,9 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
     if (_loadingDoctorInfo) {
       return Scaffold(
         backgroundColor: CharakColors.ground,
+        // Also reachable as a settings re-edit, pushed from the profile tab —
+        // without this there is no way back on iOS.
+        appBar: const CharakTopBar(title: ''),
         body: const SafeArea(
           child: Padding(
             padding: EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -185,6 +188,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
 
     return Scaffold(
       backgroundColor: CharakColors.ground,
+      appBar: const CharakTopBar(title: ''),
       body: SafeArea(
         child: Column(
           children: [

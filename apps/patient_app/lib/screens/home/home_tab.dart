@@ -159,7 +159,7 @@ class _NextBookingHero extends StatelessWidget {
 
     final day = at == null ? '' : _dayLabel(at);
     final (_, statusLabel) = charakStatusFor(status);
-    final white = CharakText.body.copyWith(color: Colors.white);
+    final white = CharakText.body.copyWith(color: CharakColors.onPrimary);
 
     final (actionLabel, route) = switch (status) {
       'accepted' => (price != null ? 'Pay ₹${price.toStringAsFixed(0)}' : 'Pay', '/booking/$id/pay'),
@@ -179,11 +179,11 @@ class _NextBookingHero extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: CharakColors.onPrimary.withValues(alpha: 0.18),
               borderRadius: const BorderRadius.all(CharakRadius.pill),
             ),
             child: Text(channel == 'home_visit' ? 'Home visit' : 'Online',
-                style: CharakText.caption.weight(600).copyWith(color: Colors.white)),
+                style: CharakText.caption.weight(600).copyWith(color: CharakColors.onPrimary)),
           ),
         ]),
         const SizedBox(height: 16),
@@ -195,7 +195,7 @@ class _NextBookingHero extends StatelessWidget {
               Text('Dr. $docName',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: CharakText.titleSmall.copyWith(color: Colors.white)),
+                  style: CharakText.titleSmall.copyWith(color: CharakColors.onPrimary)),
               if (category.isNotEmpty)
                 Text(category, style: white.copyWith(fontSize: 14, color: CharakPalette.blue100)),
             ]),
@@ -207,7 +207,7 @@ class _NextBookingHero extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               if (at != null) ...[
                 Text(DateFormat('h:mm a').format(at),
-                    style: CharakText.numeric.copyWith(fontSize: 28, height: 1.1, color: Colors.white)),
+                    style: CharakText.numeric.copyWith(fontSize: 28, height: 1.1, color: CharakColors.onPrimary)),
                 Text(DateFormat('EEE, d MMM').format(at),
                     style: CharakText.caption.copyWith(color: CharakPalette.blue100)),
               ],

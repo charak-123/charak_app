@@ -114,12 +114,7 @@ class _State extends ConsumerState<OtpScreen> {
 
     return Scaffold(
       backgroundColor: CharakColors.ground,
-      appBar: AppBar(
-        backgroundColor: CharakColors.ground,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: BackButton(color: CharakColors.ink),
-      ),
+      appBar: const CharakTopBar(title: ''),
       body: Column(children: [
         Expanded(
           child: SingleChildScrollView(

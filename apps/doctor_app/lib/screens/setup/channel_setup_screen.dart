@@ -46,6 +46,11 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: CharakColors.ground,
+      // This screen also serves as a settings re-edit, pushed from the
+      // profile tab — without a back affordance there is no way off it on
+      // iOS, which has no hardware back button. Blank title: the screen
+      // already carries its own big title below.
+      appBar: const CharakTopBar(title: ''),
       body: SafeArea(
         child: Column(
           children: [
