@@ -30,6 +30,7 @@ class CharakCallColors {
   static const notesBg = Color(0x14FFFFFF); // rgba(255,255,255,0.08)
   static const notesBorder = Color(0x29FFFFFF); // rgba(255,255,255,0.16)
   static const peerSub = Color(0x99FFFFFF); // rgba(255,255,255,0.6)
+  static const notesHint = Color(0x80FFFFFF); // rgba(255,255,255,0.5)
   static const selfIcon = Color(0x8CFFFFFF); // rgba(255,255,255,0.55)
 }
 

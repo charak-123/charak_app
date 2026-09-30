@@ -146,7 +146,7 @@ class _State extends ConsumerState<ClarificationCallScreen> {
               hintText: 'Equipment needed, prep notes… (kept for this booking)',
               hintStyle: CharakText.caption.copyWith(
                 fontSize: 13,
-                color: const Color(0x80FFFFFF),
+                color: CharakCallColors.notesHint,
               ),
             ),
           ),
