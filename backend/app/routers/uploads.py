@@ -30,12 +30,32 @@ async def _read(file: UploadFile, kind: str) -> tuple[bytes, str, str]:
     """
     Read an upload into memory and validate it.
 
-    Reading fully into memory is deliberate at these size caps (50MB worst case):
-    the content type must be validated and, for voice notes, the same bytes handed
-    to transcription, and streaming to Storage twice is worse than holding one
-    copy briefly.
+    Holding one copy in memory is deliberate at these size caps: the content type
+    must be validated and, for voice notes, the same bytes handed to transcription,
+    and streaming to Storage twice is worse than holding one copy briefly.
+
+    The read is *bounded* to the kind's cap plus one byte. A client that ignores
+    the documented limit — or sends a huge body with no/forged Content-Length —
+    cannot force us to buffer an unbounded amount of memory: we stop at the cap
+    and reject. ``storage.validate`` still runs afterwards for the user-facing
+    content-type and size messages.
+
+    As defence in depth, a request-body ceiling should also be enforced in front
+    of the app (reverse-proxy/platform limit or ASGI middleware) so an oversized
+    body is refused before the multipart parser spools it to disk.
     """
-    content = await file.read()
+    if kind not in storage.LIMITS:
+        raise AppError(f"Unknown upload kind '{kind}'", 400)
+    _, max_bytes = storage.LIMITS[kind]
+
+    # Read at most one byte past the cap: enough to detect an over-limit upload
+    # without buffering the whole oversized body.
+    content = await file.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise AppError(
+            f"That file exceeds the {max_bytes // storage.MB}MB limit", 413
+        )
+
     extension = storage.validate(kind, file.content_type, len(content))
     return content, extension, (file.content_type or "").split(";")[0].strip().lower()
 

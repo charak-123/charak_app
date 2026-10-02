@@ -327,3 +327,54 @@ def test_create_booking_refuses_a_doctor_with_no_published_price():
 
     assert resp.status_code == 409
     assert "has not published a price" in resp.json()["error"]
+
+
+def test_cancelling_a_paid_booking_refunds_and_reverses_the_ledger():
+    """
+    Regression for the strix finding: cancelling a *paid* booking must refund the
+    patient and reverse the doctor's ledger credit, not merely flip the status.
+    """
+    from tests.conftest import patch_all_supabase
+
+    row = _booking("paid")
+    bookings_chain = _booking_chain(row, {**row, "status": "cancelled"})
+    payment = {
+        "id": "pay-1", "booking_id": "bk-1", "type": "consult_fee",
+        "amount": 500.0, "status": "completed", "razorpay_payment_id": "rp-1",
+    }
+    payments_chain = make_chain(list_data=[payment])
+    mock_db = make_supabase({"bookings": bookings_chain, "payments": payments_chain})
+
+    with patch_all_supabase(mock_db), \
+         patch(JWT_TARGET) as jw, \
+         patch("app.routers.payments._razorpay_refund") as refund, \
+         patch("app.routers.payments.payouts.reverse") as reverse, \
+         patch("app.routers.payments.notifications.payment_auto_refunded"), \
+         patch("app.routers.bookings.notifications.booking_cancelled"):
+        jw.decode.return_value = PATIENT_PAYLOAD
+        client = TestClient(app)
+        resp = client.patch("/bookings/bk-1/cancel", headers={"Authorization": PATIENT_TOKEN})
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cancelled"
+    assert resp.json()["refunded_payments"] == 1
+    refund.assert_called_once()                       # patient's money returned
+    reverse.assert_called_once()                      # doctor's ledger credit reversed
+    assert reverse.call_args.args[:2] == ("bk-1", "consult_fee")
+
+
+def test_cancelling_an_unpaid_booking_does_not_touch_payments():
+    """An accepted (unpaid) cancel must not attempt any refund."""
+    row = _booking("accepted")
+    bookings_chain = _booking_chain(row, {**row, "status": "cancelled"})
+    mock_db = make_supabase({"bookings": bookings_chain})
+
+    with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw, \
+         patch("app.routers.payments.refund_completed_payments") as refund_fn:
+        jw.decode.return_value = PATIENT_PAYLOAD
+        client = TestClient(app)
+        resp = client.patch("/bookings/bk-1/cancel", headers={"Authorization": PATIENT_TOKEN})
+
+    assert resp.status_code == 200
+    assert resp.json()["refunded_payments"] == 0
+    refund_fn.assert_not_called()

@@ -214,7 +214,7 @@ def test_webhook_accepts_a_correctly_signed_request():
 
 def test_webhook_rejects_a_malformed_body():
     db = make_supabase({})
-    with patch(PAY_DB, db), patch("app.routers.payments._WEBHOOK_SECRET", ""):
+    with patch(PAY_DB, db), patch("app.routers.payments._WEBHOOK_SECRET", ""), patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
         res = TestClient(app).post(
             "/payments/webhook", content=b"not json",
             headers={"content-type": "application/json"},
@@ -245,7 +245,7 @@ def test_a_captured_consult_payment_credits_the_doctor_net_of_commission():
         "amount": 800.0, "status": "initiated",
     })
     with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
-         patch("app.routers.payments._WEBHOOK_SECRET", ""):
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
         TestClient(app).post("/payments/webhook", json=CAPTURED)
 
     written = ledger.insert.call_args[0][0]
@@ -265,7 +265,7 @@ def test_a_replayed_webhook_is_a_no_op():
         "doctor_ledger_entries": make_chain(list_data=[]),
     })
     with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
-         patch("app.routers.payments._WEBHOOK_SECRET", ""):
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
         res = TestClient(app).post("/payments/webhook", json=CAPTURED)
 
     assert res.json() == {"ok": True, "idempotent": True}
@@ -278,7 +278,7 @@ def test_a_captured_procedure_bill_credits_the_procedure_source():
         "amount": 2000.0, "status": "initiated",
     })
     with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
-         patch("app.routers.payments._WEBHOOK_SECRET", ""):
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
         TestClient(app).post("/payments/webhook", json=CAPTURED)
 
     written = ledger.insert.call_args[0][0]
@@ -292,7 +292,7 @@ def test_a_failed_payment_event_marks_the_payment_failed_only():
     event = {"event": "payment.failed",
              "payload": {"payment": {"entity": {"id": "pay_1", "order_id": "order_1"}}}}
     with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
-         patch("app.routers.payments._WEBHOOK_SECRET", ""):
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
         res = TestClient(app).post("/payments/webhook", json=event)
 
     assert res.status_code == 200
@@ -305,7 +305,7 @@ def test_an_unrelated_event_is_ignored():
     event = {"event": "refund.created",
              "payload": {"payment": {"entity": {"order_id": "order_1"}}}}
     with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
-         patch("app.routers.payments._WEBHOOK_SECRET", ""):
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
         assert TestClient(app).post("/payments/webhook", json=event).json() == {"ok": True}
 
 
@@ -313,7 +313,7 @@ def test_a_webhook_without_an_order_id_is_ignored():
     db = make_supabase({})
     event = {"event": "payment.captured", "payload": {"payment": {"entity": {"id": "pay_1"}}}}
     with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
-         patch("app.routers.payments._WEBHOOK_SECRET", ""):
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
         assert TestClient(app).post("/payments/webhook", json=event).json() == {"ok": True}
 
 
@@ -349,8 +349,9 @@ def test_stub_complete_credits_the_ledger_like_a_real_payment():
         "notifications": make_chain(list_data=[{"id": "n-1"}]),
     })
 
-    for c in _client(PATIENT, db):
-        res = c.post("/payments/bk-1/stub-complete", headers=AUTH, json={"type": "consult_fee"})
+    with patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
+        for c in _client(PATIENT, db):
+            res = c.post("/payments/bk-1/stub-complete", headers=AUTH, json={"type": "consult_fee"})
 
     assert res.status_code == 200
     assert res.json()["status"] == "paid"
@@ -359,8 +360,9 @@ def test_stub_complete_credits_the_ledger_like_a_real_payment():
 
 def test_stub_complete_refuses_another_patients_booking():
     db = make_supabase({"bookings": make_chain(data={**BOOKING, "patient_id": "other"})})
-    for c in _client(PATIENT, db):
-        res = c.post("/payments/bk-1/stub-complete", headers=AUTH)
+    with patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
+        for c in _client(PATIENT, db):
+            res = c.post("/payments/bk-1/stub-complete", headers=AUTH)
     assert res.status_code == 403
 
 
@@ -467,3 +469,52 @@ def test_live_keys_without_a_webhook_secret_refuse_the_webhook():
         res = TestClient(app).post("/payments/webhook", json=CAPTURED)
     assert res.status_code == 503
     assert "RAZORPAY_WEBHOOK_SECRET" in res.json()["error"]
+
+
+# ── hardening regressions (strix findings) ────────────────────────────────────
+
+def test_reporting_a_failure_stops_extending_the_hold_at_the_cap():
+    """
+    Regression: the payment-hold must not be extendable without limit, or a
+    patient could pin a doctor's slot forever by reporting failures on a timer.
+    """
+    from app.config import PAYMENT_MAX_ATTEMPTS
+    maxed = {**BOOKING, "payment_attempts": PAYMENT_MAX_ATTEMPTS,
+             "hold_expires_at": "2026-08-25T09:10:00+00:00"}
+    db = make_supabase({"bookings": make_chain(data=maxed)})
+    for c in _client(PATIENT, db):
+        res = c.post("/payments/bk-1/failed", headers=AUTH)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is False
+    assert body["max_attempts_reached"] is True
+    assert body["hold_minutes"] == 0
+
+
+def test_webhook_refuses_unsigned_events_by_default_without_the_dev_flag():
+    """
+    Regression: an absent webhook secret must not silently disable proof of
+    payment. With no secret and no explicit insecure-dev opt-in, the webhook
+    refuses rather than crediting a doctor from an unsigned event.
+    """
+    db = make_supabase({})
+    with patch(PAY_DB, db), \
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), \
+         patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", False), \
+         patch("app.routers.payments.live_mode", return_value=False):
+        res = TestClient(app).post("/payments/webhook", json=CAPTURED)
+    assert res.status_code == 503
+
+
+def test_stub_complete_is_refused_without_the_insecure_dev_flag():
+    """
+    Regression: /stub-complete must be gated on an explicit opt-in, so a
+    production deploy that merely forgot to set Razorpay keys cannot be used to
+    mark bookings paid for free.
+    """
+    db = make_supabase({"bookings": make_chain(data=BOOKING)})
+    with patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", False):
+        for c in _client(PATIENT, db):
+            res = c.post("/payments/bk-1/stub-complete", headers=AUTH,
+                         json={"type": "consult_fee"})
+    assert res.status_code == 403

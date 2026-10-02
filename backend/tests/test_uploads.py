@@ -330,3 +330,31 @@ def test_only_ops_can_create_buckets():
     db = make_supabase({})
     for c in _client(DOCTOR, db):
         assert c.post("/uploads/buckets/ensure", headers=AUTH).status_code == 403
+
+
+# ── bounded read (strix DoS finding) ──────────────────────────────────────────
+
+def test_read_is_bounded_to_the_kind_cap_and_rejects_oversize():
+    """
+    Regression for the strix finding: `_read` must not buffer an unbounded body.
+    A stream that keeps yielding bytes is read only up to the cap + 1, and an
+    over-limit upload is rejected with 413 rather than spooled into memory.
+    """
+    import asyncio
+    from app.routers.uploads import _read
+
+    _, cap = storage.LIMITS["photo"]
+    requested = {}
+
+    class EndlessUpload:
+        content_type = "image/png"
+        async def read(self, n=-1):
+            requested["n"] = n
+            # Simulate an unbounded stream: always return exactly what was asked.
+            return b"\x00" * (n if n and n > 0 else cap * 10)
+
+    with pytest.raises(AppError) as exc:
+        asyncio.run(_read(EndlessUpload(), "photo"))
+    assert exc.value.status_code == 413
+    # Never asked for more than the cap + 1 byte.
+    assert requested["n"] == cap + 1

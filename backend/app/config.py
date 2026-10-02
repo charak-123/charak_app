@@ -53,8 +53,22 @@ PLATFORM_COMMISSION_PCT = float(os.getenv("PLATFORM_COMMISSION_PCT", "15"))
 # released back to the doctor's calendar.
 PAYMENT_HOLD_MINUTES = int(os.getenv("PAYMENT_HOLD_MINUTES", "10"))
 
+# Upper bound on payment attempts (orders + reported failures) for one booking.
+# Caps the payment-hold extension so a patient cannot keep a doctor's slot held
+# indefinitely by reporting a "failure" on a timer without ever paying.
+PAYMENT_MAX_ATTEMPTS = int(os.getenv("PAYMENT_MAX_ATTEMPTS", "6"))
+
+# Explicit opt-in for insecure local-dev payment shortcuts: the /stub-complete
+# endpoint and processing unsigned webhooks. MUST stay false in any real
+# deployment. Absence of Razorpay keys alone no longer enables these — otherwise
+# a production deploy that simply forgot to set keys would accept free payments.
+ALLOW_INSECURE_PAYMENTS = os.getenv("ALLOW_INSECURE_PAYMENTS", "").lower() in ("1", "true", "yes")
+
 # ── Ops ──────────────────────────────────────────────────────────────────────
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "charak-admin-2024")
+# No fallback: a missing/empty ADMIN_PASSWORD disables admin login entirely
+# rather than silently accepting a well-known default. admin_login fails closed
+# when this is empty.
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 # Shared secret for internal/cron endpoints (hold sweeper, payout runs).
 CRON_SECRET = os.getenv("CRON_SECRET", "")

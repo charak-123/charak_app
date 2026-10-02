@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../auth/token_store.dart';
 
 const String _kBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
@@ -23,15 +24,14 @@ class ApiClient {
   static bool _handlingUnauthorized = false;
 
   Future<void> _clearSession() async {
+    await TokenStore.instance.clear();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
     await prefs.remove('user_id');
     await prefs.remove('user_name');
   }
 
   Future<String?> _token() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('auth_token');
+    return TokenStore.instance.read();
   }
 
   Future<Map<String, String>> _headers() async {

@@ -88,3 +88,38 @@ def test_max_price_filters_on_the_cheapest_matching_channel():
         body = client.get("/doctors/search?max_price=500").json()
 
     assert [d["id"] for d in body["items"]] == ["cheap"]
+
+
+# ── private-column exposure (strix finding) ───────────────────────────────────
+
+SENSITIVE = {
+    **VERIFIED,
+    "phone": "+919999999999",
+    "fcm_token": "fcm-secret",
+    "commission_pct": 12.5,
+    "license_number": "MH-12345",
+    "verification_document_url": "https://x/doc.pdf",
+    "verification_document_path": "doctors/doc-1/verification",
+    "base_lat": 19.07, "base_lng": 72.87,
+}
+_LEAKS = {"phone", "fcm_token", "commission_pct", "license_number",
+          "verification_document_url", "verification_document_path",
+          "base_lat", "base_lng"}
+
+
+def test_public_search_does_not_leak_private_doctor_columns():
+    doctors = make_chain(list_data=[SENSITIVE])
+    with patch(DOCTORS_DB, make_supabase({"doctors": doctors})):
+        res = client.get("/doctors/search")
+    assert res.status_code == 200
+    item = res.json()["items"][0]
+    assert _LEAKS.isdisjoint(item.keys())
+    assert item["name"] == "Dr Rao"          # public fields still present
+
+
+def test_public_profile_does_not_leak_private_doctor_columns():
+    doctors = make_chain(data=SENSITIVE)
+    with patch(DOCTORS_DB, make_supabase({"doctors": doctors})):
+        res = client.get("/doctors/doc-1")
+    assert res.status_code == 200
+    assert _LEAKS.isdisjoint(res.json().keys())

@@ -27,7 +27,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from pydantic import BaseModel
 
 from ..config import (
+    ALLOW_INSECURE_PAYMENTS,
     PAYMENT_HOLD_MINUTES,
+    PAYMENT_MAX_ATTEMPTS,
     RAZORPAY_KEY_ID,
     RAZORPAY_KEY_SECRET,
     RAZORPAY_WEBHOOK_SECRET,
@@ -224,10 +226,24 @@ def report_failure(
     if booking["status"] != "accepted":
         raise AppError("Only an accepted, unpaid booking can report a payment failure", 400)
 
+    # Cap the number of extensions. Without this the hold could be reset to a
+    # full window on every call, letting a patient pin a doctor's slot forever
+    # without ever paying. Once the cap is hit we stop extending and let the
+    # existing hold expire so the sweeper releases the slot.
+    attempts = int(booking.get("payment_attempts") or 0)
+    if attempts >= PAYMENT_MAX_ATTEMPTS:
+        return {
+            "ok": False,
+            "retry_until": booking.get("hold_expires_at"),
+            "hold_minutes": 0,
+            "max_attempts_reached": True,
+        }
+
     hold_until = _now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)
     updated = supabase.table("bookings").update({
         "payment_failed_at": _now().isoformat(),
         "hold_expires_at": hold_until.isoformat(),
+        "payment_attempts": attempts + 1,
     }).eq("id", booking_id).execute().data[0]
 
     supabase.table("payments").update({"status": "failed"}) \
@@ -256,12 +272,13 @@ async def razorpay_webhook(request: Request, background: BackgroundTasks):
     body = await request.body()
     sig = request.headers.get("x-razorpay-signature", "")
 
-    if live_mode() and not _WEBHOOK_SECRET:
-        # Real money is moving and nothing can prove this request came from
-        # Razorpay. Anyone who can reach this URL could credit a doctor's ledger
-        # and mark a booking paid, so refuse rather than trust it. 503 because the
-        # deployment is misconfigured, not because the caller did anything wrong —
-        # and Razorpay's retries will deliver once the secret is set.
+    if not _WEBHOOK_SECRET and (live_mode() or not ALLOW_INSECURE_PAYMENTS):
+        # Nothing can prove this request came from Razorpay, and this endpoint
+        # moves money into a doctor's ledger. Live mode never trusts an unsigned
+        # event; a non-live deployment only does so when it has explicitly opted
+        # into insecure local-dev payments. 503 because the deployment is
+        # misconfigured, not because the caller did anything wrong — Razorpay's
+        # retries will deliver once the secret is set.
         raise AppError("RAZORPAY_WEBHOOK_SECRET is not configured", 503)
 
     if _WEBHOOK_SECRET:
@@ -334,6 +351,35 @@ def _refund_orphaned_payment(
     payouts.reverse(booking["id"], source, note="payment refunded — booking was gone")
 
     notifications.payment_auto_refunded(booking, payment["amount"], background)
+
+
+def refund_completed_payments(booking: dict, note: str, background=None) -> int:
+    """
+    Refund every completed payment on a booking and reverse the matching ledger
+    credit. Returns how many payments were refunded.
+
+    Used when a *paid* booking is cancelled: previously the cancel only flipped
+    the booking status, so the patient's money was never returned and the
+    doctor's ledger credit stood — the doctor would be paid out for a visit that
+    never happened. Both the Razorpay refund and ``payouts.reverse`` are safe to
+    re-run, so a retried cancel does not double-refund.
+    """
+    rows = (
+        supabase.table("payments").select("*")
+        .eq("booking_id", booking["id"]).eq("status", "completed").execute().data
+        or []
+    )
+    for payment in rows:
+        supabase.table("payments").update({"status": "refunded"}) \
+            .eq("id", payment["id"]).execute()
+        _razorpay_refund(
+            payment.get("razorpay_payment_id"),
+            int(round(float(payment["amount"]) * 100)),
+        )
+        source = "consult_fee" if payment["type"] == "consult_fee" else "procedure_bill"
+        payouts.reverse(booking["id"], source, note=note)
+        notifications.payment_auto_refunded(booking, payment["amount"], background)
+    return len(rows)
 
 
 def _confirm_payment(
@@ -435,8 +481,8 @@ def stub_complete_payment(
     credits and notifications behave identically in development. Refuses outright
     once live keys are present.
     """
-    if live_mode():
-        raise AppError("Not available in production", 403)
+    if not ALLOW_INSECURE_PAYMENTS:
+        raise AppError("Not available: set ALLOW_INSECURE_PAYMENTS for local dev", 403)
 
     kind = (body or OrderRequest()).type
     booking = fetch_one(supabase.table("bookings").select("*").eq("id", booking_id))

@@ -1,3 +1,4 @@
+import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -36,7 +37,12 @@ VALID_COMPLAINT_STATUSES = {"open", "in_review", "resolved", "closed"}
 
 @router.post("/login")
 def admin_login(body: AdminLoginRequest):
-    if body.password != ADMIN_PASSWORD:
+    # Fail closed: if no admin password is configured, admin login is disabled
+    # outright. Never fall back to a built-in default.
+    if not ADMIN_PASSWORD:
+        raise AppError("Admin login is not configured", 503)
+    # Constant-time comparison to avoid leaking the password via timing.
+    if not hmac.compare_digest(body.password, ADMIN_PASSWORD):
         raise AppError("Invalid admin password", 401)
 
     payload = {

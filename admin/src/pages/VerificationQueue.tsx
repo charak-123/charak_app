@@ -29,6 +29,20 @@ function daysWaiting(iso: string) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
 }
 
+
+// Only http(s) URLs are safe to hand to window.open: a `javascript:` (or
+// `data:`) URL would execute in the admin dashboard's own origin and could
+// exfiltrate the ops session token. Returns null for anything else.
+function safeDocumentUrl(raw: string | null): string | null {
+  if (!raw) return null
+  try {
+    const u = new URL(raw, window.location.origin)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null
+  } catch {
+    return null
+  }
+}
+
 function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
   const queryClient = useQueryClient()
   const [rejectOpen, setRejectOpen] = useState(false)
@@ -45,6 +59,7 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
 
   const isLoading = verifyMutation.isPending
   const waited = daysWaiting(doctor.created_at)
+  const docUrl = safeDocumentUrl(doctor.verification_document_url)
 
   return (
     <Card>
@@ -86,11 +101,11 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           <Button
             variant="outline" size="sm"
-            disabled={!doctor.verification_document_url}
-            onClick={() => window.open(doctor.verification_document_url!, '_blank')}
+            disabled={!docUrl}
+            onClick={() => docUrl && window.open(docUrl, '_blank', 'noopener,noreferrer')}
           >
             <FileText size={14} />
-            {doctor.verification_document_url ? 'View document' : 'No document'}
+            {docUrl ? 'View document' : 'No document'}
           </Button>
           <Button
             size="sm"

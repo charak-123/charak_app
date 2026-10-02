@@ -12,7 +12,7 @@ the same rows, so both are shared across workers too.
 """
 import hashlib
 import hmac
-import random
+import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -44,7 +44,10 @@ def hash_code(phone: str, code: str) -> str:
 
 
 def generate_code() -> str:
-    return "".join(random.choices(string.digits, k=CODE_LENGTH))
+    # Use the cryptographically secure generator, not the `random` module:
+    # login OTPs are security tokens, and a predictable PRNG stream shared
+    # across all phone numbers would let observed codes reveal future ones.
+    return "".join(secrets.choice(string.digits) for _ in range(CODE_LENGTH))
 
 
 def sends_in_last_hour(phone: str) -> int:

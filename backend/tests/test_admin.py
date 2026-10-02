@@ -324,3 +324,17 @@ def test_timeseries_clamps_the_window_and_requires_ops():
     db2 = make_supabase({})
     for c in _client(DOCTOR, db2):
         assert c.get("/admin/metrics/timeseries", headers=AUTH).status_code == 403
+
+
+def test_admin_login_is_disabled_when_no_password_is_configured():
+    """
+    Regression for the strix finding: with ADMIN_PASSWORD unset the endpoint must
+    fail closed (503), never fall back to a built-in default or accept an empty
+    password.
+    """
+    with patch("app.routers.admin.ADMIN_PASSWORD", ""):
+        res = TestClient(app).post("/admin/login", json={"password": ""})
+    assert res.status_code == 503
+    with patch("app.routers.admin.ADMIN_PASSWORD", ""):
+        res = TestClient(app).post("/admin/login", json={"password": "charak-admin-2024"})
+    assert res.status_code == 503

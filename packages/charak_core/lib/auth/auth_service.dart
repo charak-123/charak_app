@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../network/api_client.dart';
+import 'token_store.dart';
 import '../push/charak_push.dart';
 
 class AuthState {
@@ -30,7 +31,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
+    final token = await TokenStore.instance.read();
     final name  = prefs.getString('user_name');
     final id    = prefs.getString('user_id');
     if (token != null) {
@@ -50,7 +51,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<bool> verifyOtp(String phone, String code, String role) async {
     final res = await _api.post('/auth/verify-otp', {'phone': phone, 'code': code, 'role': role}) as Map<String, dynamic>;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', res['token'] as String);
+    await TokenStore.instance.write(res['token'] as String);
     final userMap = res['user'] as Map<String, dynamic>;
     await prefs.setString('user_id', userMap['id'] as String);
     if (userMap['name'] != null) {
@@ -75,7 +76,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     // previous user's booking and payment notifications.
     await CharakPush.instance.stop();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
+    await TokenStore.instance.clear();
     await prefs.remove('user_id');
     await prefs.remove('user_name');
     state = const AuthState();

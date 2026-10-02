@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
@@ -53,6 +53,18 @@ class VerificationSubmit(BaseModel):
     # the client can mint. This field remains only for the website's doctor
     # registration, which may already hold a link to a document sent by email.
     document_url: Optional[str] = None
+
+    @field_validator("document_url")
+    @classmethod
+    def _only_http_url(cls, v: Optional[str]) -> Optional[str]:
+        # Reject anything that is not an http(s) URL. A stored `javascript:`
+        # (or `data:`) URL would later be opened by the admin dashboard and
+        # execute in its origin — a stored-XSS path to ops-token theft.
+        if v is None or v == "":
+            return v
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("document_url must be an http(s) URL")
+        return v
 
 
 @router.post("/me/verification")
@@ -134,6 +146,28 @@ def remove_procedure(proc_id: str, user: dict = Depends(require_doctor)):
 
 
 # ── Directory search (public, for patients) ───────────────────────────────────
+
+# Columns on `doctors` that must never reach an unauthenticated caller. The
+# public directory used to `select("*")`, which leaked the doctor's phone, their
+# verification-document location, their push token and Charak's commission rate.
+_PRIVATE_DOCTOR_FIELDS = {
+    "phone",
+    "fcm_token",
+    "commission_pct",
+    "license_number",
+    "verification_document_url",
+    "verification_document_path",
+    "verification_document_mime",
+    # Exact home coordinates: used server-side for distance, never returned.
+    "base_lat",
+    "base_lng",
+}
+
+
+def _public_doctor(doctor: dict) -> dict:
+    """Strip private columns from a doctor row before returning it publicly."""
+    return {k: v for k, v in doctor.items() if k not in _PRIVATE_DOCTOR_FIELDS}
+
 
 @router.get("/search")
 def search_doctors(
@@ -230,7 +264,7 @@ def search_doctors(
     else:
         results.sort(key=lambda d: float(d.get("rating_avg") or 0), reverse=True)
 
-    page = results[offset: offset + limit]
+    page = [_public_doctor(d) for d in results[offset: offset + limit]]
     return {
         "total": len(results),
         "limit": limit,
@@ -263,7 +297,7 @@ def get_doctor_public(doctor_id: str):
     )
     if not doctor:
         raise AppError("Doctor not found or not verified", 404)
-    return doctor
+    return _public_doctor(doctor)
 
 
 @router.get("/{doctor_id}/service-area")

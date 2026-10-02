@@ -368,8 +368,21 @@ def cancel_booking(
         "cancelled_by": by,
         "hold_expires_at": None,
     })
+
+    # If the booking was already paid for, cancelling must return the patient's
+    # money and reverse the doctor's ledger credit — otherwise the doctor is paid
+    # out for a visit that will not happen. Only a paid booking can carry a
+    # completed payment, so an unpaid cancel skips the payments lookup entirely.
+    # Imported locally to keep the payments/bookings modules free of a cycle.
+    refunded = 0
+    if b["status"] == "paid":
+        from . import payments
+        refunded = payments.refund_completed_payments(
+            {**b, **updated}, note=f"booking cancelled by {by}", background=background
+        )
+
     notifications.booking_cancelled({**b, **updated}, by, background)
-    return updated
+    return {**updated, "refunded_payments": refunded}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

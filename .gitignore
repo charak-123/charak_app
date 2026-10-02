@@ -31,3 +31,6 @@ dist/
 
 # Playwright MCP session files
 .playwright-mcp/
+
+# Static-analysis scan scratch output (strix / SAST tools)
+.source-aware/
