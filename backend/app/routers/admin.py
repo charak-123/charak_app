@@ -10,7 +10,7 @@ from ..config import ADMIN_PASSWORD, JWT_SECRET
 from ..db import supabase
 from ..deps import require_ops
 from ..errors import AppError
-from ..services import notifications
+from ..services import erasure, notifications, payouts
 
 router = APIRouter()
 
@@ -384,3 +384,54 @@ def _audit(user: dict, entity: str, entity_id: Optional[str], action: str) -> No
         }).execute()
     except Exception as exc:  # pragma: no cover
         print(f"[audit] failed to record {action} on {entity}/{entity_id}: {exc}")
+
+
+# ── Doctor account-deletion requests (ops fulfils) ───────────────────────────
+
+@router.get("/doctors/deletion-requests")
+def list_doctor_deletion_requests(user: dict = Depends(require_ops)):
+    """Doctors who have asked to delete their account, oldest request first."""
+    return (
+        supabase.table("doctors")
+        .select("id, name, phone, deletion_requested_at, deletion_status")
+        .eq("deletion_status", "requested")
+        .order("deletion_requested_at", desc=False)
+        .execute()
+        .data
+    )
+
+
+@router.post("/doctors/{doctor_id}/deletion/fulfill")
+def fulfill_doctor_deletion(doctor_id: str, user: dict = Depends(require_ops)):
+    """
+    Complete a doctor's account deletion after settling their account.
+
+    Refused while the doctor is still owed a payout or has active/upcoming paid
+    bookings — those must be resolved before their identity can be erased.
+    """
+    doctor = supabase.table("doctors").select("deletion_status") \
+        .eq("id", doctor_id).execute().data
+    if not doctor:
+        raise AppError("Doctor not found", 404)
+    if doctor[0].get("deletion_status") != "requested":
+        raise AppError("No pending deletion request for this doctor", 409)
+
+    owed = payouts.balance(doctor_id).get("payable_net", 0)
+    if owed and owed > 0:
+        raise AppError(
+            f"Doctor is still owed {owed:.2f}. Settle the payout before deleting.", 409
+        )
+
+    active = (
+        supabase.table("bookings").select("id")
+        .eq("doctor_id", doctor_id).in_("status", ["accepted", "paid"])
+        .execute().data or []
+    )
+    if active:
+        raise AppError(
+            f"Doctor has {len(active)} active/upcoming booking(s). Resolve them first.",
+            409,
+        )
+
+    erasure.purge_doctor(doctor_id)
+    return {"ok": True, "doctor_id": doctor_id, "status": "fulfilled"}

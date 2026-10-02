@@ -8,6 +8,7 @@ import BookingsMonitor from '@/pages/BookingsMonitor'
 import ComplaintInbox from '@/pages/ComplaintInbox'
 import DirectoryOversight from '@/pages/DirectoryOversight'
 import SeniorReviewQueue from '@/pages/SeniorReviewQueue'
+import DeletionRequests from '@/pages/DeletionRequests'
 
 function Guard({ children }: { children: React.ReactNode }) {
   return isAuthed() ? <>{children}</> : <Navigate to="/login" replace />
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="complaints"    element={<ComplaintInbox />} />
           <Route path="directory"     element={<DirectoryOversight />} />
           <Route path="senior-review" element={<SeniorReviewQueue />} />
+          <Route path="deletion-requests" element={<DeletionRequests />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

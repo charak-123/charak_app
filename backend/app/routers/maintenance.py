@@ -14,7 +14,7 @@ from typing import Optional
 from ..config import CRON_SECRET
 from ..db import supabase
 from ..errors import AppError
-from ..services import notifications, otp_store
+from ..services import erasure, notifications, otp_store
 
 router = APIRouter()
 
@@ -82,3 +82,14 @@ def release_expired_holds(_: bool = Depends(require_cron)):
 def purge_expired_otps(_: bool = Depends(require_cron)):
     """Drop OTP rows more than a day past expiry — they are dead weight and PII."""
     return {"deleted": otp_store.purge_expired()}
+
+
+@router.post("/purge-deleted-accounts")
+def purge_deleted_accounts(_: bool = Depends(require_cron)):
+    """
+    Purge the personal data of patients whose deletion grace window has closed.
+
+    De-identified financial and clinical records are retained; only PII is
+    scrubbed. Runs on the same cron schedule as the other maintenance jobs.
+    """
+    return erasure.purge_due()

@@ -23,7 +23,7 @@ from ..config import (
 )
 from ..db import supabase
 from ..errors import AppError
-from ..services import otp_store
+from ..services import otp_store, erasure
 
 router = APIRouter()
 
@@ -139,8 +139,17 @@ def verify_otp(req: VerifyOTPRequest):
         raise AppError("Could not create your account. Please try again.", 500)
 
     row = result.data[0]
+
+    # Logging back in during the grace window cancels a pending self-deletion.
+    reactivated = False
+    if role == "patient" and row.get("deleted_at"):
+        erasure.reactivate_patient(row["id"])
+        row = {**row, "deleted_at": None, "deletion_requested_at": None}
+        reactivated = True
+
     return {
         "token": _issue_jwt(row["id"], role),
         "user": row,
         "is_new": not row.get("name"),
+        "reactivated": reactivated,
     }

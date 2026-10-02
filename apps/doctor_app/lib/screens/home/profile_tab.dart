@@ -111,7 +111,6 @@ class ProfileTab extends ConsumerWidget {
                   title: 'Log out',
                   titleColor: CharakColors.danger,
                   showChevron: false,
-                  last: true,
                   onTap: () async {
                     final confirm = await showCharakConfirm(
                       context,
@@ -123,6 +122,37 @@ class ProfileTab extends ConsumerWidget {
                     if (confirm && context.mounted) {
                       await ref.read(authProvider.notifier).logout();
                       if (context.mounted) context.go('/auth/phone');
+                    }
+                  },
+                ),
+                CharakListRow(
+                  icon: Icons.delete_outline_rounded,
+                  title: 'Delete account',
+                  titleColor: CharakColors.danger,
+                  showChevron: false,
+                  last: true,
+                  onTap: () async {
+                    final confirm = await showCharakConfirm(
+                      context,
+                      title: 'Request account deletion?',
+                      message:
+                          'Your account will be locked and our team will close it '
+                          'once any pending payouts and upcoming bookings are '
+                          'settled. Your personal details are then removed; '
+                          'earnings and booking records are kept, de-identified, '
+                          'as the law requires.',
+                      confirmLabel: 'Request deletion',
+                      cancelLabel: 'Keep account',
+                      destructive: true,
+                    );
+                    if (!confirm || !context.mounted) return;
+                    try {
+                      await ref.read(authProvider.notifier).requestDoctorDeletion();
+                      if (context.mounted) context.go('/auth/phone');
+                    } catch (e) {
+                      if (context.mounted) {
+                        showCharakToast(context, message: 'Could not submit your request: $e');
+                      }
                     }
                   },
                 ),

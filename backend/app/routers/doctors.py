@@ -5,7 +5,7 @@ from pydantic import BaseModel, field_validator
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
-from ..services import geo
+from ..services import erasure, geo
 
 router = APIRouter()
 
@@ -383,3 +383,15 @@ def get_slots(doctor_id: str, from_date: str = None, days: int = 14):
     except ValueError:
         raise AppError("from_date must be ISO format, e.g. 2026-10-01", 400)
     return get_available_slots(doctor_id, d, days=days)
+
+
+@router.delete("/me")
+def request_doctor_account_deletion(user: dict = Depends(require_doctor)):
+    """
+    File a doctor account-deletion request (App Store & Play requirement).
+
+    Doctors are not purged automatically — outstanding payouts, active bookings
+    and bank details must be settled by ops first. This locks the account and
+    records the request; ops completes the erasure from the admin console.
+    """
+    return erasure.request_doctor_deletion(user["sub"])

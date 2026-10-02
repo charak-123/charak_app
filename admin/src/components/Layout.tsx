@@ -4,8 +4,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import {
-  LayoutDashboard, ShieldCheck, BookOpen, MessageSquare, Users, ClipboardList, LogOut
-} from 'lucide-react'
+  LayoutDashboard, ShieldCheck, BookOpen, MessageSquare, Users, ClipboardList, LogOut, UserX } from 'lucide-react'
 
 const NAV = [
   { to: '/',              icon: LayoutDashboard, label: 'Overview' },
@@ -14,6 +13,7 @@ const NAV = [
   { to: '/complaints',    icon: MessageSquare, label: 'Complaints' },
   { to: '/directory',     icon: Users,         label: 'Directory' },
   { to: '/senior-review', icon: ClipboardList, label: 'Senior Review' },
+  { to: '/deletion-requests', icon: UserX, label: 'Deletion Requests' },
 ]
 
 export default function Layout() {

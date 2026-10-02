@@ -71,15 +71,35 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(user: {...?state.user, 'name': name});
   }
 
-  Future<void> logout() async {
-    // Before the token goes: an unregistered device keeps receiving the
-    // previous user's booking and payment notifications.
+  /// Delete the patient's own account (self-serve erasure).
+  ///
+  /// The backend soft-deletes and schedules the personal-data purge; locally we
+  /// tear the session down exactly like a logout so the app returns to sign-in.
+  Future<void> deleteAccount() async {
+    await _api.delete('/users/me');
+    await _teardownSession();
+  }
+
+  /// File a doctor account-deletion request. The backend locks the account and
+  /// ops completes the erasure; locally we end the session.
+  Future<void> requestDoctorDeletion() async {
+    await _api.delete('/doctors/me');
+    await _teardownSession();
+  }
+
+  Future<void> _teardownSession() async {
     await CharakPush.instance.stop();
     final prefs = await SharedPreferences.getInstance();
     await TokenStore.instance.clear();
     await prefs.remove('user_id');
     await prefs.remove('user_name');
     state = const AuthState();
+  }
+
+  Future<void> logout() async {
+    // Before the token goes: an unregistered device keeps receiving the
+    // previous user's booking and payment notifications.
+    await _teardownSession();
   }
 }
 

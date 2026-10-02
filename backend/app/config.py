@@ -72,3 +72,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 # Shared secret for internal/cron endpoints (hold sweeper, payout runs).
 CRON_SECRET = os.getenv("CRON_SECRET", "")
+
+# How long a self-deleted patient account is retained before its personal data
+# is purged. The grace window lets a user cancel by logging back in.
+ACCOUNT_DELETION_GRACE_DAYS = int(os.getenv("ACCOUNT_DELETION_GRACE_DAYS", "30"))

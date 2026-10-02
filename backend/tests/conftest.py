@@ -105,6 +105,7 @@ _ROUTER_SUPABASE_PATHS = [
     "app.routers.maintenance.supabase",
     "app.services.notifications.supabase",
     "app.services.payouts.supabase",
+    "app.services.erasure.supabase",
     "app.services.otp_store.supabase",
     "app.services.availability.supabase",
     "app.routers.addresses.supabase",

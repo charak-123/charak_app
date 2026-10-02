@@ -59,16 +59,49 @@ class ProfileTab extends ConsumerWidget {
               title: 'Log out',
               titleColor: CharakColors.danger,
               showChevron: false,
-              last: true,
               onTap: () async {
                 await ref.read(authProvider.notifier).logout();
                 if (context.mounted) context.go('/auth/phone');
               },
             ),
+            CharakListRow(
+              icon: Icons.delete_outline_rounded,
+              title: 'Delete account',
+              titleColor: CharakColors.danger,
+              showChevron: false,
+              last: true,
+              onTap: () => _deleteAccount(context, ref),
+            ),
           ],
         ),
       ],
     );
+  }
+
+  Future<void> _deleteAccount(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showCharakConfirm(
+      context,
+      title: 'Delete your account?',
+      message:
+          'Your personal details, saved addresses and symptom media will be '
+          'removed. Your past bookings and payment records are kept, '
+          'de-identified, as the law requires. You have 30 days to change your '
+          'mind — just sign in again to cancel.',
+      confirmLabel: 'Delete account',
+      cancelLabel: 'Keep account',
+      destructive: true,
+    );
+    if (!confirmed || !context.mounted) return;
+    try {
+      await ref.read(authProvider.notifier).deleteAccount();
+      if (context.mounted) context.go('/auth/phone');
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete your account: $e')),
+        );
+      }
+    }
   }
 
   void _comingSoon(BuildContext context, String feature) {
