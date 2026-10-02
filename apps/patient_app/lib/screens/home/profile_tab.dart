@@ -53,6 +53,23 @@ class ProfileTab extends ConsumerWidget {
         ),
         const SizedBox(height: 24),
         CharakGroupedList(
+          label: 'Legal',
+          children: [
+            CharakListRow(
+              icon: Icons.privacy_tip_outlined,
+              title: 'Privacy policy',
+              onTap: () => CharakLegal.open(CharakLegal.privacyUrl),
+            ),
+            CharakListRow(
+              icon: Icons.description_outlined,
+              title: 'Terms of service',
+              last: true,
+              onTap: () => CharakLegal.open(CharakLegal.termsUrl),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        CharakGroupedList(
           children: [
             CharakListRow(
               icon: Icons.logout_rounded,

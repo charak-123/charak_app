@@ -75,6 +75,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
   ///
   /// The backend soft-deletes and schedules the personal-data purge; locally we
   /// tear the session down exactly like a logout so the app returns to sign-in.
+  /// Password-less login to a seeded demo account for app-store review.
+  /// Backed by POST /auth/demo-login, which only works where the server has
+  /// DEMO_LOGIN_ENABLED set. Returns true on success.
+  Future<bool> demoLogin(String role) async {
+    final res = await _api.post('/auth/demo-login', {'role': role})
+        as Map<String, dynamic>;
+    final prefs = await SharedPreferences.getInstance();
+    await TokenStore.instance.write(res['token'] as String);
+    final userMap = res['user'] as Map<String, dynamic>;
+    await prefs.setString('user_id', userMap['id'] as String);
+    if (userMap['name'] != null) {
+      await prefs.setString('user_name', userMap['name'] as String);
+    }
+    state = AuthState(token: res['token'] as String, user: userMap);
+    CharakPush.instance.start();
+    return true;
+  }
+
   Future<void> deleteAccount() async {
     await _api.delete('/users/me');
     await _teardownSession();

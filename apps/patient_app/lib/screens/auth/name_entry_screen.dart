@@ -23,6 +23,9 @@ class _State extends ConsumerState<NameEntryScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       await ref.read(authProvider.notifier).updateName(_ctrl.text.trim());
+      // New patient account established — record consent to the current legal
+      // document versions (append-only, DPDP accountability). Best-effort.
+      await CharakLegal.recordConsents();
       if (mounted) context.go('/home');
     } on ApiException catch (e) {
       setState(() => _error = e.message);

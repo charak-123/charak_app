@@ -8,6 +8,7 @@ export 'design/motion.dart';
 export 'network/api_client.dart';
 export 'network/charak_poller.dart';
 export 'auth/auth_service.dart';
+export 'legal.dart';
 export 'call/charak_call_session.dart';
 export 'push/charak_push.dart';
 

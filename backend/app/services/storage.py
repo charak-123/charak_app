@@ -140,6 +140,24 @@ def public_url(bucket: str, path: str) -> str:
     return supabase.storage.from_(bucket).get_public_url(path)
 
 
+def thumb_url(bucket: str, path: str, width: int = 256, height: int = 256) -> str:
+    """
+    A resized, cacheable render URL for a public image.
+
+    Uses Supabase Storage's image-transform render endpoint so the apps download
+    a small thumbnail (a directory list of doctor photos) instead of full-size
+    originals — the single biggest data saving on a mobile directory screen.
+    Falls back to the untransformed public URL if the path is empty.
+    """
+    base = public_url(bucket, path)
+    if not path:
+        return base
+    # /object/public/<...>  →  /render/image/public/<...>?width=&height=&resize=cover
+    render = base.replace("/object/public/", "/render/image/public/")
+    sep = "&" if "?" in render else "?"
+    return f"{render}{sep}width={width}&height={height}&resize=cover&quality=75"
+
+
 def signed_url(bucket: str, path: str, ttl: int = SIGNED_URL_TTL_SECONDS) -> str:
     """
     Short-lived read URL for a private object.

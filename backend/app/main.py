@@ -8,7 +8,7 @@ from postgrest.exceptions import APIError
 
 from .errors import AppError, app_error_handler, db_error_handler
 from .routers import (
-    addresses, admin, auth, bookings, calls, categories, complaints, doctors,
+    addresses, admin, auth, bookings, calls, categories, complaints, consents, doctors,
     earnings, intake, maintenance, notifications, payments, payouts,
     procedure_bills, push, ratings, schedules, slot_blocks, uploads, users,
 )
@@ -40,6 +40,7 @@ app.add_exception_handler(APIError, db_error_handler)
 
 app.include_router(auth.router,             prefix="/auth",             tags=["auth"])
 app.include_router(categories.router,       prefix="/categories",       tags=["categories"])
+app.include_router(consents.router,         prefix="/consents",         tags=["consents"])
 app.include_router(doctors.router,          prefix="/doctors",          tags=["doctors"])
 app.include_router(schedules.router,        prefix="/schedules",        tags=["schedules"])
 app.include_router(slot_blocks.router,      prefix="/slot-blocks",      tags=["slot-blocks"])

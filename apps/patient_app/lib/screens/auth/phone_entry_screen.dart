@@ -38,6 +38,18 @@ class _State extends ConsumerState<PhoneEntryScreen> {
     }
   }
 
+  Future<void> _demoLogin() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      await ref.read(authProvider.notifier).demoLogin('patient');
+      if (mounted) context.go('/home');
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: CharakColors.ground,
@@ -48,7 +60,10 @@ class _State extends ConsumerState<PhoneEntryScreen> {
             // `.body` with the screen's 26px top inset.
             padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Your phone number', style: charakScreenTitleStyle),
+              GestureDetector(
+                onLongPress: _demoLogin,          // store-review access (hidden)
+                child: Text('Your phone number', style: charakScreenTitleStyle),
+              ),
               const SizedBox(height: 5),
               Text(
                 "We'll send a one-time code to verify it's you.",
@@ -73,6 +88,8 @@ class _State extends ConsumerState<PhoneEntryScreen> {
                 onChanged: (_) => setState(() => _error = null),
                 onSubmitted: (_) { if (_valid) _send(); },
               ),
+              const SizedBox(height: 20),
+              const Center(child: CharakLegalFooter()),
             ]),
           ),
         ),

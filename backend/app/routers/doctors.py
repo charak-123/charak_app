@@ -5,7 +5,7 @@ from pydantic import BaseModel, field_validator
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
-from ..services import erasure, geo
+from ..services import erasure, geo, storage
 
 router = APIRouter()
 
@@ -165,8 +165,13 @@ _PRIVATE_DOCTOR_FIELDS = {
 
 
 def _public_doctor(doctor: dict) -> dict:
-    """Strip private columns from a doctor row before returning it publicly."""
-    return {k: v for k, v in doctor.items() if k not in _PRIVATE_DOCTOR_FIELDS}
+    """Strip private columns from a doctor row, adding a small photo thumbnail."""
+    out = {k: v for k, v in doctor.items() if k not in _PRIVATE_DOCTOR_FIELDS}
+    if doctor.get("photo_path"):
+        out["photo_thumb_url"] = storage.thumb_url(
+            storage.BUCKET_DOCTOR_PHOTOS, doctor["photo_path"]
+        )
+    return out
 
 
 @router.get("/search")

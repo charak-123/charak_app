@@ -107,6 +107,16 @@ class ProfileTab extends ConsumerWidget {
                   onTap: () => showCharakToast(context, message: 'Help centre — coming in full build'),
                 ),
                 CharakListRow(
+                  icon: Icons.privacy_tip_outlined,
+                  title: 'Privacy policy',
+                  onTap: () => CharakLegal.open(CharakLegal.privacyUrl),
+                ),
+                CharakListRow(
+                  icon: Icons.description_outlined,
+                  title: 'Terms of service',
+                  onTap: () => CharakLegal.open(CharakLegal.termsUrl),
+                ),
+                CharakListRow(
                   icon: Icons.logout_rounded,
                   title: 'Log out',
                   titleColor: CharakColors.danger,

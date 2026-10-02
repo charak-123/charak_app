@@ -16,6 +16,7 @@ from jose import jwt
 from pydantic import BaseModel, field_validator
 
 from ..config import (
+    DEMO_LOGIN_ENABLED,
     JWT_SECRET,
     MSG91_API_KEY,
     MSG91_SENDER_ID,
@@ -153,3 +154,46 @@ def verify_otp(req: VerifyOTPRequest):
         "is_new": not row.get("name"),
         "reactivated": reactivated,
     }
+
+
+class DemoLoginRequest(BaseModel):
+    role: str = "patient"
+
+    @field_validator("role")
+    @classmethod
+    def _check_role(cls, v: str) -> str:
+        if v not in ("patient", "doctor"):
+            raise ValueError("role must be 'patient' or 'doctor'")
+        return v
+
+
+# Seeded demo accounts for store review. The numbers are reserved test values
+# (ITU +99 range) that can never be a real Indian subscriber.
+_DEMO_ACCOUNTS = {
+    "patient": {"phone": "+999000000001", "name": "Demo Patient"},
+    "doctor":  {"phone": "+999000000002", "name": "Demo Doctor"},
+}
+
+
+@router.post("/demo-login")
+def demo_login(req: DemoLoginRequest):
+    """
+    Password-less login to a seeded demo account, for App Store / Play review.
+
+    Disabled unless DEMO_LOGIN_ENABLED is set, so it cannot be used against a
+    public production deployment. Reviewers can't receive the SMS OTP; this is
+    how they get in. Put the role in the review notes.
+    """
+    if not DEMO_LOGIN_ENABLED:
+        raise AppError("Demo login is not enabled on this deployment", 403)
+
+    demo = _DEMO_ACCOUNTS[req.role]
+    table = "doctors" if req.role == "doctor" else "users"
+    result = (
+        supabase.table(table)
+        .upsert({"phone": demo["phone"], "name": demo["name"], "otp_verified": True},
+                on_conflict="phone")
+        .execute()
+    )
+    row = result.data[0]
+    return {"token": _issue_jwt(row["id"], req.role), "user": row, "is_new": False}

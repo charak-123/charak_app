@@ -94,6 +94,7 @@ _ROUTER_SUPABASE_PATHS = [
     "app.routers.doctors.supabase",
     "app.routers.auth.supabase",
     "app.routers.categories.supabase",
+    "app.routers.consents.supabase",
     "app.routers.schedules.supabase",
     "app.routers.slot_blocks.supabase",
     "app.routers.ratings.supabase",
