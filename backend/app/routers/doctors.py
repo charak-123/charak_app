@@ -230,6 +230,18 @@ def search_doctors(
     if min_rating > 0:
         query = query.gte("rating_avg", min_rating)
 
+    # Push a bounding-box pre-filter into SQL for distance-constrained searches,
+    # so Postgres (using idx_doctors_base_latlng) returns only doctors near the
+    # patient instead of every verified doctor for Python to filter. The box is
+    # deliberately over-selective — exact distance is still refined below — and
+    # is only applied when a radius is given, so the plain directory is unchanged.
+    if lat is not None and max_distance_km is not None:
+        box = geo.bounding_box(lat, lng, max_distance_km)
+        query = (
+            query.gte("base_lat", box["lat_min"]).lte("base_lat", box["lat_max"])
+                 .gte("base_lng", box["lng_min"]).lte("base_lng", box["lng_max"])
+        )
+
     results = query.order("rating_avg", desc=True).execute().data
 
     # Post-filter by category name (Supabase join filter is limited in python SDK)

@@ -123,3 +123,15 @@ def test_public_profile_does_not_leak_private_doctor_columns():
         res = client.get("/doctors/doc-1")
     assert res.status_code == 200
     assert _LEAKS.isdisjoint(res.json().keys())
+
+
+def test_distance_search_applies_a_bounding_box_prefilter_in_sql():
+    """A radius-constrained search must narrow base_lat/base_lng in SQL, not
+    pull every doctor into Python."""
+    doctors = make_chain(list_data=[VERIFIED])
+    with patch(DOCTORS_DB, make_supabase({"doctors": doctors})):
+        res = client.get("/doctors/search?lat=19.07&lng=72.87&max_distance_km=5")
+    assert res.status_code == 200
+    bounded = {c.args[0] for c in doctors.gte.call_args_list} | \
+              {c.args[0] for c in doctors.lte.call_args_list}
+    assert {"base_lat", "base_lng"}.issubset(bounded)

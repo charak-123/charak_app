@@ -2,6 +2,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from postgrest.exceptions import APIError
 
@@ -27,6 +28,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Compress JSON list responses (directory search, history, ledger). Mobile data
+# is the constraint for patients, and these payloads gzip to a fraction.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.add_exception_handler(AppError, app_error_handler)
 # Malformed path ids reach the driver as invalid uuid input; without this they
