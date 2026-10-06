@@ -16,6 +16,12 @@ RAZORPAY_KEY_ID     = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 
+# ── Google Sign-In ───────────────────────────────────────────────────────────
+# OAuth client ids whose Google ID tokens the backend accepts, comma-separated.
+# The apps request tokens for the *Web* client (serverClientId), so that one id
+# is normally all that is needed. Empty disables POST /auth/google.
+GOOGLE_CLIENT_IDS = [c.strip() for c in os.getenv("GOOGLE_CLIENT_IDS", "").split(",") if c.strip()]
+
 AGORA_APP_ID          = os.getenv("AGORA_APP_ID", "")
 AGORA_APP_CERTIFICATE = os.getenv("AGORA_APP_CERTIFICATE", "")
 

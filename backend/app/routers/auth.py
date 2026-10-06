@@ -1,5 +1,8 @@
 """
-Phone + OTP authentication.
+Authentication: Google Sign-In, and phone + OTP.
+
+Google Sign-In is the live path until DLT approval lets MSG91 deliver SMS; the
+OTP endpoints stay so phone login can come back without a migration.
 
 OTP state lives in the ``otp_codes`` table (see ``services/otp_store.py``), not
 in process memory, so login survives restarts and works behind more than one
@@ -12,11 +15,14 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from jose import jwt
 from pydantic import BaseModel, field_validator
 
 from ..config import (
     DEMO_LOGIN_ENABLED,
+    GOOGLE_CLIENT_IDS,
     JWT_SECRET,
     MSG91_API_KEY,
     MSG91_SENDER_ID,
@@ -24,6 +30,7 @@ from ..config import (
 )
 from ..db import supabase
 from ..errors import AppError
+from ..phone import normalize_e164
 from ..services import otp_store, erasure
 
 router = APIRouter()
@@ -38,11 +45,7 @@ class SendOTPRequest(BaseModel):
     @field_validator("phone")
     @classmethod
     def _check_phone(cls, v: str) -> str:
-        v = v.strip().replace(" ", "")
-        digits = v.lstrip("+")
-        if not v.startswith("+") or not digits.isdigit() or not (10 <= len(digits) <= 15):
-            raise ValueError("phone must be E.164, e.g. +919876543210")
-        return v
+        return normalize_e164(v)
 
     @field_validator("role")
     @classmethod
@@ -139,8 +142,11 @@ def verify_otp(req: VerifyOTPRequest):
     if not result.data:
         raise AppError("Could not create your account. Please try again.", 500)
 
-    row = result.data[0]
+    return _session(result.data[0], role)
 
+
+def _session(row: dict, role: str) -> dict:
+    """The login response shared by every sign-in method."""
     # Logging back in during the grace window cancels a pending self-deletion.
     reactivated = False
     if role == "patient" and row.get("deleted_at"):
@@ -151,9 +157,58 @@ def verify_otp(req: VerifyOTPRequest):
     return {
         "token": _issue_jwt(row["id"], role),
         "user": row,
-        "is_new": not row.get("name"),
+        # A Google account arrives without a phone, so the profile step (name +
+        # phone) is still owed until both are set.
+        "is_new": not row.get("name") or not row.get("phone"),
         "reactivated": reactivated,
     }
+
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def _check_role(cls, v: str) -> str:
+        if v not in ("patient", "doctor"):
+            raise ValueError("role must be 'patient' or 'doctor'")
+        return v
+
+
+_google_request = google_requests.Request()
+
+
+@router.post("/google")
+def google_login(req: GoogleLoginRequest):
+    """
+    Sign in with a Google ID token minted by the app for our Web client id.
+
+    The account is keyed by Google's `sub` (stable for the life of the Google
+    account), never by email. A token for any other client id is rejected, so a
+    token from some unrelated app cannot be replayed here.
+    """
+    if not GOOGLE_CLIENT_IDS:
+        raise AppError("Google sign-in is not configured on this server", 503)
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            req.id_token, _google_request, audience=GOOGLE_CLIENT_IDS
+        )
+    except ValueError:
+        raise AppError("Google sign-in failed. Please try again.", 401)
+    if not claims.get("email_verified"):
+        raise AppError("Your Google account's email is not verified.", 401)
+
+    table = "doctors" if req.role == "doctor" else "users"
+    result = (
+        supabase.table(table)
+        .upsert({"google_sub": claims["sub"], "email": claims.get("email")},
+                on_conflict="google_sub")
+        .execute()
+    )
+    if not result.data:
+        raise AppError("Could not create your account. Please try again.", 500)
+    return _session(result.data[0], req.role)
 
 
 class DemoLoginRequest(BaseModel):

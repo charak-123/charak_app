@@ -18,3 +18,4 @@ razorpay==1.4.2
 agora-token-builder==1.0.0
 # FCM HTTP v1 push (FCM_PROJECT_ID / GOOGLE_APPLICATION_CREDENTIALS)
 google-auth==2.41.1
+requests==2.34.2

@@ -1,0 +1,33 @@
+# Free-tier Supabase projects pause after about a week without activity. This
+# reads one row from the public `categories` table every other day so the
+# project never idles. It stops mattering once the app has steady traffic or
+# the project moves to a paid plan.
+#
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL        e.g. https://xxxx.supabase.co
+#   SUPABASE_ANON_KEY   the project's anon (public) key
+name: supabase-keepalive
+
+on:
+  schedule:
+    - cron: "17 3 */2 * *"      # 03:17 UTC every other day
+  workflow_dispatch: {}          # lets you run it by hand from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/out -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/categories?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "HTTP $code"
+          # A paused project answers with an error instead of 200, which fails
+          # the run, so GitHub emails you.
+          [ "$code" = "200" ]

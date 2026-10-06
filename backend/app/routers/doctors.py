@@ -1,10 +1,12 @@
 from typing import Optional
 from fastapi import APIRouter, Depends
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, field_validator
 
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
+from ..phone import normalize_e164
 from ..services import erasure, geo, storage
 
 router = APIRouter()
@@ -23,6 +25,13 @@ class DoctorProfileUpdate(BaseModel):
     base_lng: Optional[float]                = None
     service_radius_km: Optional[int]         = None
     procedure_review_threshold: Optional[float] = None
+    # Collected on the profile step after Google sign-in. Not OTP-verified.
+    phone: Optional[str]                     = None
+
+    @field_validator("phone")
+    @classmethod
+    def _check_phone(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_e164(v) if v is not None else None
 
 
 @router.get("/me")
@@ -40,7 +49,12 @@ def update_profile(body: DoctorProfileUpdate, user: dict = Depends(require_docto
         raise AppError("No fields to update", 400)
     if "service_radius_km" in data and data["service_radius_km"] not in (2, 3, 5):
         raise AppError("service_radius_km must be 2, 3, or 5", 400)
-    result = supabase.table("doctors").update(data).eq("id", user["sub"]).execute()
+    try:
+        result = supabase.table("doctors").update(data).eq("id", user["sub"]).execute()
+    except APIError as exc:
+        if getattr(exc, "code", None) == "23505":
+            raise AppError("This phone number is already linked to another account.", 409)
+        raise
     return result.data[0]
 
 

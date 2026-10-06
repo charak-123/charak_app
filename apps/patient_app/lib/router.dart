@@ -5,6 +5,7 @@ import 'package:charak_core/charak_core.dart';
 import 'screens/splash_screen.dart';
 import 'push_routes.dart';
 import 'screens/auth/phone_entry_screen.dart';
+import 'screens/auth/sign_in_screen.dart';
 import 'screens/auth/otp_screen.dart';
 import 'screens/auth/name_entry_screen.dart';
 import 'screens/home/home_shell.dart';
@@ -51,7 +52,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   // the user back to login rather than stranding them on an error.
   ApiClient.onUnauthorized = () {
     ref.read(authProvider.notifier).logout();
-    router.go('/auth/phone');
+    router.go('/auth/sign-in');
   };
 
   // `ref.read`, not `ref.watch` — see apps/doctor_app/lib/router.dart for why:
@@ -64,11 +65,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth     = ref.read(authProvider);
       final isAuth   = state.matchedLocation.startsWith('/auth');
       final isSplash = state.matchedLocation == '/';
-      if (!auth.isAuthenticated && !isAuth && !isSplash) return '/auth/phone';
+      if (!auth.isAuthenticated && !isAuth && !isSplash) return '/auth/sign-in';
       return null;
     },
     routes: [
       GoRoute(path: '/',                     pageBuilder: (_, __) => _rise(const SplashScreen())),
+      GoRoute(path: '/auth/sign-in',          pageBuilder: (_, __) => _push(const SignInScreen())),
+      // Phone + OTP: back once DLT approval lets MSG91 deliver SMS.
       GoRoute(path: '/auth/phone',           pageBuilder: (_, __) => _push(const PhoneEntryScreen())),
       GoRoute(path: '/auth/otp',
           pageBuilder: (_, s) => _push(OtpScreen(phone: s.extra as String))),

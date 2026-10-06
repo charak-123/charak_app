@@ -15,7 +15,7 @@ import { StatusPill } from '@/components/status'
 interface PendingDoctor {
   id: string
   name: string
-  phone: string
+  phone: string | null
   license_number: string
   verification_document_url: string | null
   created_at: string

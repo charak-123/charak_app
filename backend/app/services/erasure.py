@@ -40,7 +40,7 @@ def request_patient_deletion(user_id: str) -> dict:
 
     # Transient personal data that need not survive the grace window at all.
     user = supabase.table("users").select("phone").eq("id", user_id).execute().data
-    if user:
+    if user and user[0].get("phone"):
         supabase.table("otp_codes").delete().eq("phone", user[0]["phone"]).execute()
     supabase.table("notifications").delete().eq("recipient_id", user_id).execute()
 
@@ -129,10 +129,13 @@ def purge_patient(user_id: str) -> None:
     # 4. Saved addresses: pure PII, no retention basis → hard delete.
     supabase.table("patient_addresses").delete().eq("patient_id", user_id).execute()
 
-    # 5. The identity itself. phone is NOT NULL UNIQUE, so it becomes a tombstone
-    #    sentinel that frees the real number for a fresh signup.
+    # 5. The identity itself. phone becomes a tombstone sentinel that frees the
+    #    real number for a fresh signup; the Google link and email go too, so the
+    #    same Google account signs up afresh instead of landing on this row.
     supabase.table("users").update({
         "phone": f"deleted:{user_id}",
+        "email": None,
+        "google_sub": None,
         "name": None,
         "fcm_token": None,
         "otp_verified": False,
@@ -189,6 +192,8 @@ def purge_doctor(doctor_id: str) -> None:
 
     supabase.table("doctors").update({
         "phone": f"deleted:{doctor_id}",
+        "email": None,
+        "google_sub": None,
         "name": None,
         "bio": None,
         "photo_url": None,

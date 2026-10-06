@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from postgrest.exceptions import APIError
+from pydantic import BaseModel, field_validator
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_patient
+from ..errors import AppError
+from ..phone import normalize_e164
 from ..services import erasure
 
 router = APIRouter()
@@ -9,6 +12,13 @@ router = APIRouter()
 
 class UserUpdate(BaseModel):
     name: str | None = None
+    # Collected on the profile step after Google sign-in. Not OTP-verified.
+    phone: str | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def _check_phone(cls, v: str | None) -> str | None:
+        return normalize_e164(v) if v is not None else None
 
 
 @router.get("/me")
@@ -19,7 +29,12 @@ def get_me(user: dict = Depends(get_current_user)):
 @router.patch("/me")
 def update_me(body: UserUpdate, user: dict = Depends(get_current_user)):
     data = body.model_dump(exclude_none=True)
-    result = supabase.table("users").update(data).eq("id", user["sub"]).execute()
+    try:
+        result = supabase.table("users").update(data).eq("id", user["sub"]).execute()
+    except APIError as exc:
+        if getattr(exc, "code", None) == "23505":
+            raise AppError("This phone number is already linked to another account.", 409)
+        raise
     return result.data[0]
 
 

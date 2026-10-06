@@ -20,7 +20,7 @@ import { SERIES } from '@/lib/chart-theme'
 interface Doctor {
   id: string
   name: string
-  phone: string
+  phone: string | null
   category_id: string | null
   category_name?: string | null
   verification_status: 'pending' | 'verified' | 'rejected'
@@ -66,7 +66,7 @@ export default function DirectoryOversight() {
   const filtered = rows.filter(d => {
     if (!search.trim()) return true
     const q = search.toLowerCase()
-    return d.name.toLowerCase().includes(q) || d.phone.includes(q)
+    return d.name.toLowerCase().includes(q) || (d.phone ?? '').includes(q)
   })
 
   const count = (s: Doctor['verification_status']) =>

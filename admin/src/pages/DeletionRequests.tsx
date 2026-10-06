@@ -13,7 +13,7 @@ import { MetaChip } from '@/components/status'
 type DeletionRequest = {
   id: string
   name: string | null
-  phone: string
+  phone: string | null
   deletion_requested_at: string
   deletion_status: string
 }

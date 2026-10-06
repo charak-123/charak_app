@@ -8,8 +8,8 @@
 #                                          # passed straight to `flutter run`
 #
 # The apps no longer talk to Supabase directly — they authenticate with a
-# FastAPI JWT and reach everything through the backend, so API_BASE_URL is the
-# only define they need. A phone on Wi-Fi cannot reach the host's localhost, so
+# FastAPI JWT and reach everything through the backend, so API_BASE_URL (plus
+# the Google client id, read from backend/.env) is all they need. A phone on Wi-Fi cannot reach the host's localhost, so
 # it defaults to this machine's LAN address rather than 10.0.2.2 (which is
 # emulator-only).
 set -euo pipefail
@@ -34,8 +34,15 @@ if [[ -z "${API_BASE_URL:-}" ]]; then
   API_BASE_URL="http://$LAN_IP:8000"
 fi
 
+# Google Sign-In wants the *Web* OAuth client id, the same one the backend
+# checks tokens against, so default to the first id in backend/.env.
+if [[ -z "${GOOGLE_SERVER_CLIENT_ID:-}" && -f "$ROOT/backend/.env" ]]; then
+  GOOGLE_SERVER_CLIENT_ID="$(sed -n 's/^GOOGLE_CLIENT_IDS=//p' "$ROOT/backend/.env" | cut -d, -f1 | tr -d ' ')"
+fi
+
 echo "app          : $APP"
 echo "API_BASE_URL : $API_BASE_URL"
+echo "Google client: ${GOOGLE_SERVER_CLIENT_ID:-<unset: Google sign-in disabled>}"
 echo
 
 # Fail early and clearly rather than after a two-minute build.
@@ -49,4 +56,5 @@ fi
 cd "$APP_DIR"
 exec flutter run \
   --dart-define=API_BASE_URL="$API_BASE_URL" \
+  --dart-define=GOOGLE_SERVER_CLIENT_ID="${GOOGLE_SERVER_CLIENT_ID:-}" \
   "$@"

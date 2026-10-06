@@ -21,6 +21,7 @@ class ProfileSetupScreen extends ConsumerStatefulWidget {
 class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   final _nameCtrl = TextEditingController();
   final _bioCtrl  = TextEditingController();
+  final _phoneCtrl = TextEditingController();
   String? _categoryId;
   File?   _photo;
   bool    _loading = false;
@@ -30,6 +31,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _bioCtrl.dispose();
+    _phoneCtrl.dispose();
     super.dispose();
   }
 
@@ -49,8 +51,15 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   // The photo is optional: the wireframe's Continue is ungated, and
   // CharakAvatar falls back to toned initials wherever a doctor has no image,
   // so a missing photo degrades cleanly instead of blocking onboarding.
+  // A doctor who signed in with Google has no number yet; one who came in by
+  // OTP already has a verified one.
+  late final bool _needsPhone =
+      (ref.read(authProvider).user?['phone'] as String?)?.isNotEmpty != true;
+  String get _phoneDigits => _phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
+
   bool get _valid =>
-      _nameCtrl.text.trim().length >= 2 && _categoryId != null;
+      _nameCtrl.text.trim().length >= 2 && _categoryId != null &&
+      (!_needsPhone || _phoneDigits.length == 10);
 
   Future<void> _submit() async {
     setState(() { _loading = true; _error = null; });
@@ -59,6 +68,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
         'name': _nameCtrl.text.trim(),
         'category_id': _categoryId,
         'bio': _bioCtrl.text.trim(),
+        if (_needsPhone) 'phone': '+91$_phoneDigits',
       });
 
       final photo = _photo;
@@ -120,6 +130,15 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                     CharakInput(label: 'Full name', placeholder: 'Dr. Aarav Mehta',
                         controller: _nameCtrl, onChanged: (_) => setState(() {})),
                     const SizedBox(height: 12),
+
+                    if (_needsPhone) ...[
+                      CharakInput(label: 'Mobile number', placeholder: '98200 11223',
+                          description: 'Patients and Charak ops use this to reach you.',
+                          keyboardType: TextInputType.phone,
+                          leading: Text('+91', style: CharakText.body.tabular),
+                          controller: _phoneCtrl, onChanged: (_) => setState(() {})),
+                      const SizedBox(height: 12),
+                    ],
 
                     Text('Specialty', style: _fieldLabel),
                     const SizedBox(height: 7),

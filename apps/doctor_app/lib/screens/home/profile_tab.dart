@@ -131,7 +131,7 @@ class ProfileTab extends ConsumerWidget {
                     );
                     if (confirm && context.mounted) {
                       await ref.read(authProvider.notifier).logout();
-                      if (context.mounted) context.go('/auth/phone');
+                      if (context.mounted) context.go('/auth/sign-in');
                     }
                   },
                 ),
@@ -158,7 +158,7 @@ class ProfileTab extends ConsumerWidget {
                     if (!confirm || !context.mounted) return;
                     try {
                       await ref.read(authProvider.notifier).requestDoctorDeletion();
-                      if (context.mounted) context.go('/auth/phone');
+                      if (context.mounted) context.go('/auth/sign-in');
                     } catch (e) {
                       if (context.mounted) {
                         showCharakToast(context, message: 'Could not submit your request: $e');

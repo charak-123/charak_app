@@ -21,7 +21,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     if (!mounted) return;
     final auth = ref.read(authProvider);
     if (!auth.isAuthenticated) {
-      context.go('/auth/phone');
+      context.go('/auth/sign-in');
       return;
     }
     // Check if profile is complete (name set)

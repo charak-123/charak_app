@@ -25,7 +25,7 @@ type Booking = {
   status: BookingStatus
   created_at: string
   price_confirmed?: number | null
-  users: { name: string; phone: string }
+  users: { name: string; phone: string | null }
   doctors: { name: string }
 }
 

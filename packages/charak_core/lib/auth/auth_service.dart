@@ -1,8 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../network/api_client.dart';
 import 'token_store.dart';
 import '../push/charak_push.dart';
+
+/// The *Web* OAuth client id. Google mints the ID token for this audience, and
+/// the backend only accepts tokens for it (GOOGLE_CLIENT_IDS).
+const String _kGoogleServerClientId =
+    String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
 
 class AuthState {
   final String? token;
@@ -13,6 +19,7 @@ class AuthState {
 
   bool get isAuthenticated => token != null;
   bool get hasProfile => user?['name'] != null && (user!['name'] as String).isNotEmpty;
+  String? get email => user?['email'] as String?;
 
   AuthState copyWith({String? token, Map<String, dynamic>? user, bool? isLoading}) =>
       AuthState(
@@ -50,6 +57,42 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Returns true if the user is new (no name set yet).
   Future<bool> verifyOtp(String phone, String code, String role) async {
     final res = await _api.post('/auth/verify-otp', {'phone': phone, 'code': code, 'role': role}) as Map<String, dynamic>;
+    return _establish(res);
+  }
+
+  bool _googleReady = false;
+
+  /// Sign in with Google. Returns whether the profile step (name + phone) is
+  /// still owed, or null if the person closed the account picker.
+  Future<bool?> signInWithGoogle(String role) async {
+    if (_kGoogleServerClientId.isEmpty) {
+      throw const ApiException(
+          'Google sign-in is not set up in this build (GOOGLE_SERVER_CLIENT_ID).', 0);
+    }
+    final google = GoogleSignIn.instance;
+    if (!_googleReady) {
+      await google.initialize(serverClientId: _kGoogleServerClientId);
+      _googleReady = true;
+    }
+    final GoogleSignInAccount account;
+    try {
+      account = await google.authenticate();
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) return null;
+      throw ApiException('Google sign-in failed. Please try again.', 0);
+    }
+    final idToken = account.authentication.idToken;
+    if (idToken == null) {
+      throw const ApiException('Google sign-in failed. Please try again.', 0);
+    }
+    final res = await _api.post('/auth/google', {'id_token': idToken, 'role': role})
+        as Map<String, dynamic>;
+    return _establish(res);
+  }
+
+  /// Store the session from any login response and say whether the profile
+  /// step is still owed.
+  Future<bool> _establish(Map<String, dynamic> res) async {
     final prefs = await SharedPreferences.getInstance();
     await TokenStore.instance.write(res['token'] as String);
     final userMap = res['user'] as Map<String, dynamic>;
@@ -64,11 +107,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return res['is_new'] as bool? ?? false;
   }
 
-  Future<void> updateName(String name) async {
-    await _api.patch('/users/me', {'name': name});
+  /// Patient profile step. [phone] is E.164 and, after Google sign-in, not
+  /// OTP-verified.
+  Future<void> updateProfile({required String name, String? phone}) async {
+    await _api.patch('/users/me', {'name': name, if (phone != null) 'phone': phone});
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_name', name);
-    state = state.copyWith(user: {...?state.user, 'name': name});
+    state = state.copyWith(user: {
+      ...?state.user, 'name': name, if (phone != null) 'phone': phone,
+    });
   }
 
   /// Delete the patient's own account (self-serve erasure).
@@ -81,15 +128,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<bool> demoLogin(String role) async {
     final res = await _api.post('/auth/demo-login', {'role': role})
         as Map<String, dynamic>;
-    final prefs = await SharedPreferences.getInstance();
-    await TokenStore.instance.write(res['token'] as String);
-    final userMap = res['user'] as Map<String, dynamic>;
-    await prefs.setString('user_id', userMap['id'] as String);
-    if (userMap['name'] != null) {
-      await prefs.setString('user_name', userMap['name'] as String);
-    }
-    state = AuthState(token: res['token'] as String, user: userMap);
-    CharakPush.instance.start();
+    await _establish(res);
     return true;
   }
 
@@ -107,6 +146,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> _teardownSession() async {
     await CharakPush.instance.stop();
+    // So the next sign-in offers the account picker instead of silently
+    // reusing the last Google account. Harmless if Google was never used.
+    if (_googleReady) {
+      try { await GoogleSignIn.instance.signOut(); } catch (_) {}
+    }
     final prefs = await SharedPreferences.getInstance();
     await TokenStore.instance.clear();
     await prefs.remove('user_id');

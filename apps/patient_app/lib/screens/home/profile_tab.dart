@@ -78,7 +78,7 @@ class ProfileTab extends ConsumerWidget {
               showChevron: false,
               onTap: () async {
                 await ref.read(authProvider.notifier).logout();
-                if (context.mounted) context.go('/auth/phone');
+                if (context.mounted) context.go('/auth/sign-in');
               },
             ),
             CharakListRow(
@@ -111,7 +111,7 @@ class ProfileTab extends ConsumerWidget {
     if (!confirmed || !context.mounted) return;
     try {
       await ref.read(authProvider.notifier).deleteAccount();
-      if (context.mounted) context.go('/auth/phone');
+      if (context.mounted) context.go('/auth/sign-in');
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
