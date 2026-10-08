@@ -21,6 +21,7 @@ from jose import jwt
 from pydantic import BaseModel, field_validator
 
 from ..config import (
+    ALLOW_OTP_STUB,
     DEMO_LOGIN_ENABLED,
     GOOGLE_CLIENT_IDS,
     JWT_SECRET,
@@ -109,6 +110,10 @@ async def _send_sms(phone: str, code: str) -> None:
 
 @router.post("/send-otp")
 async def send_otp(req: SendOTPRequest):
+    # No SMS gateway and no explicit dev opt-in: refuse up front rather than
+    # issue a code that only the server log will ever see.
+    if not MSG91_API_KEY and not ALLOW_OTP_STUB:
+        raise AppError("Phone sign-in is not available. Continue with Google.", 503)
     if otp_store.sends_in_last_hour(req.phone) >= otp_store.MAX_SENDS_PER_HOUR:
         raise AppError("Too many OTP requests. Try again in an hour.", 429)
 

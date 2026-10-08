@@ -70,6 +70,11 @@ PAYMENT_MAX_ATTEMPTS = int(os.getenv("PAYMENT_MAX_ATTEMPTS", "6"))
 # a production deploy that simply forgot to set keys would accept free payments.
 ALLOW_INSECURE_PAYMENTS = os.getenv("ALLOW_INSECURE_PAYMENTS", "").lower() in ("1", "true", "yes")
 
+# Explicit opt-in for printing OTP codes to the server log instead of sending
+# them by SMS. Local development only. Without it, and without MSG91 keys, phone
+# sign-in is switched off (send-otp returns 503) — the apps sign in with Google.
+ALLOW_OTP_STUB = os.getenv("ALLOW_OTP_STUB", "").lower() in ("1", "true", "yes")
+
 # ── Ops ──────────────────────────────────────────────────────────────────────
 # No fallback: a missing/empty ADMIN_PASSWORD disables admin login entirely
 # rather than silently accepting a well-known default. admin_login fails closed

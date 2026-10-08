@@ -159,7 +159,8 @@ def test_expiry_parsing_tolerates_microseconds_and_z_suffix():
 def test_send_otp_persists_a_code_and_reports_the_ttl():
     otp_chain = make_chain(list_data=[])
     db = make_supabase({"otp_codes": otp_chain})
-    with patch(STORE_DB, db), patch("app.routers.auth.MSG91_API_KEY", ""):
+    with patch(STORE_DB, db), patch("app.routers.auth.MSG91_API_KEY", ""), \
+         patch("app.routers.auth.ALLOW_OTP_STUB", True):
         res = client.post("/auth/send-otp", json={"phone": "+919876543210", "role": "patient"})
 
     assert res.status_code == 200
@@ -174,11 +175,24 @@ def test_send_otp_rate_limits_per_hour_across_workers():
     uvicorn worker sees the same budget."""
     recent = [{"id": f"o{i}"} for i in range(otp_store.MAX_SENDS_PER_HOUR)]
     db = make_supabase({"otp_codes": make_chain(list_data=recent)})
-    with patch(STORE_DB, db), patch("app.routers.auth.MSG91_API_KEY", ""):
+    with patch(STORE_DB, db), patch("app.routers.auth.MSG91_API_KEY", ""), \
+         patch("app.routers.auth.ALLOW_OTP_STUB", True):
         res = client.post("/auth/send-otp", json={"phone": "+919876543210", "role": "patient"})
 
     assert res.status_code == 429
     assert "Try again in an hour" in res.json()["error"]
+
+
+def test_send_otp_is_off_without_a_gateway_or_dev_opt_in():
+    """A deployment with no MSG91 key must not mint codes into the server log."""
+    otp_chain = make_chain(list_data=[])
+    with patch(STORE_DB, make_supabase({"otp_codes": otp_chain})), \
+         patch("app.routers.auth.MSG91_API_KEY", ""), \
+         patch("app.routers.auth.ALLOW_OTP_STUB", False):
+        res = client.post("/auth/send-otp", json={"phone": "+919876543210", "role": "patient"})
+
+    assert res.status_code == 503
+    otp_chain.insert.assert_not_called()
 
 
 @pytest.mark.parametrize("phone", ["9876543210", "+91 98765", "+abcdefghij", "", "+9198765432100000"])
