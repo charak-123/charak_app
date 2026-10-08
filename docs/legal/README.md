@@ -1,16 +1,23 @@
 # Charak legal documents
 
-**Status: DRAFT for legal review. Not legal advice.** These are first drafts
-prepared to cover App Store / Play and India DPDP + Telemedicine Practice
-Guidelines 2020 requirements. A qualified lawyer must review and finalise them,
-and confirm the retention periods, grievance-officer details and any
-state-specific medical-record rules before publication.
+**The published text lives in the website repo** (`charak site`,
+`src/pages/Legal.jsx`) and is served at:
 
-Replace every `[BRACKETED]` placeholder. Host the finalised versions at stable
-public URLs and set these in the apps:
+- https://www.charak.care/privacy
+- https://www.charak.care/terms
+- https://www.charak.care/telemedicine
+- https://www.charak.care/disclaimer
 
-- `privacyPolicyUrl` / `termsUrl` / `telemedicineConsentUrl` in
-  `packages/charak_core/lib/legal.dart`.
+Those pages cover the website and both apps. The markdown files in this folder
+are the earlier app-only drafts, kept for reference; edit the website, not these.
 
-When a document changes materially, bump its version in `backend/app/config.py`
-(`LEGAL_*_VERSION`); the apps then re-request consent and record the new version.
+**Status: DRAFT for legal review. Not legal advice.** A qualified lawyer must
+review the text and confirm the retention periods, grievance-officer details and
+any state-specific medical-record rules. Fill in the `ENTITY` placeholders at
+the top of `Legal.jsx` before launch.
+
+The apps link to these URLs through `CharakLegal` in
+`packages/charak_core/lib/legal.dart` (overridable with `--dart-define`).
+When a document changes materially, bump its version there and in
+`backend/app/config.py` (`LEGAL_*_VERSION`); the apps then re-request consent
+and record the new version.

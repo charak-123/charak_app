@@ -11,11 +11,14 @@ import 'network/api_client.dart';
 /// together when a document changes materially.
 class CharakLegal {
   static const privacyUrl = String.fromEnvironment(
-      'PRIVACY_URL', defaultValue: 'https://charak.app/privacy');
+      'PRIVACY_URL', defaultValue: 'https://www.charak.care/privacy');
   static const termsUrl = String.fromEnvironment(
-      'TERMS_URL', defaultValue: 'https://charak.app/terms');
+      'TERMS_URL', defaultValue: 'https://www.charak.care/terms');
   static const telemedicineUrl = String.fromEnvironment(
-      'TELEMEDICINE_URL', defaultValue: 'https://charak.app/telemedicine');
+      'TELEMEDICINE_URL', defaultValue: 'https://www.charak.care/telemedicine');
+  /// Help and grievance contact (the website's contact page).
+  static const supportUrl = String.fromEnvironment(
+      'SUPPORT_URL', defaultValue: 'https://www.charak.care/contact');
 
   static const termsVersion = '2026-10-01';
   static const privacyVersion = '2026-10-01';
