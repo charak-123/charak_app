@@ -33,7 +33,7 @@ class EarningsTab extends ConsumerWidget {
         ],
         error: (e, _) => [
           const CharakEmptyState(
-            icon: Icons.cloud_off_rounded,
+            icon: LucideIcons.cloudOff,
             title: 'Couldn\'t load earnings',
             message: 'Pull down to try again.',
           ),
@@ -53,18 +53,18 @@ class EarningsTab extends ConsumerWidget {
             ),
             if (awaitingPay > 0) ...[
               CharakNoteBanner(
-                icon: Icons.schedule_outlined,
+                icon: LucideIcons.clock,
                 tone: CharakStatusTone.primary,
-                leadLabel: '₹${awaitingPay.toStringAsFixed(0)} approved, awaiting payment',
+                leadLabel: '${CharakFormat.rupees(awaitingPay)} approved, awaiting payment',
                 message: '— counts as earnings once the patient pays.',
               ),
               const SizedBox(height: 16),
             ],
             if (pendingReview > 0) ...[
               CharakNoteBanner(
-                icon: Icons.shield_outlined,
+                icon: LucideIcons.shield,
                 tone: CharakStatusTone.review,
-                leadLabel: '₹${pendingReview.toStringAsFixed(0)} awaiting senior review',
+                leadLabel: '${CharakFormat.rupees(pendingReview)} awaiting senior review',
                 message: '— patients can pay once a senior doctor approves the bill.',
               ),
               const SizedBox(height: 16),
@@ -72,7 +72,7 @@ class EarningsTab extends ConsumerWidget {
             const SizedBox(height: 8),
             if (items.isEmpty)
               const CharakEmptyState(
-                icon: Icons.account_balance_wallet_outlined,
+                icon: LucideIcons.wallet,
                 title: 'No completed visits yet',
                 message: 'Fees from completed visits show up here.',
               )
@@ -84,10 +84,6 @@ class EarningsTab extends ConsumerWidget {
                     _EarnRow(item: items[k], last: k == items.length - 1),
                 ],
               ),
-            const SizedBox(height: 16),
-            const CharakHintLine(
-              text: 'Full dashboard — charts, payout history, filters — is planned for a later release.',
-            ),
           ];
         },
       ),
@@ -147,7 +143,7 @@ class _EarnRow extends StatelessWidget {
 
     final channelLabel = channel == 'home_visit' ? 'Home visit' : 'Online';
     final subtitle = billTotal > 0
-        ? '$when · $channelLabel · procedures ₹${billTotal.toStringAsFixed(0)}'
+        ? '$when · $channelLabel · procedures ${CharakFormat.rupees(billTotal)}'
         : '$when · $channelLabel';
 
     return CharakListRow(
@@ -156,7 +152,7 @@ class _EarnRow extends StatelessWidget {
       showChevron: false,
       last: last,
       trailing: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Text('₹${(consult + billTotal).toStringAsFixed(0)}',
+        Text(CharakFormat.rupees(consult + billTotal),
             style: CharakText.numeric.copyWith(fontSize: 18, color: CharakColors.ink)),
         if (billState == 'under_review') ...[
           const SizedBox(height: 4),

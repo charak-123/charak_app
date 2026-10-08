@@ -7,6 +7,7 @@ import '../design/tokens.dart';
 import 'charak_controls.dart';
 import 'charak_screen_header.dart';
 import 'charak_topbar.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 // ───────────────────── large title → app bar ───────────────────────────────
 
@@ -22,6 +23,7 @@ import 'charak_topbar.dart';
 class CharakLargeTitleScaffold extends StatefulWidget {
   final String title;
   final String? eyebrow;
+  final Color? eyebrowColor;
   final String? subtitle;
   final Color? subtitleColor;
   final bool display;
@@ -55,6 +57,7 @@ class CharakLargeTitleScaffold extends StatefulWidget {
     super.key,
     required this.title,
     this.eyebrow,
+    this.eyebrowColor,
     this.subtitle,
     this.subtitleColor,
     this.display = false,
@@ -110,6 +113,7 @@ class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
           child: CharakScreenHeader(
             title: widget.title,
             eyebrow: widget.eyebrow,
+            eyebrowColor: widget.eyebrowColor,
             subtitle: widget.subtitle,
             subtitleColor: widget.subtitleColor,
             display: widget.display,
@@ -154,7 +158,7 @@ class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
             children: [
               if (widget.showBack)
                 CharakRoundIconButton(
-                  icon: Icons.arrow_back_rounded,
+                  icon: LucideIcons.arrowLeft,
                   semanticLabel: 'Back',
                   onTap: () => Navigator.of(context).maybePop(),
                 ),
@@ -195,6 +199,154 @@ class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
   }
 }
 
+// ───────────────────── pushed screen ───────────────────────────────────────
+
+/// Every pushed screen: a back button on top, then the screen's big title in
+/// the top third, then its content; actions sit in [bottom] (a
+/// [CharakCtaBar]). As the content scrolls the title fades up and reappears
+/// small in a frosted bar — the same motion as the tab roots
+/// ([CharakLargeTitleScaffold]), so every screen in both apps reads alike.
+///
+/// [body] keeps its own scrolling (a ListView, a form): it runs inside a
+/// nested scroll view whose header is the title, so the title scrolls away
+/// first and the body continues. Leave [title] null for screens whose content
+/// is itself the headline (an outcome state, a call).
+class CharakScreen extends StatefulWidget {
+  final String? title;
+  final String? eyebrow;
+  final String? subtitle;
+
+  /// Small title for the collapsed bar; defaults to [title].
+  final String? barTitle;
+
+  final Widget body;
+
+  /// Pinned under the content (a [CharakCtaBar]).
+  final Widget? bottom;
+
+  /// Round actions at the top right.
+  final List<Widget> actions;
+  final VoidCallback? onBack;
+
+  const CharakScreen({
+    super.key,
+    this.title,
+    this.eyebrow,
+    this.subtitle,
+    this.barTitle,
+    required this.body,
+    this.bottom,
+    this.actions = const [],
+    this.onBack,
+  });
+
+  @override
+  State<CharakScreen> createState() => _CharakScreenState();
+}
+
+class _CharakScreenState extends State<CharakScreen> {
+  static const _barH = 56.0;
+  final _outer = ScrollController();
+  double _offset = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _outer.addListener(() {
+      final o = _outer.offset;
+      if ((o - _offset).abs() > 0.5 || o <= 0) setState(() => _offset = o);
+    });
+  }
+
+  @override
+  void dispose() {
+    _outer.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    final hasTitle = widget.title != null && widget.title!.isNotEmpty;
+    // Pushed headers are shorter than tab roots', so the fold happens sooner.
+    final bar = hasTitle ? ((_offset - 24) / 48).clamp(0.0, 1.0) : 0.0;
+    final headerFade = (1 - _offset / 72).clamp(0.0, 1.0);
+
+    final scroll = NestedScrollView(
+      controller: _outer,
+      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+      headerSliverBuilder: (context, _) => [
+        SliverToBoxAdapter(child: SizedBox(height: top + _barH)),
+        if (hasTitle)
+          SliverToBoxAdapter(
+            child: Opacity(
+              opacity: headerFade,
+              child: Transform.translate(
+                offset: Offset(0, -_offset.clamp(0.0, 200.0) * CharakMotion.headerParallax),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(CharakSpacing.gutter, 12, CharakSpacing.gutter, 18),
+                  child: CharakScreenHeader(
+                    title: widget.title!,
+                    eyebrow: widget.eyebrow,
+                    subtitle: widget.subtitle,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+      body: widget.body,
+    );
+
+    final topBar = ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20 * bar, sigmaY: 20 * bar),
+        child: Container(
+          height: top + _barH,
+          padding: EdgeInsets.fromLTRB(12, top, 12, 0),
+          color: CharakColors.ground.withValues(alpha: hasTitle ? 0.85 * bar : 1),
+          child: Row(
+            children: [
+              CharakRoundIconButton(
+                icon: LucideIcons.arrowLeft,
+                semanticLabel: 'Back',
+                onTap: widget.onBack ?? () => Navigator.of(context).maybePop(),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Opacity(
+                  opacity: bar,
+                  child: Transform.translate(
+                    offset: Offset(0, 8 * (1 - bar)),
+                    child: Text(
+                      widget.barTitle ?? widget.title ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: CharakText.titleSmall.copyWith(fontSize: 18, color: CharakColors.ink),
+                    ),
+                  ),
+                ),
+              ),
+              for (final a in widget.actions) ...[const SizedBox(width: 8), a],
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return Scaffold(
+      backgroundColor: CharakColors.ground,
+      body: Stack(
+        children: [
+          Positioned.fill(child: scroll),
+          Positioned(left: 0, right: 0, top: 0, child: topBar),
+        ],
+      ),
+      bottomNavigationBar: widget.bottom,
+    );
+  }
+}
+
 // ───────────────────── grouped list ────────────────────────────────────────
 
 /// One UI grouped list: an overline label, then its rows inside one flat
@@ -207,7 +359,9 @@ class CharakGroupedList extends StatelessWidget {
   const CharakGroupedList({super.key, this.label, required this.children});
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       if (label != null)
@@ -273,7 +427,7 @@ class CharakSpecialtyTile extends StatelessWidget {
     required this.icon,
     this.toneIndex = 0,
     this.onTap,
-    this.height = 96,
+    this.height = 88,
   });
 
   static (Color, Color) toneFor(int i) {
@@ -283,19 +437,24 @@ class CharakSpecialtyTile extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) {
     final (bg, fg) = toneFor(toneIndex);
+    // Design system V2 § Specialty tiles: a tonal 20px tile — the tile is
+    // the colour — with the icon top-left and the name bottom-left in the
+    // tone's ink.
     return CharakPressable(
       onTap: onTap,
       child: Container(
         height: height,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: bg, borderRadius: const BorderRadius.all(CharakRadius.tile)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(icon, size: 24, color: fg),
+            Icon(icon, size: 22, color: fg),
             Text(label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -330,7 +489,9 @@ class CharakSearchBar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) {
     final field = onTap != null
         ? Text(placeholder, style: CharakText.body.copyWith(color: CharakColors.inkFaint))
         : TextField(
@@ -352,7 +513,7 @@ class CharakSearchBar extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(20, 0, onVoice != null ? 8 : 20, 0),
       decoration: BoxDecoration(color: CharakColors.card, borderRadius: const BorderRadius.all(CharakRadius.pill)),
       child: Row(children: [
-        Icon(Icons.search_rounded, size: 22, color: CharakColors.inkMuted),
+        Icon(LucideIcons.search, size: 22, color: CharakColors.inkMuted),
         const SizedBox(width: 12),
         Expanded(child: field),
         if (onVoice != null)
@@ -362,7 +523,7 @@ class CharakSearchBar extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(color: CharakColors.primarySoft, shape: BoxShape.circle),
-              child: Icon(Icons.mic_none_rounded, size: 20, color: CharakColors.primaryDeep),
+              child: Icon(LucideIcons.mic, size: 20, color: CharakColors.primaryDeep),
             ),
           ),
       ]),

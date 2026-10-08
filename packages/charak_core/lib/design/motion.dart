@@ -1,6 +1,8 @@
-import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' show ShadScrollBehavior;
 
 import 'tokens.dart';
 
@@ -61,17 +63,23 @@ Widget charakPushTransition(
   }
 
   final enter = CurvedAnimation(parent: animation, curve: CharakCurves.out);
-  final leave = CurvedAnimation(parent: secondaryAnimation, curve: CharakCurves.out);
+  final leave =
+      CurvedAnimation(parent: secondaryAnimation, curve: CharakCurves.out);
 
   return SlideTransition(
-    position: Tween(begin: Offset.zero, end: const Offset(-0.28, 0)).animate(leave),
-    child: FadeTransition(
-      opacity: Tween(begin: 1.0, end: 0.3).animate(leave),
-      child: SlideTransition(
-        position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(enter),
-        child: FadeTransition(
-          opacity: Tween(begin: 0.4, end: 1.0).animate(enter),
-          child: child,
+    position:
+        Tween(begin: Offset.zero, end: const Offset(-0.28, 0)).animate(leave),
+    child: ScaleTransition(
+      scale: Tween(begin: 1.0, end: 0.94).animate(leave),
+      child: FadeTransition(
+        opacity: Tween(begin: 1.0, end: 0.3).animate(leave),
+        child: SlideTransition(
+          position:
+              Tween(begin: const Offset(1, 0), end: Offset.zero).animate(enter),
+          child: FadeTransition(
+            opacity: Tween(begin: 0.4, end: 1.0).animate(enter),
+            child: child,
+          ),
         ),
       ),
     ),
@@ -93,15 +101,15 @@ Widget charakRiseTransition(
   return FadeTransition(
     opacity: t,
     child: SlideTransition(
-      position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(t),
+      position:
+          Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(t),
       child: child,
     ),
   );
 }
 
-/// `.scr.tab-in` — the 200ms rise applied when a tab-root screen becomes
-/// visible. Wrap each tab body; it replays whenever [tabIndex] changes to
-/// this tab's [index].
+/// Tab root: replays "Screen enter" (every [CharakRiseIn] cascades in again)
+/// whenever [tabIndex] changes to this tab's [index].
 class CharakTabTransition extends StatefulWidget {
   final int index;
   final int tabIndex;
@@ -118,43 +126,19 @@ class CharakTabTransition extends StatefulWidget {
   State<CharakTabTransition> createState() => _CharakTabTransitionState();
 }
 
-class _CharakTabTransitionState extends State<CharakTabTransition>
-    with SingleTickerProviderStateMixin {
-  late final _ctrl = AnimationController(
-    vsync: this,
-    duration: CharakMotion.standard,
-    value: widget.index == widget.tabIndex ? 1 : 0,
-  );
-  late final _t = CurvedAnimation(parent: _ctrl, curve: CharakCurves.standard);
+class _CharakTabTransitionState extends State<CharakTabTransition> {
+  int _generation = 0;
 
   @override
   void didUpdateWidget(CharakTabTransition old) {
     super.didUpdateWidget(old);
-    if (widget.tabIndex == widget.index && old.tabIndex != widget.index) {
-      _ctrl
-        ..value = 0
-        ..forward();
-    }
+    // Shown again: replay "Screen enter" so the tab cascades in like a screen.
+    if (widget.tabIndex == widget.index && old.tabIndex != widget.index) _generation++;
   }
 
   @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (charakReduceMotion(context)) return widget.child;
-    return AnimatedBuilder(
-      animation: _t,
-      builder: (_, child) => Opacity(
-        opacity: _t.value.clamp(0.0, 1.0),
-        child: Transform.translate(offset: Offset(0, 8 * (1 - _t.value)), child: child),
-      ),
-      child: widget.child,
-    );
-  }
+  Widget build(BuildContext context) =>
+      CharakEntranceScope(generation: _generation, child: widget.child);
 }
 
 /// `.pulse` — flashes `primarySoft` behind its child and fades back to
@@ -232,11 +216,13 @@ class CharakFadeSwap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedSwitcher(
-    duration: charakReduceMotion(context) ? CharakMotion.reduced : CharakMotion.standard,
-    switchInCurve: CharakCurves.standard,
-    switchOutCurve: CharakCurves.standard,
-    child: child,
-  );
+        duration: charakReduceMotion(context)
+            ? CharakMotion.reduced
+            : CharakMotion.standard,
+        switchInCurve: CharakCurves.standard,
+        switchOutCurve: CharakCurves.standard,
+        child: child,
+      );
 }
 
 /// motion.press — scales its child to 0.96 while held and springs back on
@@ -264,16 +250,27 @@ class _CharakPressableState extends State<CharakPressable> {
   bool _down = false;
 
   void _set(bool v) {
-    if (_down != v) setState(() => _down = v);
+    if (_down == v) return;
+    // A light tick as the finger lands, the way One UI answers a touch. Only
+    // for things that actually do something.
+    if (v) HapticFeedback.selectionClick();
+    setState(() => _down = v);
   }
 
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null || widget.onLongPress != null;
-    final scale = (_down && enabled && !charakReduceMotion(context)) ? CharakMotion.pressScale : 1.0;
+    final scale = (_down && enabled && !charakReduceMotion(context))
+        ? CharakMotion.pressScale
+        : 1.0;
     return GestureDetector(
       behavior: widget.behavior,
-      onTap: widget.onTap,
+      onTap: widget.onTap == null
+          ? null
+          : () {
+              CharakCardOrigin.recordFrom(context);
+              widget.onTap!();
+            },
       onLongPress: widget.onLongPress,
       onTapDown: enabled ? (_) => _set(true) : null,
       onTapUp: enabled ? (_) => _set(false) : null,
@@ -288,12 +285,10 @@ class _CharakPressableState extends State<CharakPressable> {
   }
 }
 
-/// motion.stagger — screen-enter choreography. Each child rises
-/// [CharakMotion.liftOffset] px and fades in on the emphasized curve, 40ms
-/// after the previous one. Only the first [CharakMotion.staggerMaxItems]
-/// children stagger; the rest arrive with the last of them, so the tail never
-/// exceeds 240ms.
-class CharakStaggerIn extends StatefulWidget {
+/// motion.stagger — a column whose children each play "Screen enter"
+/// ([CharakRiseIn]): they rise [CharakMotion.liftOffset] px and fade in on the
+/// emphasized curve, cascading top to bottom.
+class CharakStaggerIn extends StatelessWidget {
   final List<Widget> children;
   final CrossAxisAlignment crossAxisAlignment;
 
@@ -304,54 +299,19 @@ class CharakStaggerIn extends StatefulWidget {
   });
 
   @override
-  State<CharakStaggerIn> createState() => _CharakStaggerInState();
-}
-
-class _CharakStaggerInState extends State<CharakStaggerIn> with SingleTickerProviderStateMixin {
-  static final _tailMs = CharakMotion.stagger.inMilliseconds * (CharakMotion.staggerMaxItems - 1);
-  late final _ctrl = AnimationController(
-    vsync: this,
-    duration: Duration(milliseconds: CharakMotion.emphasized.inMilliseconds + _tailMs),
-  )..forward();
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final reduce = charakReduceMotion(context);
-    final total = _ctrl.duration!.inMilliseconds;
-    return Column(
-      crossAxisAlignment: widget.crossAxisAlignment,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 0; i < widget.children.length; i++)
-          _item(i, total, reduce),
-      ],
-    );
-  }
-
-  Widget _item(int i, int total, bool reduce) {
-    final start = CharakMotion.stagger.inMilliseconds * math.min(i, CharakMotion.staggerMaxItems - 1);
-    final end = start + (reduce ? CharakMotion.reduced : CharakMotion.emphasized).inMilliseconds;
-    final t = CurvedAnimation(
-      parent: _ctrl,
-      curve: Interval(start / total, math.min(1.0, end / total), curve: CharakCurves.emphasized),
-    );
-    return AnimatedBuilder(
-      animation: t,
-      builder: (_, child) => Opacity(
-        opacity: t.value.clamp(0.0, 1.0),
-        child: reduce
-            ? child
-            : Transform.translate(offset: Offset(0, CharakMotion.liftOffset * (1 - t.value)), child: child),
-      ),
-      child: widget.children[i],
-    );
-  }
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: crossAxisAlignment,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Keyed by type so a skeleton swapped for the loaded card is a new
+          // block, and rises in rather than appearing.
+          for (var i = 0; i < children.length; i++)
+            CharakRiseIn(
+              key: ValueKey(Object.hash(i, children[i].runtimeType, children[i].key)),
+              child: children[i],
+            ),
+        ],
+      );
 }
 
 /// motion.live — a looping 1.6s pulse for anything happening now (a live
@@ -366,8 +326,10 @@ class CharakLivePulse extends StatefulWidget {
   State<CharakLivePulse> createState() => _CharakLivePulseState();
 }
 
-class _CharakLivePulseState extends State<CharakLivePulse> with SingleTickerProviderStateMixin {
-  late final _ctrl = AnimationController(vsync: this, duration: CharakMotion.live);
+class _CharakLivePulseState extends State<CharakLivePulse>
+    with SingleTickerProviderStateMixin {
+  late final _ctrl =
+      AnimationController(vsync: this, duration: CharakMotion.live);
 
   @override
   void didChangeDependencies() {
@@ -407,11 +369,353 @@ class _CharakLivePulseState extends State<CharakLivePulse> with SingleTickerProv
             Container(
               width: s,
               height: s,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: widget.color),
+              decoration:
+                  BoxDecoration(shape: BoxShape.circle, color: widget.color),
             ),
           ]);
         },
       ),
     );
   }
+}
+
+/// Elastic overscroll on every scrollable, on every platform, with the Shad
+/// scrollbars. Gives lists the rubber-band give One UI has instead of
+/// Android's stretch/glow edge.
+class CharakScrollBehavior extends ShadScrollBehavior {
+  const CharakScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+}
+
+// ───────────────────── card → screen ───────────────────────────────────────
+
+/// Where the last tapped card sat on screen, so the screen it opens can grow
+/// out of it (motion "Card → screen", emphasized 450ms).
+///
+/// [CharakPressable] records every tap. A route that wants the card transition
+/// takes the rect with [take] when its page is built; a rect older than a
+/// moment is ignored, so a stale tap never drives an unrelated navigation.
+abstract final class CharakCardOrigin {
+  static Rect? _rect;
+  static DateTime _at = DateTime.fromMillisecondsSinceEpoch(0);
+  static int _opening = 0;
+
+  /// True while a card → screen transition is running. The page underneath
+  /// reads it to stay still instead of sliding away.
+  static bool get opening => _opening > 0;
+
+  static void recordFrom(BuildContext context) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize || !box.attached) return;
+    _rect = box.localToGlobal(Offset.zero) & box.size;
+    _at = DateTime.now();
+  }
+
+  /// The rect of a tap made in the last 600ms, once.
+  static Rect? take() {
+    final r = _rect;
+    _rect = null;
+    if (r == null ||
+        DateTime.now().difference(_at) > const Duration(milliseconds: 600)) {
+      return null;
+    }
+    return r;
+  }
+}
+
+/// A `transitionsBuilder` that grows the incoming screen out of [origin]: the
+/// card's rect expands to the full screen while its corners straighten from
+/// the card radius and the screen's content fades up inside it. Closing runs
+/// the same motion back into the card. Without an origin (deep link, restored
+/// route) or with Reduce motion on, it falls back to [charakPushTransition].
+RouteTransitionsBuilder charakCardTransition(Rect? origin) {
+  if (origin == null) return charakPushTransition;
+  return (context, animation, secondaryAnimation, child) {
+    if (charakReduceMotion(context)) {
+      return FadeTransition(opacity: animation, child: child);
+    }
+    final t = CurvedAnimation(
+      parent: animation,
+      curve: CharakCurves.emphasized,
+      reverseCurve: CharakCurves.emphasized.flipped,
+    );
+    return _CardGrow(origin: origin, animation: animation, t: t, child: child);
+  };
+}
+
+class _CardGrow extends StatefulWidget {
+  final Rect origin;
+  final Animation<double> animation;
+  final Animation<double> t;
+  final Widget child;
+  const _CardGrow(
+      {required this.origin,
+      required this.animation,
+      required this.t,
+      required this.child});
+
+  @override
+  State<_CardGrow> createState() => _CardGrowState();
+}
+
+class _CardGrowState extends State<_CardGrow> {
+  bool _counted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.animation.addStatusListener(_status);
+    _status(widget.animation.status);
+  }
+
+  void _status(AnimationStatus s) {
+    final running =
+        s == AnimationStatus.forward || s == AnimationStatus.reverse;
+    if (running && !_counted) {
+      CharakCardOrigin._opening++;
+      _counted = true;
+    } else if (!running && _counted) {
+      CharakCardOrigin._opening--;
+      _counted = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.animation.removeStatusListener(_status);
+    if (_counted) CharakCardOrigin._opening--;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final full = Offset.zero & size;
+    return AnimatedBuilder(
+      animation: widget.t,
+      child: widget.child,
+      builder: (context, child) {
+        final v = widget.t.value;
+        if (v >= 1) return child!;
+        final rect = Rect.lerp(widget.origin, full, v)!;
+        final radius = CharakRadii.card * (1 - v);
+        // The screen is laid out at full size and scaled to the card's width,
+        // so it reads as the card itself opening rather than a reveal.
+        final scale = rect.width / size.width;
+        // Content arrives once the card has visibly started to grow.
+        final reveal = const Interval(0.1, 0.5).transform(v);
+        return Stack(children: [
+          Positioned.fromRect(
+            rect: rect,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(radius),
+              child: ColoredBox(
+                color: CharakColors.ground,
+                child: OverflowBox(
+                  alignment: Alignment.topLeft,
+                  minWidth: size.width,
+                  maxWidth: size.width,
+                  minHeight: size.height,
+                  maxHeight: size.height,
+                  child: Transform.scale(
+                    scale: scale,
+                    alignment: Alignment.topLeft,
+                    child: Opacity(opacity: reveal, child: child),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ]);
+      },
+    );
+  }
+}
+
+// ───────────────────── screen enter ────────────────────────────────────────
+
+/// Marks when a screen (or a tab) entered, so [CharakRiseIn] blocks inside it
+/// know to play the "Screen enter" motion. Each app wraps every route's page
+/// in one; [CharakTabTransition] starts a fresh one each time its tab is
+/// shown, which replays the entrance like opening the screen.
+class CharakEntranceScope extends StatefulWidget {
+  final Widget child;
+
+  /// Bump to replay the entrance (a tab becoming visible again).
+  final int generation;
+
+  const CharakEntranceScope({super.key, required this.child, this.generation = 0});
+
+  /// How long after a screen enters that newly built blocks still rise in.
+  /// Long enough to cover content that arrives from the network.
+  static const window = Duration(milliseconds: 2500);
+
+  @override
+  State<CharakEntranceScope> createState() => _CharakEntranceScopeState();
+}
+
+class _CharakEntranceScopeState extends State<CharakEntranceScope> {
+  late DateTime _at = DateTime.now();
+
+  @override
+  void didUpdateWidget(CharakEntranceScope old) {
+    super.didUpdateWidget(old);
+    if (old.generation != widget.generation) _at = DateTime.now();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      _EntranceData(at: _at, generation: widget.generation, child: widget.child);
+}
+
+class _EntranceData extends InheritedWidget {
+  final DateTime at;
+  final int generation;
+  const _EntranceData({required this.at, required this.generation, required super.child});
+
+  @override
+  bool updateShouldNotify(_EntranceData old) => old.at != at;
+}
+
+/// "Screen enter · stagger": rises 20px and fades in on motion.emphasized.
+/// The stagger comes from where the block sits — the higher on screen, the
+/// sooner it moves — so a whole screen cascades top to bottom without anyone
+/// counting indices, and content that arrives late from the server still
+/// rises instead of popping in. Blocks built outside an entrance window (a
+/// list scrolled later) appear as they are. Nested blocks don't double up:
+/// only the outermost one moves.
+class CharakRiseIn extends StatefulWidget {
+  final Widget child;
+  const CharakRiseIn({super.key, required this.child});
+
+  /// Spread of the stagger from the top of the screen to the bottom. With
+  /// 40ms per block on a phone this is the board's 6-block, 240ms tail.
+  static const _spread = 260;
+
+  @override
+  State<CharakRiseIn> createState() => _CharakRiseInState();
+}
+
+class _RiseMarker extends InheritedWidget {
+  const _RiseMarker({required super.child});
+  @override
+  bool updateShouldNotify(_RiseMarker old) => false;
+}
+
+class _CharakRiseInState extends State<CharakRiseIn> with SingleTickerProviderStateMixin {
+  late final _ctrl = AnimationController(vsync: this, duration: CharakMotion.emphasized, value: 1);
+  DateTime? _seen;
+  Timer? _timer;
+  bool _nested = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _nested = context.getInheritedWidgetOfExactType<_RiseMarker>() != null;
+    final scope = context.dependOnInheritedWidgetOfExactType<_EntranceData>();
+    if (_nested || scope == null || scope.at == _seen) return;
+    _seen = scope.at;
+    if (DateTime.now().difference(scope.at) > CharakEntranceScope.window) return;
+    final reduce = charakReduceMotion(context);
+    _ctrl.duration = reduce ? CharakMotion.reduced : CharakMotion.emphasized;
+    _ctrl.value = 0;
+    _timer?.cancel();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = context.findRenderObject();
+      final h = MediaQuery.sizeOf(context).height;
+      var delay = 0;
+      if (box is RenderBox && box.hasSize && h > 0) {
+        final y = box.localToGlobal(Offset.zero).dy;
+        if (y > h) {
+          _ctrl.value = 1; // below the fold: nothing to watch
+          return;
+        }
+        delay = reduce ? 0 : (y.clamp(0.0, h) / h * CharakRiseIn._spread).round();
+      }
+      _timer = Timer(Duration(milliseconds: delay), () {
+        if (mounted) _ctrl.forward();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_nested) return widget.child;
+    final reduce = charakReduceMotion(context);
+    return _RiseMarker(
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        child: widget.child,
+        builder: (_, child) {
+          final v = reduce ? _ctrl.value : CharakCurves.emphasized.transform(_ctrl.value);
+          if (v >= 1) return child!;
+          return Opacity(
+            opacity: v.clamp(0.0, 1.0),
+            child: reduce
+                ? child
+                : Transform.translate(offset: Offset(0, CharakMotion.liftOffset * (1 - v)), child: child),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The bottom action bar's entrance: it rises from the bottom edge 200ms after
+/// the screen enters (the board's price sheet), once per screen.
+class CharakBottomRise extends StatefulWidget {
+  final Widget child;
+  const CharakBottomRise({super.key, required this.child});
+
+  @override
+  State<CharakBottomRise> createState() => _CharakBottomRiseState();
+}
+
+class _CharakBottomRiseState extends State<CharakBottomRise> with SingleTickerProviderStateMixin {
+  late final _ctrl = AnimationController(vsync: this, duration: CharakMotion.emphasized, value: 1);
+  Timer? _timer;
+  bool _checked = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_checked) return;
+    _checked = true;
+    final scope = context.getInheritedWidgetOfExactType<_EntranceData>();
+    if (scope == null || DateTime.now().difference(scope.at) > CharakEntranceScope.window) return;
+    if (charakReduceMotion(context)) return;
+    _ctrl.value = 0;
+    _timer = Timer(const Duration(milliseconds: 200), () {
+      if (mounted) _ctrl.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _ctrl,
+        child: widget.child,
+        builder: (_, child) {
+          final v = CharakCurves.emphasized.transform(_ctrl.value);
+          if (v >= 1) return child!;
+          return FractionalTranslation(translation: Offset(0, 1 - v), child: child);
+        },
+      );
 }

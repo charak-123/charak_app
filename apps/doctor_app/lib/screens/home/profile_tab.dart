@@ -27,7 +27,7 @@ class ProfileTab extends ConsumerWidget {
         ],
         error: (e, _) => const [
           CharakEmptyState(
-            icon: Icons.cloud_off_rounded,
+            icon: LucideIcons.cloudOff,
             title: 'Couldn\'t load your profile',
             message: 'Pull down to try again.',
           ),
@@ -51,10 +51,10 @@ class ProfileTab extends ConsumerWidget {
                 CharakAvatar(name: name, radius: 30, imageUrl: me['photo_url'] as String?),
                 const SizedBox(width: 16),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Dr. $name', style: CharakText.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(CharakFormat.doctor(name), style: CharakText.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 2),
                   Text(
-                    [if (spec != null) spec, if (phone.isNotEmpty) phone].join(' · '),
+                    [if (spec != null) spec, if (phone.isNotEmpty) CharakFormat.phone(phone)].join(' · '),
                     style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -69,25 +69,25 @@ class ProfileTab extends ConsumerWidget {
               label: 'Consultation',
               children: [
                 CharakListRow(
-                  icon: Icons.videocam_outlined,
+                  icon: LucideIcons.video,
                   title: 'Channels & modes',
                   subtitle: [if (online) 'Online', if (home) 'Home visit'].join(' · ').ifEmpty('Off'),
                   onTap: () => context.push('/setup/channels'),
                 ),
                 CharakListRow(
-                  icon: Icons.currency_rupee_rounded,
+                  icon: LucideIcons.indianRupee,
                   title: 'Pricing & procedures',
                   subtitle: onlinePrice != null ? '₹$onlinePrice per 15 min · +₹$onlineExtra per extra 15' : null,
                   onTap: () => context.push('/setup/pricing'),
                 ),
                 CharakListRow(
-                  icon: Icons.place_outlined,
+                  icon: LucideIcons.mapPin,
                   title: 'Home visit hours & radius',
                   subtitle: radius != null ? '$radius km' : null,
                   onTap: () => context.push('/setup/home-visit'),
                 ),
                 CharakListRow(
-                  icon: Icons.block_rounded,
+                  icon: LucideIcons.ban,
                   title: 'Slot blocking',
                   last: true,
                   onTap: () {
@@ -102,22 +102,22 @@ class ProfileTab extends ConsumerWidget {
               label: 'Support',
               children: [
                 CharakListRow(
-                  icon: Icons.support_outlined,
+                  icon: LucideIcons.lifeBuoy,
                   title: 'Help',
-                  onTap: () => showCharakToast(context, message: 'Help centre — coming in full build'),
+                  onTap: () => CharakLegal.open(CharakLegal.supportUrl),
                 ),
                 CharakListRow(
-                  icon: Icons.privacy_tip_outlined,
+                  icon: LucideIcons.shieldAlert,
                   title: 'Privacy policy',
                   onTap: () => CharakLegal.open(CharakLegal.privacyUrl),
                 ),
                 CharakListRow(
-                  icon: Icons.description_outlined,
+                  icon: LucideIcons.fileText,
                   title: 'Terms of service',
                   onTap: () => CharakLegal.open(CharakLegal.termsUrl),
                 ),
                 CharakListRow(
-                  icon: Icons.logout_rounded,
+                  icon: LucideIcons.logOut,
                   title: 'Log out',
                   titleColor: CharakColors.danger,
                   showChevron: false,
@@ -136,7 +136,7 @@ class ProfileTab extends ConsumerWidget {
                   },
                 ),
                 CharakListRow(
-                  icon: Icons.delete_outline_rounded,
+                  icon: LucideIcons.trash2,
                   title: 'Delete account',
                   titleColor: CharakColors.danger,
                   showChevron: false,
@@ -198,7 +198,7 @@ class _VerifCard extends StatelessWidget {
           height: 44,
           decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
           alignment: Alignment.center,
-          child: Icon(verified ? Icons.verified_user_rounded : Icons.shield_outlined, size: 22, color: fg),
+          child: Icon(verified ? LucideIcons.shieldCheck : LucideIcons.shield, size: 22, color: fg),
         ),
         const SizedBox(width: 14),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

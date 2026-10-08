@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show SocketException;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +15,15 @@ const String _kBaseUrl = String.fromEnvironment(
 class ApiClient {
   ApiClient._();
   static final ApiClient instance = ApiClient._();
+
+  static final http.Client _defaultClient = http.Client();
+
+  /// Swaps the transport, for screenshot and widget tests that answer
+  /// requests from fixtures. Production never sets it.
+  @visibleForTesting
+  static http.Client? debugClient;
+
+  http.Client get _http => debugClient ?? _defaultClient;
 
   /// Called once when the server rejects our credentials (401), after the
   /// stored session has been cleared. Apps wire this to send the user back to
@@ -42,38 +54,57 @@ class ApiClient {
     };
   }
 
+  /// Runs a request, turning a transport failure (no network, server down,
+  /// unreachable host) into an [ApiException] the screens already show,
+  /// instead of an unhandled error that leaves a spinner stuck.
+  Future<http.Response> _send(Future<http.Response> Function() request) async {
+    try {
+      return await request().timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw const ApiException('The server is taking too long. Please try again.', 0);
+    } on http.ClientException {
+      throw const ApiException("Can't reach the server. Check your connection and try again.", 0);
+    } on SocketException {
+      throw const ApiException("Can't reach the server. Check your connection and try again.", 0);
+    }
+  }
+
   Future<dynamic> get(String path) async {
-    final res = await http.get(
+    final headers = await _headers();
+    final res = await _send(() => _http.get(
       Uri.parse('$_kBaseUrl$path'),
-      headers: await _headers(),
-    );
+      headers: headers,
+    ));
     return _handle(res);
   }
 
   Future<dynamic> post(String path, Map<String, dynamic> body) async {
-    final res = await http.post(
+    final headers = await _headers();
+    final res = await _send(() => _http.post(
       Uri.parse('$_kBaseUrl$path'),
-      headers: await _headers(),
+      headers: headers,
       body: jsonEncode(body),
-    );
+    ));
     return _handle(res);
   }
 
   Future<dynamic> patch(String path, Map<String, dynamic> body) async {
-    final res = await http.patch(
+    final headers = await _headers();
+    final res = await _send(() => _http.patch(
       Uri.parse('$_kBaseUrl$path'),
-      headers: await _headers(),
+      headers: headers,
       body: jsonEncode(body),
-    );
+    ));
     return _handle(res);
   }
 
   Future<dynamic> put(String path, dynamic body) async {
-    final res = await http.put(
+    final headers = await _headers();
+    final res = await _send(() => _http.put(
       Uri.parse('$_kBaseUrl$path'),
-      headers: await _headers(),
+      headers: headers,
       body: jsonEncode(body),
-    );
+    ));
     return _handle(res);
   }
 
@@ -100,15 +131,16 @@ class ApiClient {
       filename: filename,
       contentType: contentType == null ? null : MediaType.parse(contentType),
     ));
-    final streamed = await request.send();
-    return _handle(await http.Response.fromStream(streamed));
+    return _handle(await _send(
+        () async => http.Response.fromStream(await _http.send(request))));
   }
 
   Future<void> delete(String path) async {
-    final res = await http.delete(
+    final headers = await _headers();
+    final res = await _send(() => _http.delete(
       Uri.parse('$_kBaseUrl$path'),
-      headers: await _headers(),
-    );
+      headers: headers,
+    ));
     _handle(res);
   }
 

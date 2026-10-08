@@ -84,7 +84,7 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
                 decoration: BoxDecoration(color: badgeBg, shape: BoxShape.circle),
                 alignment: Alignment.center,
                 child: Icon(
-                  isRejected ? Icons.cancel_outlined : Icons.assignment_turned_in_outlined,
+                  isRejected ? LucideIcons.circleX : LucideIcons.clipboardCheck,
                   size: 40,
                   color: badgeFg,
                 ),

@@ -5,6 +5,9 @@ import 'package:flutter/services.dart' show TextInputFormatter;
 
 import '../design/motion.dart';
 import '../design/tokens.dart';
+import '../network/api_client.dart';
+import 'charak_button.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Controls for CHARAK Design System V2 (design-system/README.md
 /// § Components): pills, blocks and bars. Flat, tonal and rounded, with no
@@ -134,7 +137,9 @@ class CharakSegmented<T> extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) {
     final index = math.max(0, segments.indexWhere((s) => s.value == value));
     final n = segments.length;
     final thumb = CharakColors.isInk ? CharakPalette.ink600 : CharakColors.card;
@@ -363,7 +368,9 @@ class CharakSectionTitle extends StatelessWidget {
   const CharakSectionTitle({super.key, required this.label, this.trailing});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) {
     final text = Text(
       label.toUpperCase(),
       style: CharakText.overline.copyWith(color: CharakColors.inkMuted),
@@ -451,7 +458,7 @@ class CharakListRow extends StatelessWidget {
             Text(trailingText!, style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
           if (showChevron && trailing == null) ...[
             if (trailingText != null) const SizedBox(width: 4),
-            Icon(Icons.chevron_right_rounded, size: 20, color: CharakColors.inkFaint),
+            Icon(LucideIcons.chevronRight, size: 20, color: CharakColors.inkFaint),
           ],
         ],
       ),
@@ -477,7 +484,7 @@ class CharakCtaBar extends StatelessWidget {
   factory CharakCtaBar.single(Widget child) => CharakCtaBar(children: [Expanded(child: child)]);
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => CharakBottomRise(child: Container(
     decoration: BoxDecoration(
       color: CharakColors.card,
       borderRadius: const BorderRadius.vertical(top: CharakRadius.card),
@@ -503,7 +510,7 @@ class CharakCtaBar extends StatelessWidget {
         ),
       ),
     ),
-  );
+  ));
 }
 
 // ───────────────────── skeleton ────────────────────────────────────────────
@@ -756,7 +763,9 @@ class CharakFeeList extends StatelessWidget {
   const CharakFeeList({super.key, required this.rows});
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     decoration: BoxDecoration(
       color: CharakColors.card,
@@ -799,6 +808,37 @@ class CharakFeeList extends StatelessWidget {
 // ───────────────────── empty state ─────────────────────────────────────────
 
 /// Centred empty state: a tinted rounded-square icon, a wide title, an
+/// A screen or section that failed to load: a calm explanation and a way to
+/// try again. Never shows a raw exception — an [ApiException]'s message is
+/// already written for people; anything else becomes a generic line.
+class CharakErrorState extends StatelessWidget {
+  final Object? error;
+  final VoidCallback? onRetry;
+
+  const CharakErrorState({super.key, this.error, this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final err = error;
+    final message = err is ApiException && err.message.isNotEmpty
+        ? err.message
+        : 'Something went wrong on our side. Please try again.';
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: CharakSpacing.gutter),
+        child: CharakEmptyState(
+          icon: LucideIcons.cloudOff,
+          title: "Couldn't load this",
+          message: message,
+          action: onRetry == null
+              ? null
+              : CharakButton(label: 'Try again', outlined: true, expand: false, onPressed: onRetry),
+        ),
+      ),
+    );
+  }
+}
+
 /// explanation and an optional action.
 class CharakEmptyState extends StatelessWidget {
   final IconData icon;
@@ -815,7 +855,9 @@ class CharakEmptyState extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(24, 48, 24, 0),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -879,7 +921,9 @@ class CharakOutcomeState extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(24, 40, 24, 0),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -912,7 +956,7 @@ class CharakOutcomeState extends StatelessWidget {
     height: 88,
     decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
     alignment: Alignment.center,
-    child: Icon(icon ?? Icons.schedule_rounded, size: 40, color: fg),
+    child: Icon(icon ?? LucideIcons.clock, size: 40, color: fg),
   );
 }
 
@@ -993,7 +1037,9 @@ class CharakSummaryCard extends StatelessWidget {
   const CharakSummaryCard({super.key, required this.rows, this.title});
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => Container(
     width: double.infinity,
     padding: const EdgeInsets.all(CharakSpacing.gutter),
     decoration: BoxDecoration(
@@ -1035,7 +1081,9 @@ class CharakNoteBanner extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) {
     final (bg, ink) = charakToneColors(tone);
     final base = CharakText.body.copyWith(fontSize: 14, height: 20 / 14, color: ink);
     return Container(
@@ -1099,7 +1147,9 @@ class CharakInfoStrip extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) {
     final (bg, fg) = charakToneColors(tone);
     var valueStyle = CharakText.numeric.copyWith(color: fg);
     if (!tabularValue) valueStyle = CharakText.titleSmall.copyWith(color: fg, fontSize: 18);
@@ -1163,7 +1213,7 @@ class CharakStarRating extends StatelessWidget {
       duration: CharakMotion.standard,
       curve: CharakCurves.emphasized,
       child: Icon(
-        Icons.star_rounded,
+        LucideIcons.star,
         size: size,
         color: i <= value ? CharakPalette.chandan400 : CharakColors.borderStrong,
       ),
@@ -1190,7 +1240,7 @@ class CharakRatingChip extends StatelessWidget {
       borderRadius: const BorderRadius.all(CharakRadius.pill),
     ),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(Icons.star_rounded, size: 14, color: CharakColors.chandan),
+      Icon(LucideIcons.star, size: 14, color: CharakColors.chandan),
       const SizedBox(width: 3),
       Text(rating, style: CharakText.caption.weight(700).tabular.copyWith(color: CharakColors.onChandanSoft)),
     ]),

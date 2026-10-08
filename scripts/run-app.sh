@@ -24,7 +24,13 @@ case "$APP" in
 esac
 shift
 
-# Where the phone should look for the backend.
+# Where the phone should look for the backend. Over USB, `adb reverse` maps the
+# phone's own localhost:8000 to this machine, which works even when the Wi-Fi
+# router blocks phone-to-PC traffic. Without a USB device, use the LAN address.
+if [[ -z "${API_BASE_URL:-}" ]] && command -v adb >/dev/null \
+   && adb get-state >/dev/null 2>&1 && adb reverse tcp:8000 tcp:8000 >/dev/null 2>&1; then
+  API_BASE_URL="http://127.0.0.1:8000"
+fi
 if [[ -z "${API_BASE_URL:-}" ]]; then
   LAN_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
   if [[ -z "$LAN_IP" ]]; then
@@ -46,7 +52,7 @@ echo "Google client: ${GOOGLE_SERVER_CLIENT_ID:-<unset: Google sign-in disabled>
 echo
 
 # Fail early and clearly rather than after a two-minute build.
-if ! curl -fsS --max-time 3 "$API_BASE_URL/healthz" >/dev/null 2>&1; then
+if ! curl -fsS --max-time 3 "${API_BASE_URL/127.0.0.1/localhost}/healthz" >/dev/null 2>&1; then
   echo "WARNING: $API_BASE_URL is not answering."
   echo "  Start it with:  cd backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"
   echo "  --host 0.0.0.0 matters: bound to 127.0.0.1 the phone cannot reach it."

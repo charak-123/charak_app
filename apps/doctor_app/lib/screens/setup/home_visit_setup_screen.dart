@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:charak_core/charak_core.dart';
 import 'schedule_editor.dart';
 
@@ -26,44 +25,24 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
   Future<void> _detectLocation() async {
     setState(() { _locating = true; _error = null; });
     try {
-      // Location services off at the OS level can't be fixed by a permission
-      // prompt — say so instead of failing with a generic message.
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        setState(() => _error =
-            'Location is turned off on this phone. Switch it on, then tap Detect again.');
-        return;
-      }
-
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.deniedForever) {
-        setState(() => _error =
-            'Location permission is blocked for Charak. Enable it in Settings, '
-            'or skip this and set your base location later.');
-        await Geolocator.openAppSettings();
-        return;
-      }
-      if (perm == LocationPermission.denied) {
-        setState(() => _error =
-            'Location permission declined. You can skip this and set your base '
-            'location later.');
-        return;
-      }
-
-      final pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
+      final place = await CharakLocation.current();
       if (!mounted) return;
+      final text = [place.line2, place.city, place.pincode]
+          .whereType<String>().join(', ');
       setState(() {
-        _lat = pos.latitude;
-        _lng = pos.longitude;
-        _address = '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+        _lat = place.lat;
+        _lng = place.lng;
+        // The area name reads better than raw coordinates; fall back to them
+        // when the phone's geocoder had nothing.
+        _address = text.isNotEmpty
+            ? text
+            : '${place.lat.toStringAsFixed(4)}, ${place.lng.toStringAsFixed(4)}';
       });
-    } catch (_) {
-      setState(() => _error =
-          "Couldn't get a location fix. You can skip this and set your base "
-          'location later.');
+    } on CharakLocationException catch (e) {
+      if (mounted) {
+        setState(() => _error =
+            '${e.message} You can skip this and set your base location later.');
+      }
     } finally {
       if (mounted) setState(() => _locating = false);
     }
@@ -96,13 +75,11 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
+    return CharakScreen(
       // This screen also serves as a settings re-edit, pushed from the
       // profile tab — without a back affordance there is no way off it on
       // iOS, which has no hardware back button. Blank title: the screen
       // already carries its own big title below.
-      appBar: const CharakTopBar(title: ''),
       body: SafeArea(
         child: Column(
           children: [
@@ -249,7 +226,7 @@ class _BaseLocationCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             alignment: Alignment.center,
-            child: Icon(Icons.location_on_outlined,
+            child: Icon(LucideIcons.mapPin,
                 size: 16, color: CharakColors.primaryDeep),
           ),
           const SizedBox(width: 11),
@@ -273,7 +250,7 @@ class _BaseLocationCard extends StatelessWidget {
             const SizedBox(
                 width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
           else
-            Icon(Icons.chevron_right, size: 16, color: CharakColors.inkMuted),
+            Icon(LucideIcons.chevronRight, size: 16, color: CharakColors.inkMuted),
         ],
       ),
     ),

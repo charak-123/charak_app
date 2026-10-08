@@ -62,9 +62,8 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_bookingDetailProvider(widget.bookingId));
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: 'Request'),
+    return CharakScreen(
+      title: 'Request',
       body: async.when(
         // `.skel` blocks tracing the real body: the `.pat-strip` card, the
         // intake blocks and the visit-details card. The top bar stays live.
@@ -121,7 +120,7 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
                   CharakButton(
                     label: 'Request clarification call',
                     outlined: true,
-                    icon: Icons.phone_outlined,
+                    icon: LucideIcons.phone,
                     onPressed: () => context.push('/call/${widget.bookingId}'),
                   ),
                 ],
@@ -132,7 +131,7 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
                 Expanded(
                   child: CharakButton(
                     label: 'Decline',
-                    outlined: true,
+                    variant: CharakButtonVariant.danger,
                     onPressed: _deciding ? null : _decline,
                   ),
                 ),
@@ -183,7 +182,7 @@ class _PatientStrip extends StatelessWidget {
               overflow: TextOverflow.ellipsis),
           const SizedBox(height: 1),
           Text(
-            channel == 'home_visit' ? 'Home Visit' : 'Online Consult',
+            CharakFormat.channel(channel),
             style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
           ),
         ])),
@@ -192,7 +191,7 @@ class _PatientStrip extends StatelessWidget {
           if (price != null)
             Text.rich(TextSpan(children: [
               TextSpan(
-                text: '₹${price.toStringAsFixed(0)}',
+                text: CharakFormat.rupees(price),
                 style: CharakText.h2.copyWith(
                   fontSize: 16,
                   fontFeatures: const [FontFeature.tabularFigures()],
@@ -236,10 +235,10 @@ class _IntakeBlock extends StatelessWidget {
     final url     = item['file_url'] as String?;
 
     final (icon, label, transcribed) = switch (type) {
-      'voice' => (Icons.mic_none_rounded, 'Voice note', true),
-      'video' => (Icons.videocam_outlined, 'Video attached', false),
-      'image' => (Icons.image_outlined, 'Attachments', false),
-      _       => (Icons.short_text_rounded, 'Typed note', false),
+      'voice' => (LucideIcons.mic, 'Voice note', true),
+      'video' => (LucideIcons.video, 'Video attached', false),
+      'image' => (LucideIcons.image, 'Attachments', false),
+      _       => (LucideIcons.textAlignStart, 'Typed note', false),
     };
     final hasText = text != null && text.isNotEmpty;
     // Only voice notes are summarised. Requirements Doc 3.8 is explicit that
@@ -315,7 +314,7 @@ class _SummaryLine extends StatelessWidget {
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Icon(Icons.auto_awesome_outlined,
+            Icon(LucideIcons.sparkles,
                 size: 12, color: CharakColors.inkMuted),
             const SizedBox(width: 6),
             Text(
@@ -380,9 +379,9 @@ class _VisitDetailsCard extends StatelessWidget {
         borderRadius: const BorderRadius.all(CharakRadius.card),
       ),
       child: Column(children: [
-        CharakVisitLine(icon: Icons.access_time_rounded, value: slotStr),
+        CharakVisitLine(icon: LucideIcons.clock, value: slotStr),
         CharakVisitLine(
-          icon: isHome ? Icons.place_outlined : Icons.videocam_outlined,
+          icon: isHome ? LucideIcons.mapPin : LucideIcons.video,
           value: isHome ? 'Address shared on accept' : 'Video call',
           trailing: isHome ? null : 'join from active visit',
         ),

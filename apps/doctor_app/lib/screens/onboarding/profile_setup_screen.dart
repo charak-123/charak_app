@@ -159,7 +159,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                     Text('Profile photo', style: _fieldLabel),
                     const SizedBox(height: 7),
                     CharakUploadTile(
-                      icon: Icons.camera_alt_outlined,
+                      icon: LucideIcons.camera,
                       label: 'Upload a clear, professional photo',
                       doneLabel: 'Photo added — patients see this in the directory',
                       done: _photo != null,

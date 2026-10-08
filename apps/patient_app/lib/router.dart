@@ -6,6 +6,7 @@ import 'screens/splash_screen.dart';
 import 'push_routes.dart';
 import 'screens/auth/phone_entry_screen.dart';
 import 'screens/auth/sign_in_screen.dart';
+import 'screens/notifications/notifications_screen.dart';
 import 'screens/auth/otp_screen.dart';
 import 'screens/auth/name_entry_screen.dart';
 import 'screens/home/home_shell.dart';
@@ -30,7 +31,7 @@ import 'screens/booking/complaint_screen.dart';
 /// Wraps a screen in the wireframe's 280ms horizontal push
 /// (`.scr.entering` / `.scr.leaving`).
 CustomTransitionPage<void> _push(Widget child) => CustomTransitionPage<void>(
-  child: child,
+  child: CharakEntranceScope(child: child),
   transitionDuration: CharakDurations.screenPush,
   reverseTransitionDuration: CharakDurations.screenPush,
   transitionsBuilder: charakPushTransition,
@@ -39,11 +40,29 @@ CustomTransitionPage<void> _push(Widget child) => CustomTransitionPage<void>(
 /// Rise-and-fade, for surfaces that shouldn't slide in from the side:
 /// the splash, the full-screen call, and terminal outcome screens.
 CustomTransitionPage<void> _rise(Widget child) => CustomTransitionPage<void>(
-  child: child,
+  child: CharakEntranceScope(child: child),
   transitionDuration: CharakDurations.sheetOpen,
   reverseTransitionDuration: CharakDurations.sheetOpen,
   transitionsBuilder: charakRiseTransition,
 );
+
+/// "Card → screen": the screen grows out of the card that was tapped
+/// (emphasized, 450ms). The origin is taken once per page and kept by its key,
+/// so a rebuild of the page — and the pop back into the card — reuse it.
+final _cardOrigins = <ValueKey<String>, Rect?>{};
+CustomTransitionPage<void> _card(GoRouterState state, Widget child) {
+  final key = state.pageKey;
+  final origin = _cardOrigins.containsKey(key)
+      ? _cardOrigins[key]
+      : (_cardOrigins[key] = CharakCardOrigin.take());
+  return CustomTransitionPage<void>(
+    key: key,
+    child: CharakEntranceScope(child: child),
+    transitionDuration: CharakMotion.emphasized,
+    reverseTransitionDuration: CharakMotion.emphasized,
+    transitionsBuilder: charakCardTransition(origin),
+  );
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
   late final GoRouter router;
@@ -79,12 +98,13 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // ── Main shell ───────────────────────────────────────────────────────
       GoRoute(path: '/home',                 pageBuilder: (_, __) => _rise(const HomeShell())),
+      GoRoute(path: '/notifications',        pageBuilder: (_, __) => _push(const NotificationsScreen())),
 
       // ── Directory ────────────────────────────────────────────────────────
       GoRoute(path: '/directory',
-          pageBuilder: (_, s) => _push(DirectoryScreen(initialQuery: s.extra as String?))),
+          pageBuilder: (_, s) => _card(s, DirectoryScreen(initialQuery: s.extra as String?))),
       GoRoute(path: '/doctor/:id',
-          pageBuilder: (_, s) => _push(DoctorProfileScreen(doctorId: s.pathParameters['id']!))),
+          pageBuilder: (_, s) => _card(s, DoctorProfileScreen(doctorId: s.pathParameters['id']!))),
 
       // ── Booking flow ─────────────────────────────────────────────────────
       GoRoute(path: '/book/:doctorId/slots',
@@ -106,16 +126,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/book/sent/:bookingId',
           pageBuilder: (_, s) => _rise(RequestSentScreen(bookingId: s.pathParameters['bookingId']!))),
       GoRoute(path: '/booking/:id/status',
-          pageBuilder: (_, s) => _push(BookingStatusScreen(bookingId: s.pathParameters['id']!))),
+          pageBuilder: (_, s) => _card(s, BookingStatusScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/pay',
-          pageBuilder: (_, s) => _push(PaymentScreen(
+          pageBuilder: (_, s) => _card(s, PaymentScreen(
                 bookingId: s.pathParameters['id']!,
                 type: s.uri.queryParameters['type'] ?? 'consult_fee',
               ))),
       GoRoute(path: '/booking/:id/confirmed',
           pageBuilder: (_, s) => _rise(BookingConfirmedScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/active',
-          pageBuilder: (_, s) => _push(ActiveBookingScreen(bookingId: s.pathParameters['id']!))),
+          pageBuilder: (_, s) => _card(s, ActiveBookingScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/call',
           pageBuilder: (_, s) => _rise(VideoCallScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/complete',
@@ -125,7 +145,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/booking/:id/rate',
           pageBuilder: (_, s) => _push(RateScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/history-detail',
-          pageBuilder: (_, s) => _push(HistoryDetailScreen(bookingId: s.pathParameters['id']!))),
+          pageBuilder: (_, s) => _card(s, HistoryDetailScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/complaint',
           pageBuilder: (_, s) => _push(ComplaintScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/complaint',

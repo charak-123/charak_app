@@ -154,9 +154,8 @@ class _State extends ConsumerState<IntakeScreen> {
       '${_elapsed ~/ 60}:${(_elapsed % 60).toString().padLeft(2, '0')}';
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.ground,
-    appBar: const CharakTopBar(title: 'Describe the issue'),
+  Widget build(BuildContext context) => CharakScreen(
+    title: 'Describe the issue',
     body: Column(children: [
       Expanded(child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -169,10 +168,10 @@ class _State extends ConsumerState<IntakeScreen> {
             value: _type,
             onChanged: (t) => setState(() => _type = t),
             segments: const [
-              CharakSegment(value: _IntakeType.text,  label: 'Text',  icon: Icons.notes_rounded),
-              CharakSegment(value: _IntakeType.voice, label: 'Voice', icon: Icons.mic_none_rounded),
-              CharakSegment(value: _IntakeType.photo, label: 'Photo', icon: Icons.photo_camera_outlined),
-              CharakSegment(value: _IntakeType.video, label: 'Video', icon: Icons.videocam_outlined),
+              CharakSegment(value: _IntakeType.text,  label: 'Text',  icon: LucideIcons.notebookText),
+              CharakSegment(value: _IntakeType.voice, label: 'Voice', icon: LucideIcons.mic),
+              CharakSegment(value: _IntakeType.photo, label: 'Photo', icon: LucideIcons.camera),
+              CharakSegment(value: _IntakeType.video, label: 'Video', icon: LucideIcons.video),
             ],
           ),
 
@@ -284,7 +283,7 @@ class _State extends ConsumerState<IntakeScreen> {
               )),
               _AttachTile(
                 onTap: _pickImage,
-                child: Icon(Icons.add, size: 22, color: CharakColors.inkMuted),
+                child: Icon(LucideIcons.plus, size: 22, color: CharakColors.inkMuted),
               ),
             ]),
             const SizedBox(height: 10),
@@ -299,12 +298,12 @@ class _State extends ConsumerState<IntakeScreen> {
               ..._videos.map((f) => _AttachTile(
                 attached: true,
                 onTap: () => setState(() => _videos.remove(f)),
-                child: Icon(Icons.videocam,
+                child: Icon(LucideIcons.video,
                     size: 22, color: CharakColors.primaryDeep),
               )),
               _AttachTile(
                 onTap: _pickVideo,
-                child: Icon(Icons.add, size: 22, color: CharakColors.inkMuted),
+                child: Icon(LucideIcons.plus, size: 22, color: CharakColors.inkMuted),
               ),
             ]),
             const SizedBox(height: 10),
@@ -317,7 +316,7 @@ class _State extends ConsumerState<IntakeScreen> {
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Padding(
               padding: const EdgeInsets.only(top: 1),
-              child: Icon(Icons.verified_user_outlined,
+              child: Icon(LucideIcons.shieldCheck,
                   size: 15, color: CharakColors.success),
             ),
             const SizedBox(width: 8),
@@ -363,7 +362,7 @@ class _MicButton extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
-      child: Icon(recording ? Icons.stop_rounded : Icons.mic_rounded,
+      child: Icon(recording ? LucideIcons.square : LucideIcons.mic,
           color: CharakColors.onPrimary, size: 24),
     ),
   );
@@ -412,7 +411,7 @@ class _AttachTile extends StatelessWidget {
               decoration: BoxDecoration(
                   color: CharakColors.success, shape: BoxShape.circle),
               alignment: Alignment.center,
-              child: Icon(Icons.check, size: 11, color: CharakColors.onPrimary),
+              child: Icon(LucideIcons.check, size: 11, color: CharakColors.onPrimary),
             ),
           ),
       ]),

@@ -23,7 +23,7 @@ import 'screens/requests/active_visit_screen.dart';
 /// Wraps a screen in the wireframe's 280ms horizontal push
 /// (`.scr.entering` / `.scr.leaving`).
 CustomTransitionPage<void> _push(Widget child) => CustomTransitionPage<void>(
-  child: child,
+  child: CharakEntranceScope(child: child),
   transitionDuration: CharakDurations.screenPush,
   reverseTransitionDuration: CharakDurations.screenPush,
   transitionsBuilder: charakPushTransition,
@@ -32,11 +32,29 @@ CustomTransitionPage<void> _push(Widget child) => CustomTransitionPage<void>(
 /// Rise-and-fade, for surfaces that shouldn't slide in from the side:
 /// the splash, the shell, and the full-screen call.
 CustomTransitionPage<void> _rise(Widget child) => CustomTransitionPage<void>(
-  child: child,
+  child: CharakEntranceScope(child: child),
   transitionDuration: CharakDurations.sheetOpen,
   reverseTransitionDuration: CharakDurations.sheetOpen,
   transitionsBuilder: charakRiseTransition,
 );
+
+/// "Card → screen": the screen grows out of the card that was tapped
+/// (emphasized, 450ms). The origin is taken once per page and kept by its key,
+/// so a rebuild of the page — and the pop back into the card — reuse it.
+final _cardOrigins = <ValueKey<String>, Rect?>{};
+CustomTransitionPage<void> _card(GoRouterState state, Widget child) {
+  final key = state.pageKey;
+  final origin = _cardOrigins.containsKey(key)
+      ? _cardOrigins[key]
+      : (_cardOrigins[key] = CharakCardOrigin.take());
+  return CustomTransitionPage<void>(
+    key: key,
+    child: CharakEntranceScope(child: child),
+    transitionDuration: CharakMotion.emphasized,
+    reverseTransitionDuration: CharakMotion.emphasized,
+    transitionsBuilder: charakCardTransition(origin),
+  );
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
   late final GoRouter router;
@@ -84,7 +102,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       // ── Phase 2: Requests & Fulfillment ───────────────────────────────────
       GoRoute(
         path: '/request/:id',
-        pageBuilder: (_, state) => _push(RequestDetailScreen(bookingId: state.pathParameters['id']!)),
+        pageBuilder: (_, state) => _card(state, RequestDetailScreen(bookingId: state.pathParameters['id']!)),
       ),
       GoRoute(
         path: '/call/:bookingId',
@@ -92,7 +110,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/visit/:bookingId',
-        pageBuilder: (_, state) => _push(ActiveVisitScreen(bookingId: state.pathParameters['bookingId']!)),
+        pageBuilder: (_, state) => _card(state, ActiveVisitScreen(bookingId: state.pathParameters['bookingId']!)),
       ),
     ],
   );

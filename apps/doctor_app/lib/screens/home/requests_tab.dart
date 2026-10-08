@@ -4,13 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
-import 'package:intl/intl.dart';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
 final _incomingProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final res = await ApiClient.instance.get('/bookings/doctor/incoming');
   return List<Map<String, dynamic>>.from(res as List);
+});
+
+/// Whether new patients can send requests ("Accepting requests" switch).
+/// Defaults to on: a backend without the column has no way to pause.
+final _acceptingProvider = FutureProvider.autoDispose<bool>((ref) async {
+  final me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+  return me['accepting_requests'] as bool? ?? true;
 });
 
 // ── RequestsTab ───────────────────────────────────────────────────────────────
@@ -82,13 +88,45 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
 
   Future<void> _headsUp(Map<String, dynamic> row) async {
     final id = row['id'] as String;
-    final channel = row['channel'] == 'home_visit' ? 'Home visit' : 'Online consult';
+    final patient = (row['users'] as Map?)?['name'] as String? ?? 'A patient';
+    final issue = row['issue'] as String?;
     final review = await showCharakHeadsUp(
       context,
       overline: 'New request · now',
-      message: channel,
+      message: issue != null && issue.isNotEmpty ? '$patient · $issue' : '$patient · ${CharakFormat.channel(row['channel'] as String?)}',
     );
     if (review && mounted) context.push('/request/$id');
+  }
+
+  Future<void> _accept(String bookingId) async {
+    setState(() => _leaving.add(bookingId));
+    await Future<void>.delayed(CharakMotion.exit);
+    if (!mounted) return;
+    try {
+      await ApiClient.instance.patch('/bookings/$bookingId/accept', {});
+      _fresh.remove(bookingId);
+      ref.invalidate(_incomingProvider);
+      if (mounted) showCharakToast(context, message: 'Accepted · the patient has been asked to pay');
+    } on ApiException catch (e) {
+      if (mounted) showCharakToast(context, message: e.message, isError: true);
+    } finally {
+      if (mounted) setState(() => _leaving.remove(bookingId));
+    }
+  }
+
+  bool? _acceptingOverride;
+
+  Future<void> _setAccepting(bool value) async {
+    setState(() => _acceptingOverride = value);
+    try {
+      await ApiClient.instance.patch('/doctors/me', {'accepting_requests': value});
+      ref.invalidate(_acceptingProvider);
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _acceptingOverride = !value);
+        showCharakToast(context, message: e.message, isError: true);
+      }
+    }
   }
 
   Future<void> _decline(String bookingId) async {
@@ -124,8 +162,32 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
     final incoming = ref.watch(_incomingProvider);
     final doctorName = ref.watch(authProvider).user?['name'] as String?;
     final count = incoming.valueOrNull?.length;
+    final accepting = _acceptingOverride ?? ref.watch(_acceptingProvider).valueOrNull ?? true;
+    final availability = CharakCard(
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Accepting requests', style: CharakText.titleSmall.copyWith(fontSize: 17, color: CharakColors.ink)),
+            const SizedBox(height: 2),
+            CharakFadeSwap(
+              child: Text(
+                accepting ? 'Patients can send you requests' : 'Paused · hidden from search',
+                key: ValueKey(accepting),
+                style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(width: 12),
+        Semantics(
+          label: 'Accepting requests',
+          child: CharakSwitch(value: accepting, onChanged: _setAccepting),
+        ),
+      ]),
+    );
     return CharakLargeTitleScaffold(
-      eyebrow: doctorName == null ? null : 'Dr. $doctorName',
+      eyebrow: doctorName == null ? null : CharakFormat.doctor(doctorName),
+      eyebrowColor: CharakColors.inkMuted,
       title: 'Requests',
       subtitle: count == null
           ? 'New requests arrive live.'
@@ -134,11 +196,14 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
               : '$count waiting for your decision',
       subtitleColor: (count ?? 0) > 0 ? CharakColors.greeting : null,
       onRefresh: () => ref.refresh(_incomingProvider.future),
-      children: incoming.when(
+      children: [
+        availability,
+        const SizedBox(height: 12),
+        ...incoming.when(
         loading: () => const [_RequestCardSkeleton(), _RequestCardSkeleton(), _RequestCardSkeleton()],
         error: (e, _) => [
           CharakEmptyState(
-            icon: Icons.cloud_off_rounded,
+            icon: LucideIcons.cloudOff,
             title: 'Couldn\'t load requests',
             message: 'Check your connection and try again.',
             action: CharakButton(
@@ -151,7 +216,7 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
         data: (bookings) => bookings.isEmpty
             ? [
                 CharakEmptyState(
-                  icon: Icons.inbox_outlined,
+                  icon: LucideIcons.inbox,
                   title: 'All caught up',
                   message: 'New booking requests will appear here the moment a patient sends one.',
                   action: CharakButton(
@@ -173,11 +238,13 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
                         booking: b,
                         isNew: _fresh.contains(b['id']),
                         onDecline: () => _decline(b['id'] as String),
+                        onAccept: () => _accept(b['id'] as String),
                       ),
                     ),
                   ),
               ],
       ),
+      ],
     );
   }
 }
@@ -254,69 +321,77 @@ class _RequestCardSkeleton extends StatelessWidget {
   Widget build(BuildContext context) => const CharakSkeletonCard();
 }
 
-/// Request card (V2 doctor mock): avatar, patient and channel, a "Waiting"
-/// chip; the complaint; a hairline, then time · channel and the fee in
-/// narrow tabular figures; then Decline (soft red) and Review (blue).
-/// A live arrival carries a blue "New" chip instead of "Waiting".
+/// Request card (design system V2, Doctor · Requests): avatar, patient and a
+/// "Waiting" chip; the patient's own words; a hairline, then "Today, 6:00 PM ·
+/// Home visit" and the fee in narrow tabular figures; then Decline (soft red)
+/// and Accept (blue). Tapping the card opens the full request.
 class _RequestCard extends StatelessWidget {
   final Map<String, dynamic> booking;
   final bool isNew;
   final VoidCallback onDecline;
-  const _RequestCard({required this.booking, required this.isNew, required this.onDecline});
+  final VoidCallback onAccept;
+  const _RequestCard({
+    required this.booking,
+    required this.isNew,
+    required this.onDecline,
+    required this.onAccept,
+  });
 
   @override
   Widget build(BuildContext context) {
     final patient = booking['users'] as Map<String, dynamic>?;
     final name    = patient?['name'] as String? ?? 'Patient';
-    final channel = booking['channel'] as String? ?? '';
-    final start   = booking['scheduled_start'] as String? ?? '';
-    final dt      = start.isNotEmpty ? DateTime.tryParse(start)?.toLocal() : null;
-    final dateStr = dt != null ? DateFormat('EEE d MMM, h:mm a').format(dt) : '—';
-    final price   = (booking['price_confirmed'] as num?)?.toDouble();
+    final channel = booking['channel'] as String?;
+    final start   = DateTime.tryParse(booking['scheduled_start'] as String? ?? '');
+    final price   = booking['price_confirmed'] as num?;
     final id      = booking['id'] as String;
-    final address = booking['patient_address'] as String?;
-    final channelLabel = channel == 'home_visit' ? 'Home visit' : 'Online';
+    final issue   = booking['issue'] as String?;
+    final km      = booking['distance_km'] as num?;
 
     return CharakCard(
+      onTap: () => context.push('/request/$id'),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           CharakAvatar(name: name, radius: 24),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(name, style: CharakText.titleSmall.copyWith(fontSize: 19), maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text(channel == 'home_visit' ? 'Home visit request' : 'Online consult request',
-                style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+            Text(name, style: CharakText.titleSmall.copyWith(fontSize: 19, color: CharakColors.ink),
                 maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text(
+              [
+                CharakFormat.channel(channel),
+                if (channel == 'home_visit' && km != null) '${km.toStringAsFixed(1)} km away',
+              ].join(' · '),
+              style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ])),
           const SizedBox(width: 8),
           isNew
               ? const CharakBadge(label: 'New', variant: CharakBadgeVariant.primary)
               : const CharakBadge(label: 'Waiting', variant: CharakBadgeVariant.muted),
         ]),
-        if (address != null && address.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Row(children: [
-            Icon(Icons.place_outlined, size: 16, color: CharakColors.inkMuted),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(address,
-                  style: CharakText.body.copyWith(color: CharakColors.inkMuted),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
-          ]),
+        if (issue != null && issue.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Text(issue,
+              style: CharakText.body.copyWith(color: CharakColors.ink),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis),
         ],
         const SizedBox(height: 14),
         Container(
           padding: const EdgeInsets.only(top: 12),
           decoration: BoxDecoration(border: Border(top: BorderSide(color: CharakColors.border))),
           child: Row(children: [
-            Icon(Icons.schedule_rounded, size: 16, color: CharakColors.inkMuted),
-            const SizedBox(width: 8),
             Expanded(
               child: Text.rich(
                 TextSpan(children: [
-                  TextSpan(text: dateStr, style: CharakText.label.tabular.copyWith(color: CharakColors.ink)),
-                  TextSpan(text: ' · $channelLabel'),
+                  TextSpan(
+                    text: start != null ? CharakFormat.dayTime(start) : '—',
+                    style: CharakText.label.tabular.copyWith(color: CharakColors.ink),
+                  ),
+                  TextSpan(text: ' · ${CharakFormat.channel(channel)}'),
                 ]),
                 style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
                 maxLines: 1,
@@ -324,7 +399,8 @@ class _RequestCard extends StatelessWidget {
               ),
             ),
             if (price != null)
-              Text('₹${price.toStringAsFixed(0)}', style: CharakText.numeric.copyWith(color: CharakColors.ink)),
+              Text(CharakFormat.rupees(price),
+                  style: CharakText.numeric.copyWith(fontSize: 20, color: CharakColors.ink)),
           ]),
         ),
         const SizedBox(height: 14),
@@ -333,9 +409,7 @@ class _RequestCard extends StatelessWidget {
             child: CharakButton(label: 'Decline', variant: CharakButtonVariant.danger, onPressed: onDecline),
           ),
           const SizedBox(width: 10),
-          Expanded(
-            child: CharakButton(label: 'Review', onPressed: () => context.push('/request/$id')),
-          ),
+          Expanded(child: CharakButton(label: 'Accept', onPressed: onAccept)),
         ]),
       ]),
     );

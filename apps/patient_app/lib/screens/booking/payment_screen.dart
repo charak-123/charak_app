@@ -227,9 +227,11 @@ class _State extends ConsumerState<PaymentScreen> {
     final isStub =
         (_order?['razorpay_key'] as String? ?? '').startsWith('stub');
 
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: 'Payment'),
+    return CharakScreen(
+      title: _order != null ? 'Pay ${CharakFormat.rupees(amount)}' : 'Payment',
+      subtitle: widget.type == 'consult_fee'
+          ? 'Consultation fee, paid before the visit'
+          : 'Procedure bill for your visit',
       body: _loading && _order == null
           // Initial order fetch — content is arriving, so `.skel` stands in.
           ? const _PaymentLoading()
@@ -237,27 +239,9 @@ class _State extends ConsumerState<PaymentScreen> {
               Expanded(child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                 children: [
-                  // `.sheet-title` row — amount left, "Secure" badge right.
-                  Row(children: [
-                    Expanded(
-                      child: Text('Pay ₹${amount.toStringAsFixed(0)}',
-                          style: CharakText.h2.copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          )),
-                    ),
-                    const CharakBadge(
-                        label: 'Secure',
-                        variant: CharakBadgeVariant.muted,
-                        icon: Icons.lock_outline),
-                  ]),
-                  const SizedBox(height: 4),
-                  Text('Consultation fee · paid before the visit',
-                      style: charakHintStyle),
-                  const SizedBox(height: 18),
-
                   if (_awaitingConfirmation)
                     const CharakNoteBanner(
-                      icon: Icons.hourglass_top_outlined,
+                      icon: LucideIcons.hourglass,
                       tone: CharakStatusTone.primary,
                       message: 'Confirming your payment with the bank. This can '
                           'take a few seconds — please stay on this screen.',
@@ -265,8 +249,8 @@ class _State extends ConsumerState<PaymentScreen> {
                   else ...[
                     CharakNoteBanner(
                       icon: _upiIntentAvailable
-                          ? Icons.account_balance_wallet_outlined
-                          : Icons.lock_outline,
+                          ? LucideIcons.wallet
+                          : LucideIcons.lock,
                       tone: CharakStatusTone.primary,
                       message: _upiIntentAvailable
                           ? 'Tap Pay to choose your UPI app — GPay, PhonePe, '
@@ -296,12 +280,11 @@ class _State extends ConsumerState<PaymentScreen> {
                     ],
                   ],
 
-                  const SizedBox(height: 14),
-                  const CharakNoteBanner(
-                    icon: Icons.verified_user_outlined,
-                    tone: CharakStatusTone.success,
-                    message: 'Payment is processed securely via Razorpay. The '
-                        'booking is confirmed the moment payment lands.',
+                  const SizedBox(height: 16),
+                  const CharakHintLine(
+                    icon: LucideIcons.shieldCheck,
+                    text: 'Secure checkout by Razorpay. Your booking is '
+                        'confirmed the moment the payment lands.',
                   ),
                 ],
               )),
@@ -310,7 +293,7 @@ class _State extends ConsumerState<PaymentScreen> {
                 CharakButton(
                   label: isStub
                       ? 'Confirm payment (dev stub)'
-                      : 'Pay ₹${amount.toStringAsFixed(0)}',
+                      : 'Pay ${CharakFormat.rupees(amount)}',
                   isLoading: _loading || _awaitingConfirmation,
                   onPressed:
                       _order != null && !_awaitingConfirmation ? _pay : null,

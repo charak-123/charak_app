@@ -21,7 +21,7 @@ class HistoryTab extends ConsumerWidget {
         loading: () => const [CharakSkeletonList(count: 4, padding: EdgeInsets.zero)],
         error: (e, _) => const [
           CharakEmptyState(
-            icon: Icons.cloud_off_rounded,
+            icon: LucideIcons.cloudOff,
             title: 'Couldn\'t load history',
             message: 'Pull down to try again.',
           ),
@@ -31,7 +31,7 @@ class HistoryTab extends ConsumerWidget {
           if (past.isEmpty) {
             return const [
               CharakEmptyState(
-                icon: Icons.inventory_2_outlined,
+                icon: LucideIcons.package,
                 title: 'Nothing here yet',
                 message: 'Completed visits will appear here with receipts and your ratings.',
               ),
@@ -80,7 +80,7 @@ class _HistoryRow extends StatelessWidget {
     final status = booking['status'] as String? ?? 'completed';
     final channel = booking['channel'] as String? ?? '';
     final start = booking['scheduled_start'] as String?;
-    final docName = (booking['doctors'] as Map?)?['name'] as String? ?? 'Doctor';
+    final docName = CharakFormat.doctor((booking['doctors'] as Map?)?['name'] as String?);
     final price = (booking['price_confirmed'] as num?)?.toDouble();
 
     String formattedTime = '';
@@ -92,14 +92,14 @@ class _HistoryRow extends StatelessWidget {
 
     return CharakListRow(
       leading: CharakAvatar(name: docName, radius: 22),
-      title: 'Dr. $docName',
+      title: CharakFormat.doctor(docName),
       subtitle: '$channelLabel · $formattedTime',
       showChevron: false,
       last: last,
       onTap: () => context.push('/booking/$id/history-detail'),
       trailing: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
         if (price != null)
-          Text('₹${price.toStringAsFixed(0)}', style: CharakText.label.tabular.copyWith(fontSize: 16)),
+          Text(CharakFormat.rupees(price), style: CharakText.label.tabular.copyWith(fontSize: 16)),
         const SizedBox(height: 4),
         CharakStatusPill.forStatus(status),
       ]),

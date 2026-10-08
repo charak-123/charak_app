@@ -44,7 +44,9 @@ class CharakCard extends StatelessWidget {
   };
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) {
     final onHero = tone == CharakCardTone.hero;
     Widget body = Container(
       width: double.infinity,
@@ -111,7 +113,9 @@ class CharakTileCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => CharakPressable(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => CharakPressable(
     onTap: onTap,
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),

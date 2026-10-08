@@ -52,7 +52,7 @@ void main() {
         controls: [],
       )));
 
-      expect(find.byIcon(Icons.videocam_outlined), findsOneWidget);
+      expect(find.byIcon(LucideIcons.video), findsOneWidget);
     });
 
     testWidgets('self-view renders the local stream when given one',
@@ -65,7 +65,7 @@ void main() {
       )));
 
       expect(find.byKey(const Key('self')), findsOneWidget);
-      expect(find.byIcon(Icons.videocam_outlined), findsNothing);
+      expect(find.byIcon(LucideIcons.video), findsNothing);
     });
 
     testWidgets('hiding the self-view removes the tile entirely',
@@ -79,7 +79,7 @@ void main() {
       )));
 
       expect(find.byKey(const Key('self')), findsNothing);
-      expect(find.byIcon(Icons.videocam_outlined), findsNothing);
+      expect(find.byIcon(LucideIcons.video), findsNothing);
     });
 
     testWidgets('renders the control row', (tester) async {
@@ -88,9 +88,9 @@ void main() {
         peerName: 'Patient',
         statusText: '00:00',
         controls: [
-          const CharakCallButton(icon: Icons.mic, semanticLabel: 'Mute'),
+          const CharakCallButton(icon: LucideIcons.mic, semanticLabel: 'Mute'),
           CharakCallButton(
-            icon: Icons.call_end,
+            icon: LucideIcons.phoneOff,
             end: true,
             semanticLabel: 'End call',
             onPressed: () => ended = true,
@@ -99,7 +99,7 @@ void main() {
       )));
 
       expect(find.byType(CharakCallButton), findsNWidgets(2));
-      await tester.tap(find.byIcon(Icons.call_end));
+      await tester.tap(find.byIcon(LucideIcons.phoneOff));
       expect(ended, isTrue);
     });
 
@@ -110,7 +110,7 @@ void main() {
         statusText: '00:00',
         controls: [
           CharakCallButton(
-            icon: Icons.call_end,
+            icon: LucideIcons.phoneOff,
             end: true,
             semanticLabel: 'End call',
             onPressed: null,
@@ -118,7 +118,7 @@ void main() {
         ],
       )));
 
-      await tester.tap(find.byIcon(Icons.call_end));
+      await tester.tap(find.byIcon(LucideIcons.phoneOff));
       expect(tapped, isFalse);
     });
   });

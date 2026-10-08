@@ -152,20 +152,20 @@ class _State extends ConsumerState<ClarificationCallScreen> {
           ),
           controls: [
             CharakCallButton(
-              icon: _call.micOn ? Icons.mic : Icons.mic_off,
+              icon: _call.micOn ? LucideIcons.mic : LucideIcons.micOff,
               active: !_call.micOn,
               semanticLabel: _call.micOn ? 'Mute' : 'Unmute',
               onPressed: _call.toggleMic,
             ),
             CharakCallButton(
-              icon: _call.cameraOn ? Icons.videocam : Icons.videocam_off,
+              icon: _call.cameraOn ? LucideIcons.video : LucideIcons.videoOff,
               active: !_call.cameraOn,
               semanticLabel:
                   _call.cameraOn ? 'Turn camera off' : 'Turn camera on',
               onPressed: _call.toggleCamera,
             ),
             CharakCallButton(
-              icon: Icons.call_end,
+              icon: LucideIcons.phoneOff,
               end: true,
               semanticLabel: 'End call',
               onPressed: _loading ? null : () => _endCall(),

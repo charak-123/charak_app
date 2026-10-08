@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
 import 'charak_avatar.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// The in-call surface, shared by the patient's video consult and the
 /// doctor's clarification call. The field is always ink (ink-900 with an
@@ -189,7 +190,7 @@ class CharakCallScaffold extends StatelessWidget {
                 clipBehavior: Clip.antiAlias,
                 alignment: Alignment.center,
                 child: selfVideo ??
-                    const Icon(Icons.videocam_outlined,
+                    const Icon(LucideIcons.video,
                         size: 22, color: CharakCallColors.selfIcon),
               ),
             ),

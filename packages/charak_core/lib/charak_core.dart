@@ -8,7 +8,10 @@ export 'design/motion.dart';
 export 'network/api_client.dart';
 export 'network/charak_poller.dart';
 export 'auth/auth_service.dart';
+export 'package:lucide_icons_flutter/lucide_icons.dart' show LucideIcons;
+export 'format/charak_format.dart';
 export 'legal.dart';
+export 'location/charak_location.dart';
 export 'call/charak_call_session.dart';
 export 'push/charak_push.dart';
 

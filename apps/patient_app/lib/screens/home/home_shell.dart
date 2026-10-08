@@ -19,10 +19,10 @@ class _State extends ConsumerState<HomeShell> {
   static const _tabs = [HomeTab(), BookingsTab(), HistoryTab(), ProfileTab()];
 
   static const _navItems = [
-    CharakNavItem(label: 'Home',     icon: Icons.home_outlined,           activeIcon: Icons.home_rounded),
-    CharakNavItem(label: 'Bookings', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month_rounded),
-    CharakNavItem(label: 'History',  icon: Icons.history_rounded),
-    CharakNavItem(label: 'Profile',  icon: Icons.person_outline_rounded,  activeIcon: Icons.person_rounded),
+    CharakNavItem(label: 'Home',     icon: LucideIcons.house,           activeIcon: LucideIcons.house),
+    CharakNavItem(label: 'Bookings', icon: LucideIcons.calendarDays, activeIcon: LucideIcons.calendarDays),
+    CharakNavItem(label: 'History',  icon: LucideIcons.history),
+    CharakNavItem(label: 'Profile',  icon: LucideIcons.user,  activeIcon: LucideIcons.user),
   ];
 
   @override

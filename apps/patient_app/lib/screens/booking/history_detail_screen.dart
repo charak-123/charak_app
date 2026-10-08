@@ -49,12 +49,11 @@ class HistoryDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_historyDetailProvider(bookingId));
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: 'Visit details'),
+    return CharakScreen(
+      title: 'Visit details',
       body: async.when(
         loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_historyDetailProvider(bookingId))),
         data: (detail) => _Body(bookingId: bookingId, detail: detail),
       ),
     );
@@ -69,7 +68,7 @@ class _Body extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final b = detail.booking;
-    final docName = (b['doctors'] as Map?)?['name'] as String? ?? 'Doctor';
+    final docName = CharakFormat.doctor((b['doctors'] as Map?)?['name'] as String?);
     final channel = b['channel'] as String? ?? '';
     final status = b['status'] as String? ?? 'completed';
     final start = b['scheduled_start'] as String?;
@@ -94,37 +93,36 @@ class _Body extends StatelessWidget {
       children: [
         // `.card.rev-sum` — the full receipt for this visit.
         CharakSummaryCard(rows: [
-          CharakSummaryRow(label: 'Doctor', value: 'Dr. $docName'),
+          CharakSummaryRow(label: 'Doctor', value: CharakFormat.doctor(docName)),
           if (formattedTime.isNotEmpty)
             CharakSummaryRow(label: 'When', value: formattedTime),
           CharakSummaryRow(
               label: 'Channel',
-              value: channel == 'home_visit' ? 'Home Visit' : 'Online Consult'),
+              value: CharakFormat.channel(channel)),
           const CharakSummaryDivider(),
           CharakSummaryRow(
-              label: 'Consult fee · 15 min',
-              value: '₹${consultFee.toStringAsFixed(0)}',
+              label: 'Consult fee',
+              value: CharakFormat.rupees(consultFee),
               tabular: true),
           for (final p in procs)
             CharakSummaryRow(
                 label: p['name'] as String? ?? '',
-                value: '₹${(p['price'] as num).toStringAsFixed(0)}',
+                value: CharakFormat.rupees(p['price'] as num),
                 tabular: true),
           if (procTotal > 0)
             CharakSummaryRow(
                 label: 'Procedures',
-                value: '₹${procTotal.toStringAsFixed(0)}',
+                value: CharakFormat.rupees(procTotal),
                 tabular: true),
-          const CharakSummaryDivider(),
-          CharakSummaryRow(
-              label: 'Amount',
-              value: '₹${amount.toStringAsFixed(0)}',
-              tabular: true),
-          CharakSummaryRow(
-            label: 'Paid via',
-            value: detail.paymentRef != null ? 'UPI · ${detail.paymentRef}' : '—',
-            muted: true,
-          ),
+          if (procTotal > 0) ...[
+            const CharakSummaryDivider(),
+            CharakSummaryRow(
+                label: 'Total',
+                value: CharakFormat.rupees(amount),
+                tabular: true),
+          ],
+          if (detail.paymentRef != null)
+            CharakSummaryRow(label: 'Payment ref', value: detail.paymentRef!, muted: true),
           CharakSummaryRow(
             label: 'Status',
             child: CharakStatusPill.forStatus(status),

@@ -76,12 +76,10 @@ class _State extends ConsumerState<SlotSelectionScreen> {
     final doctorSpec = doctorAsync.maybeWhen(
         data: (d) => (d['categories'] as Map?)?['name'] as String?, orElse: () => null);
 
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: ''),
+    return CharakScreen(
       body: async.when(
         loading: () => const _SlotsLoading(),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_slotsProvider(widget.doctorId))),
         data: (slotData) {
           final dayKey = DateFormat('yyyy-MM-dd').format(_selectedDay);
           final slots = List<Map<String,dynamic>>.from(
@@ -99,7 +97,7 @@ class _State extends ConsumerState<SlotSelectionScreen> {
                   if (doctorName != null) ...[
                     const SizedBox(height: 6),
                     Text(
-                      doctorSpec != null ? 'Dr. $doctorName · $doctorSpec' : 'Dr. $doctorName',
+                      doctorSpec != null ? '${CharakFormat.doctor(doctorName)} · $doctorSpec' : CharakFormat.doctor(doctorName),
                       style: charakScreenSubStyle,
                     ),
                   ],
@@ -131,7 +129,7 @@ class _State extends ConsumerState<SlotSelectionScreen> {
                   const SizedBox(height: 24),
                   if (slots.isEmpty)
                     const CharakEmptyState(
-                      icon: Icons.event_busy_outlined,
+                      icon: LucideIcons.calendarX,
                       title: 'No slots this day',
                       message: 'Try another day. Only the doctor\'s open slots are shown.',
                     )
@@ -166,9 +164,9 @@ class _State extends ConsumerState<SlotSelectionScreen> {
                     tone: CharakCardTone.tint,
                     padding: const EdgeInsets.all(16),
                     child: CharakHintLine(
-                      icon: Icons.info_outline_rounded,
+                      icon: LucideIcons.info,
                       text: 'You describe the problem next. '
-                          '${doctorName != null ? 'Dr. $doctorName' : 'The doctor'} reads it and decides. '
+                          '${CharakFormat.doctor(doctorName)} reads it and decides. '
                           'You pay only after the doctor accepts.',
                     ),
                   ),
@@ -183,7 +181,7 @@ class _State extends ConsumerState<SlotSelectionScreen> {
                 label: _selectedSlot != null
                     ? '${_dayLabel(_selectedDay, selectedIndex)}, ${_fmt12h(_selectedSlot!)} · Continue'
                     : 'Pick a slot to continue',
-                trailingIcon: _selectedSlot != null ? Icons.arrow_forward_rounded : null,
+                trailingIcon: _selectedSlot != null ? LucideIcons.arrowRight : null,
                 onPressed: _selectedSlot != null ? () => _proceed(slotData) : null,
               ),
             ),

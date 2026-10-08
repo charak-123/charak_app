@@ -145,9 +145,8 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
                     : null;
     final intakePreview = text.isNotEmpty ? text : transcript;
 
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: 'Review & confirm'),
+    return CharakScreen(
+      title: 'Review & confirm',
       body: Column(children: [
         Expanded(child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -159,17 +158,17 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
               CharakSummaryRow(label: 'When', value: dateStr),
               CharakSummaryRow(
                   label: 'Channel',
-                  value: isHome ? 'Home Visit' : 'Online Consult'),
+                  value: CharakFormat.channel(isHome ? 'home_visit' : 'online_consult')),
               const CharakSummaryDivider(),
               if (price > 0)
                 CharakSummaryRow(
                     label: 'Consult fee · 15 min',
-                    value: '₹${price.toStringAsFixed(0)}',
+                    value: CharakFormat.rupees(price),
                     tabular: true),
               if (extra > 0)
                 CharakSummaryRow(
                     label: 'Extra 15 min',
-                    value: '₹${extra.toStringAsFixed(0)}',
+                    value: CharakFormat.rupees(extra),
                     muted: true,
                     tabular: true),
               const CharakSummaryDivider(),
@@ -186,11 +185,11 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
             if (isHome) ...[
               const SizedBox(height: 12),
               CharakNoteBanner(
-                icon: Icons.receipt_long_outlined,
+                icon: LucideIcons.receiptText,
                 leadLabel: 'Procedures billed after the visit',
                 message: "— if any procedure is done, it's charged at the "
                     'doctor\'s fixed rates on this profile.'
-                    '${threshold != null ? ' Bills above ₹${(threshold as num).toStringAsFixed(0)} are reviewed by a senior doctor first.' : ''}',
+                    '${threshold != null ? ' Bills above ${CharakFormat.rupees(threshold as num)} are reviewed by a senior doctor first.' : ''}',
               ),
             ],
 
@@ -231,7 +230,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
 
         CharakCtaBar.single(
           CharakButton(
-            label: price > 0 ? 'Send request · ₹${price.toStringAsFixed(0)}' : 'Send request',
+            label: price > 0 ? 'Send request · ${CharakFormat.rupees(price)}' : 'Send request',
             isLoading: _sending,
             onPressed: _send,
           ),

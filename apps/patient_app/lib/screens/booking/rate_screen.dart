@@ -56,9 +56,7 @@ class _State extends ConsumerState<RateScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.ground,
-    appBar: const CharakTopBar(title: 'Rate your visit'),
+  Widget build(BuildContext context) => CharakScreen(
     body: _submitted ? _success() : _form(),
   );
 

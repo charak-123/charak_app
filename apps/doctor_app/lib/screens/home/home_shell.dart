@@ -25,10 +25,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   ];
 
   static const _items = [
-    CharakNavItem(label: 'Requests', icon: Icons.inbox_outlined, activeIcon: Icons.inbox_rounded),
-    CharakNavItem(label: 'Schedule', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month_rounded),
-    CharakNavItem(label: 'Earnings', icon: Icons.account_balance_wallet_outlined, activeIcon: Icons.account_balance_wallet_rounded),
-    CharakNavItem(label: 'Profile', icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded),
+    CharakNavItem(label: 'Requests', icon: LucideIcons.inbox, activeIcon: LucideIcons.inbox),
+    CharakNavItem(label: 'Schedule', icon: LucideIcons.calendarDays, activeIcon: LucideIcons.calendarDays),
+    CharakNavItem(label: 'Earnings', icon: LucideIcons.wallet, activeIcon: LucideIcons.wallet),
+    CharakNavItem(label: 'Profile', icon: LucideIcons.user, activeIcon: LucideIcons.user),
   ];
 
   @override

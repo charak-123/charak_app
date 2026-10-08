@@ -62,9 +62,9 @@ class _State extends ConsumerState<RequestSentScreen> {
   @override
   Widget build(BuildContext context) {
     final booking = _booking;
-    final docName = (booking?['doctors'] as Map?)?['name'] as String? ?? 'the doctor';
+    final docName = CharakFormat.doctor((booking?['doctors'] as Map?)?['name'] as String?, fallback: 'the doctor');
     final channel = booking?['channel'] as String? ?? '';
-    final channelLabel = channel == 'home_visit' ? 'Home Visit' : 'Online Consult';
+    final channelLabel = CharakFormat.channel(channel);
     final start = booking?['scheduled_start'] as String?;
     String formattedTime = '';
     if (start != null) {
@@ -75,7 +75,7 @@ class _State extends ConsumerState<RequestSentScreen> {
         (booking?['doctors'] as Map?)?['doctor_pricing'] as List? ?? []);
     final priceRow = pricing.where((p) => p['channel'] == channel).firstOrNull;
     final priceStr = priceRow != null
-        ? '₹${(priceRow['price'] as num).toStringAsFixed(0)}'
+        ? CharakFormat.rupees(priceRow['price'] as num)
         : null;
 
     return Scaffold(
@@ -104,7 +104,7 @@ class _State extends ConsumerState<RequestSentScreen> {
                       style: charakScreenTitleStyle, textAlign: TextAlign.center),
                   const SizedBox(height: 5),
                   Text(
-                    'Dr. $docName will review your request. You\'ll be notified '
+                    '${CharakFormat.doctor(docName)} will review your request. You\'ll be notified '
                     'the moment they decide — usually within minutes.',
                     style: charakScreenSubStyle,
                     textAlign: TextAlign.center,
@@ -183,7 +183,7 @@ class _PulsingIconState extends State<_PulsingIcon> with SingleTickerProviderSta
         width: 88, height: 88,
         decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
         alignment: Alignment.center,
-        child: Icon(Icons.send_rounded, color: CharakColors.warning, size: 40),
+        child: Icon(LucideIcons.send, color: CharakColors.warning, size: 40),
       ),
     );
   }

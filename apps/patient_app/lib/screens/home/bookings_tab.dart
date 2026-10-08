@@ -28,7 +28,7 @@ class BookingsTab extends ConsumerWidget {
             const [CharakSkeletonList(count: 3, padding: EdgeInsets.zero)],
         error: (e, _) => [
           const CharakEmptyState(
-            icon: Icons.cloud_off_rounded,
+            icon: LucideIcons.cloudOff,
             title: 'Couldn\'t load bookings',
             message: 'Pull down to try again.',
           ),
@@ -36,7 +36,7 @@ class BookingsTab extends ConsumerWidget {
         data: (_) => active!.isEmpty
             ? [
                 CharakEmptyState(
-                  icon: Icons.event_busy_outlined,
+                  icon: LucideIcons.calendarX,
                   title: 'No active bookings',
                   message:
                       'Book a doctor from Home and your appointments will show up here.',
@@ -78,7 +78,7 @@ class _BookingCard extends StatelessWidget {
     final channel = booking['channel'] as String? ?? '';
     final start = booking['scheduled_start'] as String?;
     final docName =
-        (booking['doctors'] as Map?)?['name'] as String? ?? 'Doctor';
+        CharakFormat.doctor((booking['doctors'] as Map?)?['name'] as String?);
     final docCategory = ((booking['doctors'] as Map?)?['categories']
             as Map?)?['name'] as String? ??
         '';
@@ -86,7 +86,7 @@ class _BookingCard extends StatelessWidget {
         (booking['doctors'] as Map?)?['doctor_pricing'] as List? ?? []);
     final priceRow = pricing.where((p) => p['channel'] == channel).firstOrNull;
     final priceStr = priceRow != null
-        ? '₹${(priceRow['price'] as num).toStringAsFixed(0)}'
+        ? CharakFormat.rupees(priceRow['price'] as num)
         : null;
 
     String formattedTime = '';
@@ -98,7 +98,7 @@ class _BookingCard extends StatelessWidget {
     }
 
     final channelLabel =
-        channel == 'home_visit' ? 'Home Visit' : 'Online Consult';
+        CharakFormat.channel(channel);
 
     return CharakCard(
       onTap: () => _navigate(context, status, booking['id'] as String),
@@ -110,7 +110,7 @@ class _BookingCard extends StatelessWidget {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                Text('Dr. $docName',
+                Text(CharakFormat.doctor(docName),
                     style: CharakText.titleSmall.copyWith(fontSize: 18),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
@@ -137,7 +137,7 @@ class _BookingCard extends StatelessWidget {
               border: Border(top: BorderSide(color: CharakColors.border))),
           child: Row(children: [
             if (formattedTime.isNotEmpty) ...[
-              Icon(Icons.schedule_rounded,
+              Icon(LucideIcons.clock,
                   size: 16, color: CharakColors.inkMuted),
               const SizedBox(width: 8),
               Text(formattedTime,

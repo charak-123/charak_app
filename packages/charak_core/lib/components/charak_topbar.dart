@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../design/motion.dart';
 import '../design/tokens.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Slim top bar for pushed screens: a 44px round back button on a card-
 /// coloured circle, a centred title.small (+ optional caption), and an
@@ -38,7 +39,7 @@ class CharakTopBar extends StatelessWidget implements PreferredSizeWidget {
         child: Row(
           children: [
             CharakRoundIconButton(
-              icon: Icons.arrow_back_rounded,
+              icon: LucideIcons.arrowLeft,
               semanticLabel: 'Back',
               onTap: onBack ?? () => Navigator.of(context).maybePop(),
             ),

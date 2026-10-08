@@ -108,7 +108,7 @@ class _State extends ConsumerState<ActiveVisitScreen> {
       title: 'Mark visit complete?',
       message: _selectedItems.isEmpty
           ? 'No procedures selected. Only the consult fee will be charged.'
-          : '${_selectedItems.length} procedure(s) totalling ₹${_total.toStringAsFixed(0)} will be billed.',
+          : '${_selectedItems.length} procedure(s) totalling ${CharakFormat.rupees(_total)} will be billed.',
       confirmLabel: 'Complete',
     );
     if (!confirmed || !mounted) return;
@@ -211,14 +211,12 @@ class _State extends ConsumerState<ActiveVisitScreen> {
     }
   }
 
-  void _stub(String label) => showCharakToast(context, message: label);
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_activeVisitProvider(widget.bookingId));
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: 'Active visit'),
+    return CharakScreen(
+      title: 'Active visit',
       body: async.when(
         // `.skel` blocks matching the real body — `.act-doctor-card`, the
         // visit-lines card, the procedure checklist and the two actions.
@@ -246,7 +244,7 @@ class _State extends ConsumerState<ActiveVisitScreen> {
           _initProcedures(procs);
           final isHome = booking['channel'] == 'home_visit';
           final isPaid = booking['status'] == 'paid';
-          final price  = (booking['price_confirmed'] as num?)?.toStringAsFixed(0) ?? '—';
+          final price  = booking['price_confirmed'] as num?;
 
           final threshold = (booking['doctors'] as Map<String, dynamic>?)?['procedure_review_threshold'];
           final needsReview = threshold != null && _total > (threshold as num);
@@ -267,9 +265,9 @@ class _State extends ConsumerState<ActiveVisitScreen> {
                   const SizedBox(height: 12),
                   if (isPaid) ...[
                     CharakNoteBanner(
-                      icon: Icons.payments_outlined,
+                      icon: LucideIcons.banknote,
                       leadLabel: 'Payment received',
-                      message: '— ₹$price confirmed. Visit proceeds.',
+                      message: '— ${CharakFormat.rupees(price)} confirmed. Visit proceeds.',
                       tone: CharakStatusTone.success,
                     ),
                     const SizedBox(height: 12),
@@ -293,31 +291,24 @@ class _State extends ConsumerState<ActiveVisitScreen> {
                     const SizedBox(height: 14),
                     CharakButton(
                       label: 'Navigate to patient',
-                      icon: Icons.navigation_outlined,
+                      icon: LucideIcons.navigation,
                       onPressed: () => _navigateToPatient(booking),
                     ),
                     const SizedBox(height: 10),
                     CharakButton(
                       label: 'Running late',
                       outlined: true,
-                      icon: Icons.schedule_outlined,
+                      icon: LucideIcons.clock,
                       isLoading: _notifyingLate,
                       onPressed: () => _runningLate(booking),
                     ),
-                    const SizedBox(height: 10),
-                    CharakButton(
-                      label: 'Contact patient',
-                      outlined: true,
-                      icon: Icons.message_outlined,
-                      onPressed: () => _stub('In-app messaging is not built yet'),
-                    ),
                   ] else ...[
-                    CharakButton(label: 'Start call', icon: Icons.videocam_rounded, onPressed: () => context.push('/call/${widget.bookingId}')),
+                    CharakButton(label: 'Start call', icon: LucideIcons.video, onPressed: () => context.push('/call/${widget.bookingId}')),
                     const SizedBox(height: 10),
                     CharakButton(
                       label: 'Running late',
                       outlined: true,
-                      icon: Icons.schedule_outlined,
+                      icon: LucideIcons.clock,
                       isLoading: _notifyingLate,
                       onPressed: () => _runningLate(booking),
                     ),
@@ -325,7 +316,7 @@ class _State extends ConsumerState<ActiveVisitScreen> {
                   const SizedBox(height: 8),
                   CharakHintLine(
                     align: TextAlign.center,
-                    text: 'Consult fee ₹$price is confirmed from the request. '
+                    text: 'Consult fee ${CharakFormat.rupees(price)} is confirmed from the request. '
                         'Procedures are billed separately after the visit.',
                   ),
                 ],
@@ -334,7 +325,7 @@ class _State extends ConsumerState<ActiveVisitScreen> {
             CharakCtaBar.single(
               CharakButton(
                 label: 'Mark as complete',
-                icon: Icons.flag_outlined,
+                icon: LucideIcons.flag,
                 isLoading: _completing,
                 onPressed: () => _markComplete(booking),
               ),
@@ -361,7 +352,7 @@ class _PatientInfoCard extends StatelessWidget {
     final channel = booking['channel'] as String? ?? '';
     final start   = booking['scheduled_start'] as String? ?? '';
     final dt      = start.isNotEmpty ? DateTime.tryParse(start)?.toLocal() : null;
-    final label   = channel == 'home_visit' ? 'Home Visit' : 'Online Consult';
+    final label   = CharakFormat.channel(channel);
 
     return Container(
       padding: const EdgeInsets.all(15),
@@ -422,17 +413,17 @@ class _VisitLinesCard extends StatelessWidget {
       ),
       child: Column(children: [
         CharakVisitLine(
-          icon: Icons.access_time_rounded,
+          icon: LucideIcons.clock,
           value: dt != null ? _slotFormat.format(dt) : '—',
         ),
         if (isHome)
           CharakVisitLine(
-            icon: Icons.place_outlined,
+            icon: LucideIcons.mapPin,
             value: (address != null && address.isNotEmpty) ? address : 'Address in the booking',
           )
         else
           const CharakVisitLine(
-            icon: Icons.videocam_outlined,
+            icon: LucideIcons.video,
             value: 'Video consult',
             trailing: 'start the call at slot time',
           ),
@@ -494,7 +485,7 @@ class _ProcedureChecklist extends StatelessWidget {
               child: Row(children: [
                 Expanded(child: Text(p.name, style: CharakText.body.copyWith(fontSize: 14))),
                 Text(
-                  '₹${p.unitPrice.toStringAsFixed(0)}',
+                  CharakFormat.rupees(p.unitPrice),
                   style: CharakText.body.tabular.copyWith(color: CharakColors.inkMuted, fontSize: 15),
                 ),
                 const SizedBox(width: 10),
@@ -524,7 +515,7 @@ class _ProcedureChecklist extends StatelessWidget {
             style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
           ),
           Text(
-            '₹${total.toStringAsFixed(0)}',
+            CharakFormat.rupees(total),
             style: CharakText.h2.copyWith(
               fontSize: 16,
               fontFeatures: const [FontFeature.tabularFigures()],
@@ -535,15 +526,15 @@ class _ProcedureChecklist extends StatelessWidget {
       if (needsReview && threshold != null) ...[
         const SizedBox(height: 10),
         CharakNoteBanner(
-          icon: Icons.gpp_maybe_outlined,
+          icon: LucideIcons.shieldQuestionMark,
           leadLabel: 'Senior review needed',
-          message: '— this bill is above ₹${threshold!.toStringAsFixed(0)}. '
+          message: '— this bill is above ${CharakFormat.rupees(threshold!)}. '
               'A senior doctor verifies it before the patient pays.',
         ),
       ] else if (threshold != null) ...[
         const SizedBox(height: 8),
         CharakHintLine(
-          text: 'Bills above ₹${threshold!.toStringAsFixed(0)} are auto-sent for senior review.',
+          text: 'Bills above ${CharakFormat.rupees(threshold!)} are auto-sent for senior review.',
         ),
       ],
     ]),
@@ -569,7 +560,7 @@ class _VisitTimer extends StatelessWidget {
           border: Border.all(color: CharakColors.border),
         ),
         child: Row(children: [
-          Icon(Icons.timer_outlined, size: 17, color: CharakColors.inkMuted),
+          Icon(LucideIcons.timer, size: 17, color: CharakColors.inkMuted),
           const SizedBox(width: 9),
           Text('Time on visit',
               style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),

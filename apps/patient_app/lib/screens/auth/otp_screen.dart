@@ -112,9 +112,7 @@ class _State extends ConsumerState<OtpScreen> {
     final displayPhone =
         widget.phone.startsWith('+91') ? widget.phone : '+91 ${widget.phone}';
 
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: ''),
+    return CharakScreen(
       body: Column(children: [
         Expanded(
           child: SingleChildScrollView(

@@ -151,12 +151,10 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
     // this is arriving content, not a pending action — `.skel` blocks keep the
     // step dots and heading in place while it loads.
     if (_loadingDoctorInfo) {
-      return Scaffold(
-        backgroundColor: CharakColors.ground,
+      return const CharakScreen(
         // Also reachable as a settings re-edit, pushed from the profile tab —
         // without this there is no way back on iOS.
-        appBar: const CharakTopBar(title: ''),
-        body: const SafeArea(
+        body: SafeArea(
           child: Padding(
             padding: EdgeInsets.fromLTRB(20, 16, 20, 24),
             child: Column(
@@ -186,9 +184,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
     final onlineShown = _onlineBaseCtrl.text.isNotEmpty ? _onlineBaseCtrl.text : '—';
     final homeShown   = _homeBaseCtrl.text.isNotEmpty ? _homeBaseCtrl.text : '—';
 
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: ''),
+    return CharakScreen(
       body: SafeArea(
         child: Column(
           children: [
@@ -210,11 +206,11 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                     const SizedBox(height: 18),
 
                     if (_offersOnline) ...[
-                      _feeSection('Online Consult', _onlineBaseCtrl, _onlineExtraCtrl),
+                      _feeSection('Online consult', _onlineBaseCtrl, _onlineExtraCtrl),
                       const SizedBox(height: 12),
                     ],
                     if (_offersHome) ...[
-                      _feeSection('Home Visit', _homeBaseCtrl, _homeExtraCtrl),
+                      _feeSection('Home visit', _homeBaseCtrl, _homeExtraCtrl),
                       const SizedBox(height: 14),
 
                       const CharakSectionTitle(label: 'Procedure prices · fixed'),
@@ -267,7 +263,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                                 },
                                 child: Padding(
                                   padding: const EdgeInsets.only(left: 8),
-                                  child: Icon(Icons.remove_circle_outline,
+                                  child: Icon(LucideIcons.circleMinus,
                                       size: 18, color: CharakColors.danger),
                                 ),
                               ),
@@ -276,7 +272,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                       }),
                       CharakGhostButton(
                         label: 'Add procedure',
-                        icon: Icons.add,
+                        icon: LucideIcons.plus,
                         onPressed: () => setState(() => _procs.add(_ProcedureEntry())),
                       ),
 

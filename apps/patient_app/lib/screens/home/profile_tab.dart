@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
@@ -25,7 +26,7 @@ class ProfileTab extends ConsumerWidget {
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(name, style: CharakText.titleMedium),
               const SizedBox(height: 2),
-              Text(phone, style: CharakText.body.tabular.copyWith(color: CharakColors.inkMuted)),
+              Text(CharakFormat.phone(phone), style: CharakText.body.tabular.copyWith(color: CharakColors.inkMuted)),
             ])),
           ]),
         ),
@@ -34,20 +35,20 @@ class ProfileTab extends ConsumerWidget {
           label: 'Account',
           children: [
             CharakListRow(
-              icon: Icons.person_outline_rounded,
+              icon: LucideIcons.user,
               title: 'Edit profile',
-              onTap: () => _comingSoon(context, 'Edit profile'),
+              onTap: () => _editProfile(context, ref, name, phone),
             ),
             CharakListRow(
-              icon: Icons.report_gmailerrorred_outlined,
+              icon: LucideIcons.octagonAlert,
               title: 'Submit a complaint',
               onTap: () => context.push('/complaint'),
             ),
             CharakListRow(
-              icon: Icons.support_outlined,
+              icon: LucideIcons.lifeBuoy,
               title: 'Help',
               last: true,
-              onTap: () => _comingSoon(context, 'Help centre'),
+              onTap: () => CharakLegal.open(CharakLegal.supportUrl),
             ),
           ],
         ),
@@ -56,12 +57,12 @@ class ProfileTab extends ConsumerWidget {
           label: 'Legal',
           children: [
             CharakListRow(
-              icon: Icons.privacy_tip_outlined,
+              icon: LucideIcons.shieldAlert,
               title: 'Privacy policy',
               onTap: () => CharakLegal.open(CharakLegal.privacyUrl),
             ),
             CharakListRow(
-              icon: Icons.description_outlined,
+              icon: LucideIcons.fileText,
               title: 'Terms of service',
               last: true,
               onTap: () => CharakLegal.open(CharakLegal.termsUrl),
@@ -72,7 +73,7 @@ class ProfileTab extends ConsumerWidget {
         CharakGroupedList(
           children: [
             CharakListRow(
-              icon: Icons.logout_rounded,
+              icon: LucideIcons.logOut,
               title: 'Log out',
               titleColor: CharakColors.danger,
               showChevron: false,
@@ -82,7 +83,7 @@ class ProfileTab extends ConsumerWidget {
               },
             ),
             CharakListRow(
-              icon: Icons.delete_outline_rounded,
+              icon: LucideIcons.trash2,
               title: 'Delete account',
               titleColor: CharakColors.danger,
               showChevron: false,
@@ -121,9 +122,75 @@ class ProfileTab extends ConsumerWidget {
     }
   }
 
-  void _comingSoon(BuildContext context, String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$feature — coming in full build')),
-    );
+  Future<void> _editProfile(BuildContext context, WidgetRef ref, String name, String phone) =>
+      showCharakSheet<void>(
+        context,
+        title: 'Edit profile',
+        child: _EditProfileForm(name: name, phone: phone),
+      );
+}
+
+class _EditProfileForm extends ConsumerStatefulWidget {
+  final String name;
+  final String phone;
+  const _EditProfileForm({required this.name, required this.phone});
+  @override
+  ConsumerState<_EditProfileForm> createState() => _EditProfileFormState();
+}
+
+class _EditProfileFormState extends ConsumerState<_EditProfileForm> {
+  late final _name = TextEditingController(text: widget.name);
+  late final _phone = TextEditingController(text: widget.phone.replaceFirst('+91', ''));
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    super.dispose();
   }
+
+  bool get _valid => _name.text.trim().length >= 2 && _phone.text.length == 10;
+
+  Future<void> _save() async {
+    setState(() { _saving = true; _error = null; });
+    try {
+      await ref.read(authProvider.notifier).updateProfile(
+            name: _name.text.trim(),
+            phone: '+91${_phone.text}',
+          );
+      if (mounted) Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(mainAxisSize: MainAxisSize.min, children: [
+        CharakField(
+          label: 'Full name',
+          controller: _name,
+          textCapitalization: TextCapitalization.words,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+        CharakField(
+          label: 'Mobile number',
+          controller: _phone,
+          keyboardType: TextInputType.phone,
+          tabular: true,
+          error: _error,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(10),
+          ],
+          prefixBox: CharakField.staticBox('+91'),
+          onChanged: (_) => setState(() => _error = null),
+        ),
+        const SizedBox(height: 20),
+        CharakButton(label: 'Save', isLoading: _saving, onPressed: _valid && !_saving ? _save : null),
+      ]);
 }

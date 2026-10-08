@@ -80,7 +80,19 @@ class CharakButton extends StatelessWidget {
               ),
               if (trailingIcon != null) ...[
                 const SizedBox(width: 8),
-                Icon(trailingIcon, size: 20, color: ink),
+                // "Button wakes up": the arrow slides in 8px as it becomes
+                // available, and slips back out when it isn't.
+                AnimatedSlide(
+                  offset: available ? Offset.zero : const Offset(-0.4, 0),
+                  duration: CharakMotion.standard,
+                  curve: CharakCurves.standard,
+                  child: AnimatedOpacity(
+                    opacity: available ? 1 : 0,
+                    duration: CharakMotion.standard,
+                    curve: CharakCurves.standard,
+                    child: Icon(trailingIcon, size: 20, color: ink),
+                  ),
+                ),
               ],
             ],
           );

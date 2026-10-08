@@ -17,12 +17,10 @@ class BookingStatusScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_bookingProvider(bookingId));
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: 'Booking status'),
+    return CharakScreen(
       body: async.when(
         loading: () => const _StatusLoading(),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_bookingProvider(bookingId))),
         data: (booking) => _StatusBody(booking: booking, bookingId: bookingId),
       ),
     );
@@ -54,8 +52,8 @@ class _StatusBody extends StatelessWidget {
       final dt = DateTime.tryParse(start);
       if (dt != null) when = DateFormat('EEE, d MMM, h:mm a').format(dt.toLocal());
     }
-    final channelLabel = channel == 'home_visit' ? 'Home Visit' : 'Online Consult';
-    final doctor = docName != null ? 'Dr. $docName' : 'The doctor';
+    final channelLabel = CharakFormat.channel(channel);
+    final doctor = CharakFormat.doctor(docName);
 
     final (tone, icon, title, message) = switch (status) {
       'accepted' => (
@@ -67,7 +65,7 @@ class _StatusBody extends StatelessWidget {
       ),
       'declined' => (
         CharakOutcomeTone.neutral,
-        Icons.info_outline,
+        LucideIcons.info,
         'Request declined',
         "$doctor couldn't take this request — it happens for all sorts of "
             'reasons, none of them about you. Plenty of other doctors are '
@@ -88,13 +86,13 @@ class _StatusBody extends StatelessWidget {
       ),
       'cancelled' => (
         CharakOutcomeTone.neutral,
-        Icons.remove_circle_outline,
+        LucideIcons.circleMinus,
         'Booking cancelled',
         'This booking was cancelled. You can book another slot any time.',
       ),
       _ => (
         CharakOutcomeTone.waiting,
-        Icons.hourglass_empty_rounded,
+        LucideIcons.hourglass,
         'Awaiting response',
         "$doctor is reviewing your request. You'll be notified the moment "
             'they decide.',
@@ -124,7 +122,7 @@ class _StatusBody extends StatelessWidget {
                   if (price != null)
                     CharakSummaryRow(
                       label: status == 'accepted' ? 'To pay' : 'Amount',
-                      value: '₹${price.toStringAsFixed(0)}',
+                      value: CharakFormat.rupees(price),
                       tabular: true,
                     ),
                   CharakSummaryRow(
@@ -150,7 +148,7 @@ class _StatusBody extends StatelessWidget {
         if (status == 'accepted')
           Expanded(
             child: CharakButton(
-              label: price != null ? 'Pay ₹${price.toStringAsFixed(0)} now' : 'Pay now',
+              label: price != null ? 'Pay ${CharakFormat.rupees(price)} now' : 'Pay now',
               onPressed: () => context.go('/booking/$bookingId/pay'),
             ),
           )

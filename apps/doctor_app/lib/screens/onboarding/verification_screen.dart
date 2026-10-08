@@ -117,7 +117,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                         style: CharakText.caption.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 7),
                     CharakUploadTile(
-                      icon: Icons.upload_outlined,
+                      icon: LucideIcons.upload,
                       label: 'Upload photo or PDF',
                       doneLabel: _doc?.name ?? 'attached',
                       done: _doc != null,
@@ -127,7 +127,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
 
                     // `.exp-line` — 15px primary shield beside 12.5px muted copy.
                     const CharakHintLine(
-                      icon: Icons.verified_user_outlined,
+                      icon: LucideIcons.shieldCheck,
                       text: 'Your registration number, degree and ID are checked by a human on '
                           'our team. Nothing is automated.',
                     ),

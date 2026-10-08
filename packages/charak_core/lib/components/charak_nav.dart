@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../design/motion.dart';
 import '../design/tokens.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 // ───────────────────────── switch ──────────────────────────────────────────
 
@@ -23,7 +25,12 @@ class CharakSwitch extends StatelessWidget {
       toggled: value,
       enabled: onChanged != null,
       child: GestureDetector(
-        onTap: onChanged == null ? null : () => onChanged!(!value),
+        onTap: onChanged == null
+            ? null
+            : () {
+                HapticFeedback.lightImpact();
+                onChanged!(!value);
+              },
         child: AnimatedContainer(
           duration: d,
           curve: CharakCurves.standard,
@@ -355,7 +362,7 @@ Future<bool> showCharakHeadsUp(
   required String message,
   String primaryLabel = 'Review',
   String secondaryLabel = 'Later',
-  IconData icon = Icons.inbox_rounded,
+  IconData icon = LucideIcons.inbox,
   Duration autoDismiss = const Duration(seconds: 8),
 }) {
   final overlay = Overlay.of(context, rootOverlay: true);

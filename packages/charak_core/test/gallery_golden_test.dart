@@ -6,6 +6,7 @@
 //
 // Output: design-system/screenshots/gallery_{patient,doctor}.png. Commit the
 // refreshed PNGs with any visual change so reviewers can see it.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:charak_core/charak_core.dart';
@@ -20,6 +21,24 @@ Future<void> _loadFont(String family, String path) async {
   await loader.load();
 }
 
+/// The Lucide icon font ships inside the lucide_icons_flutter package; find it
+/// through the package config so the test does not hard-code a pub-cache path.
+String? _lucideFontPath() {
+  final config = File('.dart_tool/package_config.json');
+  if (!config.existsSync()) return null;
+  final packages = (jsonDecode(config.readAsStringSync())['packages'] as List);
+  for (final p in packages) {
+    if (p['name'] == 'lucide_icons_flutter') {
+      final root = Uri.parse(p['rootUri'] as String);
+      final dir = root.isAbsolute
+          ? root.toFilePath()
+          : config.parent.uri.resolveUri(root).toFilePath();
+      return '$dir/assets/lucide.ttf';
+    }
+  }
+  return null;
+}
+
 void main() {
   setUpAll(() async {
     await _loadFont(CharakType.family, 'fonts/AnekLatin-Variable.ttf');
@@ -28,6 +47,10 @@ void main() {
     final flutterRoot = Platform.environment['FLUTTER_ROOT'];
     final icons = File('$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf');
     if (icons.existsSync()) await _loadFont('MaterialIcons', icons.path);
+    final lucide = _lucideFontPath();
+    if (lucide != null && File(lucide).existsSync()) {
+      await _loadFont('packages/lucide_icons_flutter/Lucide', lucide);
+    }
   });
 
   for (final (name, scheme) in [('patient', CharakScheme.patient), ('doctor', CharakScheme.doctor)]) {

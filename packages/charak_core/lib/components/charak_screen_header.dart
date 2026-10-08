@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../design/motion.dart';
+
 import '../design/tokens.dart';
 
 /// Big header block for the top third of a screen ("Look up top, reach
@@ -12,6 +14,10 @@ class CharakScreenHeader extends StatelessWidget {
   final String title;
   final String? subtitle;
   final String? eyebrow;
+
+  /// Defaults to Chandan (a greeting, a date). The doctor's name over the
+  /// Requests title is quiet ink instead (V2 board).
+  final Color? eyebrowColor;
   final Widget? trailing;
 
   /// Use the 56px display size (greetings).
@@ -26,13 +32,16 @@ class CharakScreenHeader extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.eyebrow,
+    this.eyebrowColor,
     this.trailing,
     this.display = false,
     this.subtitleColor,
   });
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => Row(
     crossAxisAlignment: CrossAxisAlignment.end,
     children: [
       Expanded(
@@ -40,7 +49,7 @@ class CharakScreenHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (eyebrow != null) ...[
-              Text(eyebrow!, style: CharakText.label.copyWith(color: CharakColors.greeting)),
+              Text(eyebrow!, style: CharakText.label.copyWith(color: eyebrowColor ?? CharakColors.greeting)),
               const SizedBox(height: 6),
             ],
             Text(

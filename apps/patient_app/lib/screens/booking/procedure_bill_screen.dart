@@ -17,16 +17,15 @@ class ProcedureBillScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(_billProvider(bookingId));
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: 'Visit complete'),
+    return CharakScreen(
+      title: 'Visit complete',
       body: async.when(
         loading: () => const _BillLoading(),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_billProvider(bookingId))),
         data: (bills) {
           if (bills.isEmpty) {
             return const CharakEmptyState(
-              icon: Icons.receipt_long_outlined,
+              icon: LucideIcons.receiptText,
               title: 'No procedure bill',
               message: 'Nothing was billed beyond the consult fee for this visit.',
             );
@@ -58,7 +57,7 @@ class _BillBody extends StatelessWidget {
           // `.ok-state` header, tightened to the screen's 16px top inset.
           const CharakOutcomeState(
             tone: CharakOutcomeTone.neutral,
-            icon: Icons.receipt_long_outlined,
+            icon: LucideIcons.receiptText,
             title: 'Procedures from your visit',
             message: 'These were done during your home visit, charged at the '
                 'fixed rates on the doctor\'s profile.',
@@ -73,14 +72,14 @@ class _BillBody extends StatelessWidget {
               final qty = (item['quantity'] as num?)?.toInt() ?? 1;
               return CharakSummaryRow(
                 label: qty > 1 ? '$name ×$qty' : name,
-                value: '₹${(price * qty).toStringAsFixed(0)}',
+                value: CharakFormat.rupees(price * qty),
                 tabular: true,
               );
             }),
             const CharakSummaryDivider(),
             CharakSummaryRow(
               label: 'Procedures total',
-              value: '₹${total.toStringAsFixed(0)}',
+              value: CharakFormat.rupees(total),
               tabular: true,
             ),
           ]),
@@ -88,7 +87,7 @@ class _BillBody extends StatelessWidget {
 
           if (underReview) ...[
             const CharakNoteBanner(
-              icon: Icons.gpp_maybe_outlined,
+              icon: LucideIcons.shieldQuestionMark,
               leadLabel: 'Under senior review',
               message: '— larger procedure bills are checked by a senior '
                   "doctor to make sure everything was necessary. You'll be "
@@ -99,7 +98,7 @@ class _BillBody extends StatelessWidget {
                 style: charakHintStyle, textAlign: TextAlign.center),
           ] else
             CharakInfoStrip(
-              icon: Icons.verified_user_outlined,
+              icon: LucideIcons.shieldCheck,
               tone: CharakStatusTone.success,
               label: paid
                   ? 'Bill settled — thanks!'
@@ -118,7 +117,7 @@ class _BillBody extends StatelessWidget {
                     onPressed: () => context.go('/home'),
                   )
                 : CharakButton(
-                    label: 'Pay ₹${total.toStringAsFixed(0)}',
+                    label: 'Pay ${CharakFormat.rupees(total)}',
                     onPressed: () => context
                         .go('/booking/$bookingId/pay?type=procedure_bill'),
                   ),

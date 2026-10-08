@@ -44,13 +44,11 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
+    return CharakScreen(
       // This screen also serves as a settings re-edit, pushed from the
       // profile tab — without a back affordance there is no way off it on
       // iOS, which has no hardware back button. Blank title: the screen
       // already carries its own big title below.
-      appBar: const CharakTopBar(title: ''),
       body: SafeArea(
         child: Column(
           children: [
@@ -68,15 +66,15 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
                         style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
                     const SizedBox(height: 18),
                     CharakToggleCard(
-                      icon: Icons.videocam_outlined,
-                      title: 'Online Consult',
+                      icon: LucideIcons.video,
+                      title: 'Online consult',
                       subtitle: 'Video consults on your scheduled hours.',
                       value: _online,
                       onChanged: (v) => setState(() => _online = v),
                     ),
                     CharakToggleCard(
-                      icon: Icons.home_outlined,
-                      title: 'Home Visit',
+                      icon: LucideIcons.house,
+                      title: 'Home visit',
                       subtitle: 'You travel to the patient, within your radius.',
                       value: _home,
                       onChanged: (v) => setState(() => _home = v),

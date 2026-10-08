@@ -54,7 +54,7 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
       orElse: () => <Map<String,dynamic>>[],
     );
     final docName = async.maybeWhen(
-      data: (d) => d['name'] as String? ?? 'Doctor',
+      data: (d) => CharakFormat.doctor(d['name'] as String?),
       orElse: () => 'Doctor',
     );
 
@@ -72,9 +72,8 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
     final confirmPrice = _isHome ? homePrice : onlinePrice;
     final (successBg, _) = charakToneColors(CharakStatusTone.success);
 
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: const CharakTopBar(title: 'How should the visit happen?'),
+    return CharakScreen(
+      title: 'How should the visit happen?',
       body: Column(children: [
         Expanded(child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -86,13 +85,13 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
             if (onlineP != null)
               _ChannelCard(
                 selected: _channel == 'online_consult',
-                icon: Icons.videocam_outlined,
+                icon: LucideIcons.video,
                 iconBg: CharakColors.primarySoft,
                 iconColor: CharakColors.primaryDeep,
-                title: 'Online Consult',
+                title: 'Online consult',
                 description: 'Video call on CHARAK. Price covers a 15-min '
                     'consult, paid before the call.',
-                note: '+ ₹${onlineExtra.toStringAsFixed(0)} per extra 15 min',
+                note: '+ ${CharakFormat.rupees(onlineExtra)} per extra 15 min',
                 price: onlinePrice,
                 onTap: () => setState(() => _channel = 'online_consult'),
               ),
@@ -103,13 +102,13 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
             if (homeP != null)
               _ChannelCard(
                 selected: _channel == 'home_visit',
-                icon: Icons.home_outlined,
+                icon: LucideIcons.house,
                 iconBg: successBg,
                 iconColor: CharakColors.success,
-                title: 'Home Visit',
+                title: 'Home visit',
                 description: 'Doctor comes to you. Consult fee paid upfront; '
                     'procedures (if any) billed after at fixed rates.',
-                note: '+ ₹${homeExtra.toStringAsFixed(0)} per extra 15 min'
+                note: '+ ${CharakFormat.rupees(homeExtra)} per extra 15 min'
                     '${radius != null ? ' · within $radius km' : ''}',
                 price: homePrice,
                 onTap: () => setState(() => _channel = 'home_visit'),
@@ -131,7 +130,7 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
         CharakCtaBar.single(
           CharakButton(
             label: confirmPrice > 0
-                ? 'Continue · ₹${confirmPrice.toStringAsFixed(0)}'
+                ? 'Continue · ${CharakFormat.rupees(confirmPrice)}'
                     '${_isHome ? ' + procedures' : ''}'
                 : 'Continue',
             onPressed: (!_isHome || _addressId != null) ? _proceed : null,
@@ -206,7 +205,7 @@ class _ChannelCard extends StatelessWidget {
         Text.rich(
           TextSpan(children: [
             TextSpan(
-              text: '₹${price.toStringAsFixed(0)}',
+              text: CharakFormat.rupees(price),
               style: CharakText.numeric.copyWith(fontSize: 18),
             ),
             TextSpan(

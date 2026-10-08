@@ -305,7 +305,7 @@ each one, and `design-system/screenshots/` has both schemes rendered.
 | Toggle card | `CharakToggleCard` | Settings row as its own card |
 | Section header | `CharakSectionHeader` | "Find care ···· See all" |
 | Section label | `CharakSectionTitle` | Overline above grouped content |
-| Specialty tile | `CharakSpecialtyTile(toneIndex:)` | 20px tonal tile, icon top, name bottom |
+| Specialty tile | `CharakSpecialtyTile(toneIndex:)` | 88px tonal tile (r20), icon top-left, name bottom in the tone's ink, 3 per row |
 | Avatar | `CharakAvatar` | Rounded square (⅓ radius), six ramp tones, `circle: true` for the account button |
 | Doctor card | Composed: `CharakCard` + avatar + `CharakRatingChip` + hairline + tabular fee | See `directory_screen.dart` |
 | Bottom bar | `CharakBottomBar` + `CharakNavItem` | Patient: white bar, blue-100 pill. Doctor: ink bar, solid blue pill. `badge:` count |

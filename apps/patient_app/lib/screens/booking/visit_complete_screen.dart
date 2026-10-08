@@ -19,7 +19,7 @@ class VisitCompleteScreen extends ConsumerWidget {
             // `.ok-state .wait-ic` — the neutral grey badge, not the check.
             child: CharakOutcomeState(
               tone: CharakOutcomeTone.neutral,
-              icon: Icons.flag_outlined,
+              icon: LucideIcons.flag,
               title: 'Visit complete',
               message: 'Hope it went well. A quick rating helps other '
                   'patients choose well.',

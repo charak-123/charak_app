@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:charak_core/charak_core.dart';
 
 /// The patient's saved addresses, newest-first as the backend returns them.
@@ -52,7 +51,7 @@ class AddressPickerSection extends ConsumerWidget {
         child: CharakSkeletonCard(),
       ),
       error: (e, _) => CharakNoteBanner(
-        icon: Icons.error_outline,
+        icon: LucideIcons.circleAlert,
         tone: CharakStatusTone.danger,
         message: e is ApiException ? e.message : 'Could not load your addresses',
       ),
@@ -62,13 +61,13 @@ class AddressPickerSection extends ConsumerWidget {
         if (addresses.isEmpty) {
           return Column(children: [
             const CharakInfoStrip(
-              icon: Icons.location_on_outlined,
+              icon: LucideIcons.mapPin,
               label: 'Add the address the doctor should visit.',
             ),
             const SizedBox(height: 10),
             CharakButton(
               label: 'Add an address',
-              icon: Icons.add_rounded,
+              icon: LucideIcons.plus,
               outlined: true,
               onPressed: () => _add(context, ref),
             ),
@@ -80,8 +79,8 @@ class AddressPickerSection extends ConsumerWidget {
             CharakTileCard(
               leading: Icon(
                 selectedId == a['id']
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
+                    ? LucideIcons.circleDot
+                    : LucideIcons.circle,
                 size: 20,
                 color: selectedId == a['id']
                     ? CharakColors.success
@@ -98,7 +97,7 @@ class AddressPickerSection extends ConsumerWidget {
           const SizedBox(height: 2),
           CharakButton(
             label: 'Add another address',
-            icon: Icons.add_rounded,
+            icon: LucideIcons.plus,
             outlined: true,
             onPressed: () => _add(context, ref),
           ),
@@ -152,53 +151,38 @@ class _AddAddressFormState extends State<_AddAddressForm> {
   }
 
   /// Coordinates come from the device, the same way the doctor pins their base
-  /// location. They are required: the service-radius check cannot run without
-  /// them, so the form cannot be submitted until a fix is taken.
+  /// location, and are required: the service-radius check cannot run without
+  /// them. The phone's geocoder then reads the address at that spot and fills
+  /// any field the patient has not typed yet. Everything stays editable.
   Future<void> _locate() async {
     setState(() {
       _locating = true;
       _error = null;
     });
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        setState(() => _error =
-            'Location is turned off on this phone. Turn it on to pin the address.');
-        return;
-      }
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.deniedForever) {
-        setState(() => _error =
-            'Location permission is blocked for Charak. Enable it in Settings '
-            'to pin this address.');
-        await Geolocator.openAppSettings();
-        return;
-      }
-      if (perm == LocationPermission.denied) {
-        setState(() =>
-            _error = 'Location permission is needed to pin the address.');
-        return;
-      }
-
-      final pos = await Geolocator.getCurrentPosition(
-          locationSettings:
-              const LocationSettings(accuracy: LocationAccuracy.high));
+      final place = await CharakLocation.current();
       if (!mounted) return;
       setState(() {
-        _lat = pos.latitude;
-        _lng = pos.longitude;
+        _lat = place.lat;
+        _lng = place.lng;
+        _fill(_line1, place.line1);
+        _fill(_line2, place.line2);
+        _fill(_city, place.city);
+        _fill(_pincode, place.pincode);
+        if (!place.hasAddress) {
+          _error = "Pinned your spot, but couldn't read the address. "
+              'Please type it in.';
+        }
       });
-    } catch (_) {
-      if (mounted) {
-        setState(() => _error =
-            "Couldn't get a location fix. Move somewhere with a clearer signal "
-            'and try again.');
-      }
+    } on CharakLocationException catch (e) {
+      if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _locating = false);
     }
+  }
+
+  void _fill(TextEditingController c, String? value) {
+    if (value != null && c.text.trim().isEmpty) c.text = value;
   }
 
   bool get _valid =>
@@ -290,15 +274,14 @@ class _AddAddressFormState extends State<_AddAddressForm> {
       // The pin is what makes the address dispatchable, so it gets its own
       // explicit step rather than happening invisibly on save.
       if (located)
-        CharakInfoStrip(
-          icon: Icons.check_circle_outline,
-          label: 'Location pinned · '
-              '${_lat!.toStringAsFixed(4)}, ${_lng!.toStringAsFixed(4)}',
+        const CharakInfoStrip(
+          icon: LucideIcons.circleCheck,
+          label: 'Location pinned. Check the address above.',
         )
       else
         CharakButton(
-          label: 'Use my current location',
-          icon: Icons.my_location_rounded,
+          label: 'Fill from my current location',
+          icon: LucideIcons.locateFixed,
           outlined: true,
           isLoading: _locating,
           onPressed: _locating ? null : _locate,
@@ -307,7 +290,7 @@ class _AddAddressFormState extends State<_AddAddressForm> {
       if (_error != null) ...[
         const SizedBox(height: 12),
         CharakNoteBanner(
-          icon: Icons.error_outline,
+          icon: LucideIcons.circleAlert,
           tone: CharakStatusTone.danger,
           message: _error!,
         ),

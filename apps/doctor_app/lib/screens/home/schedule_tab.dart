@@ -138,7 +138,7 @@ class _ScheduleTabState extends ConsumerState<ScheduleTab> {
       actions: [
         CharakButton(
           label: 'Block time',
-          icon: Icons.block_rounded,
+          icon: LucideIcons.ban,
           variant: CharakButtonVariant.tonal,
           compact: true,
           expand: false,
@@ -174,7 +174,7 @@ class _ScheduleTabState extends ConsumerState<ScheduleTab> {
                 final rows = _buildAgenda(slots, bookings, blocks);
                 if (rows.isEmpty) {
                   return const CharakEmptyState(
-                    icon: Icons.event_available_outlined,
+                    icon: LucideIcons.calendarCheck,
                     title: 'No hours set for this day',
                     message: 'Set your consult hours in Profile → Channels & hours.',
                   );
@@ -211,7 +211,7 @@ class _ScheduleTabState extends ConsumerState<ScheduleTab> {
       rows.add(_AgendaRow(
         time: DateFormat('HH:mm').format(dt),
         kind: isHome ? _RowKind.home : _RowKind.booked,
-        title: isHome ? 'Home Visit' : 'Online Consult',
+        title: CharakFormat.channel(isHome ? 'home_visit' : 'online_consult'),
         subtitle: price != null ? '$patient · ₹$price' : patient,
       ));
     }

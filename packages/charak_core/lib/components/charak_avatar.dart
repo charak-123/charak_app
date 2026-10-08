@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
+import '../format/charak_format.dart';
 
 // Six tone pairs from the V2 ramps (bg, initials). Avatars keep these light
 // tones on both schemes, as in the doctor app's ink mockup.
@@ -64,11 +65,7 @@ class CharakAvatar extends StatelessWidget {
     );
   }
 
-  static String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    return name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : '?';
-  }
+  static String _initials(String name) => CharakFormat.initials(name);
 
   static int _toneFromName(String name) => name.isEmpty ? 1 : (name.codeUnitAt(0) % 6) + 1;
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 import 'charak_nav.dart' show CharakSwitch;
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Pulsing status dot — used inside warning/status pills (e.g. "Under review").
 class CharakPulsingDot extends StatefulWidget {
@@ -76,7 +77,9 @@ class CharakToggleCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => CharakPressable(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => CharakPressable(
     onTap: () => onChanged(!value),
     child: AnimatedContainer(
       duration: CharakMotion.standard,
@@ -131,7 +134,9 @@ class CharakUploadTile extends StatelessWidget {
 
   // 96px tall, 1.5px dashed outline that turns solid blue once attached.
   @override
-  Widget build(BuildContext context) => CharakPressable(
+  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
+
+  Widget _body(BuildContext context) => CharakPressable(
     onTap: onTap,
     child: CustomPaint(
       painter: CharakDashedBorderPainter(
@@ -149,7 +154,7 @@ class CharakUploadTile extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(done ? Icons.check_circle_rounded : icon,
+            Icon(done ? LucideIcons.circleCheck : icon,
                 color: done ? CharakColors.primaryDeep : CharakColors.primary, size: 22),
             const SizedBox(height: 7),
             Text(

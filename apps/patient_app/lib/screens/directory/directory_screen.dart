@@ -29,7 +29,7 @@ class _DirectoryParams {
 const _channelFilters = [
   ('All',            ''),
   ('Online',         'online_consult'),
-  ('Home Visit',     'home_visit'),
+  ('Home visit',     'home_visit'),
 ];
 
 // ── DirectoryScreen ───────────────────────────────────────────────────────────
@@ -64,15 +64,8 @@ class _State extends ConsumerState<DirectoryScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_directoryProvider(_params));
-    return Scaffold(
-      backgroundColor: CharakColors.ground,
-      appBar: CharakTopBar(
-        title: _category.isNotEmpty ? _category : 'All doctors',
-        trailingIcon: Icons.tune,
-        onTrailingTap: () => ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Filters: radius, price, availability')),
-        ),
-      ),
+    return CharakScreen(
+      title: _category.isNotEmpty ? _category : 'All doctors',
       body: async.when(
         // `.skel` — doctor cards are avatar rows with a price footer, so the
         // list preset mirrors them directly under the real top bar.
@@ -80,7 +73,7 @@ class _State extends ConsumerState<DirectoryScreen> {
           count: 4,
           padding: EdgeInsets.fromLTRB(20, 24, 20, 24),
         ),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_directoryProvider(_params))),
         data: (data) {
           var items = List<Map<String, dynamic>>.from(data['items'] as List);
           if (_sortByPrice) {
@@ -95,7 +88,7 @@ class _State extends ConsumerState<DirectoryScreen> {
                   Text('${items.length} doctors near you',
                       style: CharakText.label.tabular.copyWith(color: CharakColors.ink)),
                   const Spacer(),
-                  Icon(Icons.place_outlined, size: 16, color: CharakColors.inkMuted),
+                  Icon(LucideIcons.mapPin, size: 16, color: CharakColors.inkMuted),
                   const SizedBox(width: 4),
                   Text('Navi Mumbai', style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
                 ]),
@@ -117,7 +110,7 @@ class _State extends ConsumerState<DirectoryScreen> {
                 const SizedBox(width: 8),
                 CharakChip(
                   label: 'Price',
-                  icon: Icons.swap_vert_rounded,
+                  icon: LucideIcons.arrowUpDown,
                   selected: _sortByPrice,
                   onTap: () => setState(() => _sortByPrice = !_sortByPrice),
                 ),
@@ -126,7 +119,7 @@ class _State extends ConsumerState<DirectoryScreen> {
 
               if (items.isEmpty)
                 CharakEmptyState(
-                  icon: Icons.search_off_rounded,
+                  icon: LucideIcons.searchX,
                   title: 'No doctors here yet',
                   message: _category.isNotEmpty
                       ? '$_category is live but no doctor has opened slots '
@@ -168,7 +161,7 @@ class _DoctorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name      = doctor['name'] as String? ?? 'Doctor';
+    final name      = CharakFormat.doctor(doctor['name'] as String?);
     final photoUrl  = doctor['photo_url'] as String?;
     final rating    = (doctor['rating_avg'] as num?)?.toDouble() ?? 0;
     final category  = (doctor['categories'] as Map?)?['name'] as String? ?? '';
@@ -196,7 +189,7 @@ class _DoctorCard extends StatelessWidget {
               ),
               if (verified) ...[
                 const SizedBox(width: 6),
-                Icon(Icons.verified_rounded, size: 17, color: CharakColors.success),
+                Icon(LucideIcons.badgeCheck, size: 17, color: CharakColors.success),
               ],
             ]),
             if (creds.isNotEmpty)
@@ -221,7 +214,7 @@ class _DoctorCard extends StatelessWidget {
             if (anyPrice != null)
               Text.rich(TextSpan(children: [
                 TextSpan(
-                    text: '₹${(anyPrice['price'] as num).toStringAsFixed(0)}',
+                    text: CharakFormat.rupees(anyPrice['price'] as num),
                     style: CharakText.numeric.copyWith(color: CharakColors.ink)),
                 TextSpan(
                     text: ' /15 min',

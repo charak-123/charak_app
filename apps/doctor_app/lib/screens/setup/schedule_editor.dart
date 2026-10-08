@@ -131,7 +131,7 @@ class _BlockChip extends StatelessWidget {
         const SizedBox(width: 5),
         GestureDetector(
           onTap: onRemove,
-          child: Icon(Icons.close, size: 11, color: CharakColors.primaryDeep),
+          child: Icon(LucideIcons.x, size: 11, color: CharakColors.primaryDeep),
         ),
       ],
     ),
@@ -156,7 +156,7 @@ class _BlockAdd extends StatelessWidget {
       child: SizedBox(
         width: 30,
         height: 30,
-        child: Icon(Icons.add, size: 14, color: CharakColors.inkMuted),
+        child: Icon(LucideIcons.plus, size: 14, color: CharakColors.inkMuted),
       ),
     ),
   );

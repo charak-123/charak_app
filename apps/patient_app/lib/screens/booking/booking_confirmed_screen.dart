@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
+import 'package:intl/intl.dart';
+import '../../calendar_link.dart';
 import '../home/booking_providers.dart';
 
 class BookingConfirmedScreen extends ConsumerWidget {
@@ -9,7 +11,14 @@ class BookingConfirmedScreen extends ConsumerWidget {
   const BookingConfirmedScreen({super.key, required this.bookingId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final booking = ref.watch(patientBookingsProvider).maybeWhen(
+          data: (all) => all.where((b) => b['id'] == bookingId).firstOrNull,
+          orElse: () => null,
+        );
+    final start = DateTime.tryParse(booking?['scheduled_start'] as String? ?? '')?.toLocal();
+    final price = booking?['price_confirmed'] as num?;
+    return Scaffold(
     backgroundColor: CharakColors.ground,
     body: SafeArea(
       child: Column(children: [
@@ -23,8 +32,13 @@ class BookingConfirmedScreen extends ConsumerWidget {
                   'you at the scheduled time.',
               child: Column(children: [
                 CharakSummaryCard(rows: [
-                  const CharakSummaryRow(
-                      label: 'Payment', value: 'Paid via UPI', muted: true),
+                  if (booking != null)
+                    CharakSummaryRow(
+                        label: 'Doctor',
+                        value: CharakFormat.doctor((booking['doctors'] as Map?)?['name'] as String?)),
+                  if (start != null)
+                    CharakSummaryRow(label: 'When', value: DateFormat('EEE d MMM, h:mm a').format(start)),
+                  if (price != null) CharakSummaryRow(label: 'Paid', value: CharakFormat.rupees(price)),
                   CharakSummaryRow(
                     label: 'Status',
                     child: CharakStatusPill.forStatus('paid'),
@@ -36,10 +50,15 @@ class BookingConfirmedScreen extends ConsumerWidget {
                   child: CharakButton(
                     label: 'Add to calendar',
                     outlined: true,
-                    icon: Icons.event_available_outlined,
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Added to calendar')),
-                    ),
+                    icon: LucideIcons.calendarCheck,
+                    onPressed: booking == null
+                        ? null
+                        : () async {
+                            final ok = await addBookingToCalendar(booking);
+                            if (!ok && context.mounted) {
+                              showCharakToast(context, message: "Couldn't open your calendar", isError: true);
+                            }
+                          },
                   ),
                 ),
               ]),
@@ -68,4 +87,5 @@ class BookingConfirmedScreen extends ConsumerWidget {
       ]),
     ),
   );
+  }
 }

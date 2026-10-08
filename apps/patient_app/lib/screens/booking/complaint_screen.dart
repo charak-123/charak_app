@@ -54,9 +54,8 @@ class _State extends ConsumerState<ComplaintScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.ground,
-    appBar: const CharakTopBar(title: 'Submit a complaint'),
+  Widget build(BuildContext context) => CharakScreen(
+    title: 'Submit a complaint',
     body: _refId != null
         ? _SuccessBody(refId: _refId!)
         : widget.bookingId != null
@@ -95,7 +94,7 @@ class _PickerForm extends ConsumerWidget {
     final async = ref.watch(patientBookingsProvider);
     return async.when(
       loading: () => const _ComplaintLoading(),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(patientBookingsProvider)),
       data: (bookings) {
         final eligible = bookings
             .where((b) => b['status'] == 'completed')
@@ -121,7 +120,7 @@ class _PickerForm extends ConsumerWidget {
                   // `.comp-picker` — wrapping pill picker, one booking each.
                   Wrap(spacing: 8, runSpacing: 8, children: eligible.map((b) {
                     final id = b['id'] as String;
-                    final docName = (b['doctors'] as Map?)?['name'] as String? ?? 'Doctor';
+                    final docName = CharakFormat.doctor((b['doctors'] as Map?)?['name'] as String?);
                     return _CompPick(
                       label: docName,
                       selected: id == selectedId,
@@ -183,7 +182,7 @@ class _FormBody extends StatelessWidget {
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
             padding: const EdgeInsets.only(top: 1),
-            child: Icon(Icons.verified_user_outlined,
+            child: Icon(LucideIcons.shieldCheck,
                 size: 15, color: CharakColors.primary),
           ),
           const SizedBox(width: 8),

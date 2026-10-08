@@ -6,18 +6,21 @@ import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
 
+import '../notifications/notifications_screen.dart';
 import 'booking_providers.dart';
 
-/// (label, icon, tile tone index into CharakTileTones.all)
+/// (directory filter, tile label, icon, tile tone index into CharakTileTones.all).
+/// Tile labels are the short names from the design system so they fit one
+/// line on a third-width tile; the filter keeps the full specialty name.
 const _specialties = [
-  ('General Physician', Icons.medical_services_outlined, 0),
-  ('Pediatrics', Icons.sentiment_satisfied_outlined, 1),
-  ('Cardiology', Icons.favorite_border_rounded, 2),
-  ('Physiotherapy', Icons.spa_outlined, 3),
-  ('Dermatology', Icons.water_drop_outlined, 4),
-  ('Orthopedic', Icons.accessibility_new_outlined, 5),
-  ('Gynecology', Icons.child_friendly_outlined, 1),
-  ('Nurse', Icons.vaccines_outlined, 0),
+  ('General Physician', 'General', LucideIcons.stethoscope, 0),
+  ('Pediatrics', 'Paediatrics', LucideIcons.baby, 1),
+  ('Cardiology', 'Cardiology', LucideIcons.heartPulse, 2),
+  ('Dermatology', 'Skin', LucideIcons.scanFace, 4),
+  ('Orthopedic', 'Ortho', LucideIcons.bone, 5),
+  ('Physiotherapy', 'Physio', LucideIcons.personStanding, 3),
+  ('Gynecology', 'Gynae', LucideIcons.venus, 2),
+  ('Nurse', 'Nurse', LucideIcons.syringe, 0),
 ];
 
 /// Patient Home (design-system/README.md § Screens · Patient Home).
@@ -53,6 +56,7 @@ class HomeTab extends ConsumerWidget {
             ? 'Your consult starts soon. Everything else is on track.'
             : 'You have ${upcoming.length} upcoming booking${upcoming.length == 1 ? '' : 's'}.';
 
+    final unread = ref.watch(unreadNotificationsProvider).valueOrNull ?? 0;
     return CharakLargeTitleScaffold(
       eyebrow: DateFormat('EEEE, d MMMM').format(DateTime.now()),
       title: '${_greeting()},\n$firstName',
@@ -60,12 +64,30 @@ class HomeTab extends ConsumerWidget {
       display: true,
       subtitle: status,
       actions: [
-        CharakRoundIconButton(
-          icon: Icons.notifications_none_rounded,
-          semanticLabel: 'Notifications',
-          filled: false,
-          onTap: () {},
-        ),
+        Stack(clipBehavior: Clip.none, children: [
+          CharakRoundIconButton(
+            icon: LucideIcons.bell,
+            semanticLabel: unread > 0 ? 'Notifications, $unread new' : 'Notifications',
+            filled: false,
+            onTap: () => context.push('/notifications'),
+          ),
+          if (unread > 0)
+            Positioned(
+              top: 10,
+              right: 11,
+              child: IgnorePointer(
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: CharakColors.chandan,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: CharakColors.ground, width: 2),
+                  ),
+                ),
+              ),
+            ),
+        ]),
         GestureDetector(
           onTap: () => ref.read(homeTabIndexProvider.notifier).state = 3,
           child: CharakAvatar(name: name.isEmpty ? '?' : name, radius: 22, circle: true, tone: 6),
@@ -97,16 +119,16 @@ class HomeTab extends ConsumerWidget {
             crossAxisCount: 3,
             crossAxisSpacing: 10,
             mainAxisSpacing: 10,
-            mainAxisExtent: 96,
+            mainAxisExtent: 88,
           ),
           itemCount: _specialties.length,
           itemBuilder: (_, i) {
-            final (label, icon, tone) = _specialties[i];
+            final (filter, label, icon, tone) = _specialties[i];
             return CharakSpecialtyTile(
-              label: label == 'General Physician' ? 'General' : label,
+              label: label,
               icon: icon,
               toneIndex: tone,
-              onTap: () => context.push('/directory', extra: label),
+              onTap: () => context.push('/directory', extra: filter),
             );
           },
         ),
@@ -151,7 +173,7 @@ class _NextBookingHero extends StatelessWidget {
     final status = booking['status'] as String? ?? 'requested';
     final channel = booking['channel'] as String? ?? '';
     final doc = booking['doctors'] as Map? ?? const {};
-    final docName = doc['name'] as String? ?? 'Doctor';
+    final docName = CharakFormat.doctor(doc['name'] as String?);
     final category = (doc['categories'] as Map?)?['name'] as String? ?? '';
     final pricing = List<Map<String, dynamic>>.from(doc['doctor_pricing'] as List? ?? const []);
     final price = pricing.where((p) => p['channel'] == channel).firstOrNull?['price'] as num?;
@@ -162,7 +184,7 @@ class _NextBookingHero extends StatelessWidget {
     final white = CharakText.body.copyWith(color: CharakColors.onPrimary);
 
     final (actionLabel, route) = switch (status) {
-      'accepted' => (price != null ? 'Pay ₹${price.toStringAsFixed(0)}' : 'Pay', '/booking/$id/pay'),
+      'accepted' => (price != null ? 'Pay ${CharakFormat.rupees(price)}' : 'Pay', '/booking/$id/pay'),
       'paid' => ('View', '/booking/$id/active'),
       _ => ('Status', '/booking/$id/status'),
     };
@@ -192,7 +214,7 @@ class _NextBookingHero extends StatelessWidget {
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Dr. $docName',
+              Text(CharakFormat.doctor(docName),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: CharakText.titleSmall.copyWith(color: CharakColors.onPrimary)),
@@ -265,8 +287,8 @@ class _ConsultNowBarState extends State<_ConsultNowBar> {
         : 'in ${left.inMinutes.toString().padLeft(2, '0')}:${(left.inSeconds % 60).toString().padLeft(2, '0')}';
     final category = (doc['categories'] as Map?)?['name'] as String?;
     return CharakNowBar(
-      icon: Icons.videocam_outlined,
-      title: 'Dr. ${doc['name'] ?? 'Doctor'} · your consult',
+      icon: LucideIcons.video,
+      title: '${CharakFormat.doctor(doc['name'] as String?)} · your consult',
       subtitle: ['Online', if (category != null) category].join(' · '),
       trailing: countdown,
       actionLabel: 'Join waiting room',
