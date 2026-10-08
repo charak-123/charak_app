@@ -25,6 +25,8 @@ class DoctorProfileUpdate(BaseModel):
     base_lng: Optional[float]                = None
     service_radius_km: Optional[int]         = None
     procedure_review_threshold: Optional[float] = None
+    # The Requests tab's "Accepting requests" switch.
+    accepting_requests: Optional[bool]       = None
     # Collected on the profile step after Google sign-in. Not OTP-verified.
     phone: Optional[str]                     = None
 
@@ -262,6 +264,11 @@ def search_doctors(
         )
 
     results = query.order("rating_avg", desc=True).execute().data
+
+    # A doctor who paused "Accepting requests" is hidden from search. Filtered
+    # here rather than in SQL so search keeps working on a database that has
+    # not had migration 0016 yet (the column is simply absent there).
+    results = [d for d in results if d.get("accepting_requests", True) is not False]
 
     # Post-filter by category name (Supabase join filter is limited in python SDK)
     if category:

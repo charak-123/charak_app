@@ -65,13 +65,15 @@ def create_booking(
     # Doctor must exist, be verified, and not be suspended.
     doc = fetch_one(
         supabase.table("doctors")
-        .select("id, name, verification_status, suspended, offers_home_visit, offers_online_consult, base_lat, base_lng, service_radius_km")
+        .select("*")
         .eq("id", body.doctor_id)
     )
     if not doc or doc["verification_status"] != "verified":
         raise AppError("Doctor not found or not verified", 404)
     if doc.get("suspended"):
         raise AppError("This doctor is not currently accepting bookings", 409)
+    if doc.get("accepting_requests") is False:
+        raise AppError("This doctor isn't taking new requests right now", 409)
 
     if body.channel == "home_visit" and not doc.get("offers_home_visit"):
         raise AppError("This doctor does not offer home visits", 400)
@@ -141,7 +143,7 @@ def list_incoming(user: dict = Depends(require_doctor)):
     """
     rows = (
         supabase.table("bookings")
-        .select("*, users(name)")
+        .select("*, users(name), intake_media(media_type, transcript_text, transcript_summary, created_at)")
         .eq("doctor_id", user["sub"])
         .eq("status", "requested")
         .order("created_at", desc=True)
@@ -149,7 +151,27 @@ def list_incoming(user: dict = Depends(require_doctor)):
         .data
         or []
     )
-    return [_redact_address_for_doctor(r) for r in rows]
+    return [_with_issue(_redact_address_for_doctor(r)) for r in rows]
+
+
+def _with_issue(row: dict) -> dict:
+    """
+    Put the patient's own words on the request card (design system V2): the
+    typed note, else the summary of a voice note, else its transcript. The
+    full intake, media included, stays on the request detail screen.
+    """
+    media = sorted(row.pop("intake_media", None) or [], key=lambda m: m.get("created_at") or "")
+    issue = None
+    for m in media:
+        if m.get("media_type") == "text" and m.get("transcript_text"):
+            issue = m["transcript_text"]
+            break
+    if issue is None:
+        for m in media:
+            if m.get("transcript_summary") or m.get("transcript_text"):
+                issue = m.get("transcript_summary") or m.get("transcript_text")
+                break
+    return {**row, "issue": issue}
 
 
 @router.get("/doctor/active")

@@ -1,11 +1,25 @@
 from typing import Optional
 
+import httpx
 from supabase import Client, create_client
+from supabase.lib.client_options import SyncClientOptions
 
 from .config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
+# Retry failed *connections* (DNS lookup or TCP connect) a couple of times. A
+# flaky resolver or a Wi-Fi blip otherwise turns into a 500 on whatever request
+# was unlucky, e.g. sign-in. httpx only retries when no request bytes were sent,
+# so a write is never applied twice.
+_http = httpx.Client(
+    transport=httpx.HTTPTransport(retries=2, http2=True),
+    timeout=httpx.Timeout(30.0),
+    follow_redirects=True,
+)
+
 # Service-role client — bypasses RLS for backend-controlled operations
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+supabase: Client = create_client(
+    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, options=SyncClientOptions(httpx_client=_http)
+)
 
 
 def fetch_one(query) -> Optional[dict]:
