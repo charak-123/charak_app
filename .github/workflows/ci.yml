@@ -1,0 +1,87 @@
+name: CI
+
+# Runs the same checks CLAUDE.md asks a contributor to run by hand before
+# committing UI work, plus the backend test suite. Nothing here deploys
+# anything — it only fails the PR/commit if a check fails.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  design-tokens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Generated token files are up to date
+        run: python3 design-system/tool/generate.py --check
+
+  charak_core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+        working-directory: packages/charak_core
+      - run: flutter analyze
+        working-directory: packages/charak_core
+      - run: flutter test
+        working-directory: packages/charak_core
+
+  patient_app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+        working-directory: apps/patient_app
+      - run: flutter analyze
+        working-directory: apps/patient_app
+
+  doctor_app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+        working-directory: apps/doctor_app
+      - run: flutter analyze
+        working-directory: apps/doctor_app
+
+  admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+        working-directory: admin
+      - run: npm run build
+        working-directory: admin
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+        working-directory: backend
+      - run: python -m pytest -q
+        working-directory: backend
