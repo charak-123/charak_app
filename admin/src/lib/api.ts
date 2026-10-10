@@ -1,4 +1,5 @@
 import { mockRequest } from '@/lib/mock'
+import { clearToken } from '@/lib/auth'
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -20,6 +21,17 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
       ...opts.headers,
     },
   })
+  if (res.status === 401) {
+    // The token expired or was rotated out from under us (JWT_SECRET
+    // changed). Every subsequent request would fail the same way, so clear
+    // the stale token and send the admin back to /login instead of leaving
+    // the dashboard stuck on silent request failures.
+    clearToken()
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login'
+    }
+    throw new Error('Your session has expired. Please sign in again.')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error ?? res.statusText)

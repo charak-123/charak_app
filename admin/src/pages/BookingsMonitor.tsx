@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { BookOpen, CalendarClock, CheckCircle2, IndianRupee } from 'lucide-react'
+import { BookOpen, CalendarClock, CheckCircle2, IndianRupee, Eye } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -42,6 +42,17 @@ const STATUS_TABS: { label: string; value: StatusFilter }[] = [
 
 export default function BookingsMonitor() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const queryClient = useQueryClient()
+
+  const revealPhone = useMutation({
+    mutationFn: (bookingId: string) =>
+      api.get<{ phone: string | null }>(`/admin/bookings/${bookingId}/phone`),
+    onSuccess: (data, bookingId) => {
+      setRevealed(r => ({ ...r, [bookingId]: data.phone ?? '—' }))
+      queryClient.invalidateQueries({ queryKey: ['audit-log'] })
+    },
+  })
 
   // The summary strip always describes the whole book, not the current filter,
   // so the numbers don't move when you change tabs.
@@ -150,7 +161,16 @@ export default function BookingsMonitor() {
                       <TableCell><MetaChip mono>{b.id.slice(0, 8)}</MetaChip></TableCell>
                       <TableCell>
                         <p className="text-sm font-medium">{b.users?.name ?? '—'}</p>
-                        <p className="text-xs text-muted-foreground">{b.users?.phone ?? ''}</p>
+                        <button
+                          type="button"
+                          disabled={!b.users?.phone || revealPhone.isPending}
+                          onClick={() => revealPhone.mutate(b.id)}
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground"
+                          title={revealed[b.id] ? undefined : 'Reveal — this is logged'}
+                        >
+                          {revealed[b.id] ?? b.users?.phone ?? ''}
+                          {!revealed[b.id] && b.users?.phone && <Eye size={12} />}
+                        </button>
                       </TableCell>
                       <TableCell className="text-sm">{b.doctors?.name ?? '—'}</TableCell>
                       <TableCell>
