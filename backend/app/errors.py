@@ -1,5 +1,8 @@
+import logging
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 
 class AppError(Exception):
@@ -46,5 +49,5 @@ async def db_error_handler(request: Request, exc: Exception):
     code = getattr(exc, "code", None)
     status, message = _SQLSTATE_STATUS.get(code, (500, "Database error"))
     if status >= 500:
-        print(f"[db error] {request.method} {request.url.path} — {code} {exc!r}")
+        logger.error("db error: %s %s — %s %r", request.method, request.url.path, code, exc)
     return JSONResponse(status_code=status, content={"error": message})

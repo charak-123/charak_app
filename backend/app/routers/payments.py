@@ -20,6 +20,7 @@ paid twice.
 import hashlib
 import hmac
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -38,6 +39,8 @@ from ..db import fetch_one, supabase
 from ..deps import get_current_user
 from ..errors import AppError
 from ..services import notifications, payouts
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -102,7 +105,7 @@ def _razorpay_refund(razorpay_payment_id: Optional[str], amount_paise: int) -> N
         client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
         client.payment.refund(razorpay_payment_id, {"amount": amount_paise})
     except Exception as exc:                      # noqa: BLE001 — see docstring
-        print(f"[refund FAILED] payment={razorpay_payment_id} — {exc!r}")
+        logger.error("refund FAILED payment=%s — %r", razorpay_payment_id, exc)
 
 
 # ── Create order ──────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import FastAPI
@@ -5,6 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from postgrest.exceptions import APIError
+
+from .logging_config import configure_logging
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 from .errors import AppError, app_error_handler, db_error_handler
 from .routers import (
@@ -20,6 +26,15 @@ app = FastAPI(title="Charak API", version="0.2.0")
 # admin dashboard. ALLOWED_ORIGINS is a comma-separated list; the "*" default
 # keeps local development frictionless and should be set in production.
 _origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+if _origins == ["*"]:
+    # Not a hard failure: the mobile apps send no Origin at all, so this never
+    # blocks them. It only means the admin dashboard — wherever it ends up
+    # hosted — can be called cross-origin from anywhere. Tighten this to the
+    # admin's real domain once it has one.
+    logger.warning(
+        "ALLOWED_ORIGINS is unset (defaulting to '*'). Fine for local "
+        "development; set it to the admin dashboard's domain in production."
+    )
 
 app.add_middleware(
     CORSMiddleware,

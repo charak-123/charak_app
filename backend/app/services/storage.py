@@ -23,11 +23,14 @@ Two rules worth stating because they are easy to get wrong:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Optional
 
 from ..db import supabase
 from ..errors import AppError
+
+logger = logging.getLogger(__name__)
 
 # ── Buckets ──────────────────────────────────────────────────────────────────
 BUCKET_DOCTOR_PHOTOS = "doctor-photos"        # public: shown in the directory
@@ -184,7 +187,7 @@ def remove(bucket: str, path: str) -> None:
     try:
         supabase.storage.from_(bucket).remove([path])
     except Exception as exc:  # pragma: no cover
-        print(f"[storage] could not delete {bucket}/{path}: {exc}")
+        logger.error("could not delete %s/%s: %s", bucket, path, exc)
 
 
 def ensure_buckets() -> dict:

@@ -20,6 +20,7 @@ send would have needed an event loop per call. Pass ``background`` (a FastAPI
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import httpx
@@ -30,6 +31,8 @@ from ..config import (
     GOOGLE_APPLICATION_CREDENTIALS,
 )
 from ..db import supabase
+
+logger = logging.getLogger(__name__)
 
 FCM_LEGACY_URL = "https://fcm.googleapis.com/fcm/send"
 FCM_V1_URL     = "https://fcm.googleapis.com/v1/projects/{project}/messages:send"
@@ -74,7 +77,7 @@ def notify(
             "delivery": "pending",
         }).execute().data[0]
     except Exception as exc:  # pragma: no cover — DB unavailable
-        print(f"[notify] could not persist {event} for {recipient_id}: {exc}")
+        logger.error("could not persist %s for %s: %s", event, recipient_id, exc)
 
     notification_id = (row or {}).get("id")
 
@@ -117,8 +120,8 @@ def _deliver(
                 "delivery": outcome,
                 "delivery_error": error,
             }).eq("id", notification_id).execute()
-        except Exception:  # pragma: no cover
-            pass
+        except Exception as exc:  # pragma: no cover
+            logger.error("could not record delivery outcome for notification %s: %s", notification_id, exc)
 
 
 def _fcm_token(recipient_id: str, recipient_role: str) -> Optional[str]:

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from typing import Optional
 
 import httpx
@@ -48,6 +49,8 @@ from ..config import (
     GOOGLE_APPLICATION_CREDENTIALS,
 )
 from ..db import supabase
+
+logger = logging.getLogger(__name__)
 
 # ── Whisper (fallback) ───────────────────────────────────────────────────────
 
@@ -263,7 +266,7 @@ def transcribe_media(media_id: str, content: bytes, filename: str,
         except Exception as exc:
             # Fall back rather than fail: a transcript without a summary is a
             # working intake, and Whisper may well be configured alongside.
-            print(f"[transcription] vertex failed for {media_id}: {exc}")
+            logger.error("vertex failed for %s: %s", media_id, exc)
             if not whisper_enabled():
                 _update(media_id, {
                     "transcript_status": "failed",
@@ -296,4 +299,4 @@ def _update(media_id: str, fields: dict) -> None:
     try:
         supabase.table("intake_media").update(fields).eq("id", media_id).execute()
     except Exception as exc:  # pragma: no cover
-        print(f"[transcription] could not update media {media_id}: {exc}")
+        logger.error("could not update media %s: %s", media_id, exc)
