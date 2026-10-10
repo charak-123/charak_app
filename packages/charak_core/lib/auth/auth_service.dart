@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../network/api_client.dart';
 import 'token_store.dart';
 import '../push/charak_push.dart';
+import '../crash/charak_crash.dart';
 
 /// The *Web* OAuth client id. Google mints the ID token for this audience, and
 /// the backend only accepts tokens for it (GOOGLE_CLIENT_IDS).
@@ -43,6 +44,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final id    = prefs.getString('user_id');
     if (token != null) {
       state = AuthState(token: token, user: id != null ? {'id': id, 'name': name} : null);
+      CharakCrash.setUser(id);
       // A returning session still needs its FCM token registered — the token
       // rotates between launches, and the backend only knows the last one it
       // was told about.
@@ -101,6 +103,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await prefs.setString('user_name', userMap['name'] as String);
     }
     state = AuthState(token: res['token'] as String, user: userMap);
+    CharakCrash.setUser(userMap['id'] as String?);
     // Registration is authenticated, so it can only happen once the token is
     // stored — not at app start.
     CharakPush.instance.start();
@@ -145,6 +148,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> _teardownSession() async {
+    CharakCrash.setUser(null);
     await CharakPush.instance.stop();
     // So the next sign-in offers the account picker instead of silently
     // reusing the last Google account. Harmless if Google was never used.

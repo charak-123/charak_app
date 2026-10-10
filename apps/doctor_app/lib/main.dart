@@ -6,12 +6,16 @@ import 'package:charak_core/charak_core.dart';
 import 'router.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  // Design System V2: the doctor app runs on ink surfaces.
-  CharakColors.useScheme(CharakScheme.doctor);
-
-  runApp(const ProviderScope(child: DoctorApp()));
+  // Wraps startup so a crash anywhere — framework or not — reaches
+  // Crashlytics instead of just scrolling past in the console. See
+  // CharakCrash's doc comment for why both halves of Flutter's error surface
+  // need separate handlers.
+  await CharakCrash.runGuarded(() {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    // Design System V2: the doctor app runs on ink surfaces.
+    CharakColors.useScheme(CharakScheme.doctor);
+    return const ProviderScope(child: DoctorApp());
+  });
 }
 
 class DoctorApp extends ConsumerWidget {

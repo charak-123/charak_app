@@ -14,6 +14,7 @@ export 'legal.dart';
 export 'location/charak_location.dart';
 export 'call/charak_call_session.dart';
 export 'push/charak_push.dart';
+export 'crash/charak_crash.dart';
 
 // Design System V2 components
 export 'components/charak_button.dart';

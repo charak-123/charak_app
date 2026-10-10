@@ -5,10 +5,15 @@ import 'package:charak_core/charak_core.dart';
 import 'router.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  // Design System V2: the patient app runs on cream + white surfaces.
-  CharakColors.useScheme(CharakScheme.patient);
-  runApp(const ProviderScope(child: PatientApp()));
+  // Wraps startup so a crash anywhere — framework or not — reaches
+  // Crashlytics instead of just scrolling past in the console. See
+  // CharakCrash's doc comment for why both halves of Flutter's error surface
+  // need separate handlers.
+  await CharakCrash.runGuarded(() {
+    // Design System V2: the patient app runs on cream + white surfaces.
+    CharakColors.useScheme(CharakScheme.patient);
+    return const ProviderScope(child: PatientApp());
+  });
 }
 
 class PatientApp extends ConsumerWidget {

@@ -23,6 +23,8 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.4.0" apply false
     // Reads app/google-services.json so the Firebase SDKs (push) can configure.
     id("com.google.gms.google-services") version "4.5.0" apply false
+    // Uploads crash/ANR reports to Firebase Crashlytics.
+    id("com.google.firebase.crashlytics") version "3.0.8" apply false
 }
 
 include(":app")
