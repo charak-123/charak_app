@@ -1,3 +1,4 @@
+import logging
 import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -12,7 +13,31 @@ from ..deps import require_ops
 from ..errors import AppError
 from ..services import erasure, notifications, payouts
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+# PostgREST (and so supabase-py) caps a single response at 1000 rows by
+# default. A query with no .range() silently truncates past that — the
+# dashboard numbers would look plausible and just be wrong. Page through in
+# fixed-size chunks instead so metrics stay correct as the tables grow.
+_PAGE_SIZE = 1000
+
+
+def _fetch_all(build_query) -> list[dict]:
+    """
+    Run `build_query()` repeatedly over successive .range() windows, collecting
+    every row. `build_query` must return a fresh query builder each call (the
+    supabase-py client mutates it range-to-range).
+    """
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        page = build_query().range(offset, offset + _PAGE_SIZE - 1).execute().data or []
+        rows.extend(page)
+        if len(page) < _PAGE_SIZE:
+            return rows
+        offset += _PAGE_SIZE
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -174,6 +199,15 @@ def list_doctors(
     return query.execute().data
 
 
+def _mask_phone(phone: Optional[str]) -> Optional[str]:
+    """Keep the last 2 digits, same idea as a card-number mask. Ops can still
+    pull the full number per-booking via the reveal endpoint when they need to
+    act on it; the list view doesn't need it in the clear by default."""
+    if not phone or len(phone) < 4:
+        return phone
+    return "•" * (len(phone) - 2) + phone[-2:]
+
+
 # ── 4. All bookings ───────────────────────────────────────────────────────────
 
 @router.get("/bookings")
@@ -187,7 +221,30 @@ def list_all_bookings(status: Optional[str] = None, user: dict = Depends(require
         query = query.eq("status", status)
 
     result = query.execute()
-    return result.data
+    rows = result.data or []
+    for row in rows:
+        if row.get("users"):
+            row["users"]["phone"] = _mask_phone(row["users"].get("phone"))
+    return rows
+
+
+@router.get("/bookings/{booking_id}/phone")
+def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_ops)):
+    """Explicit, audited reveal of one patient's number. Separate from the list
+    endpoint so looking at the book doesn't put every patient's phone number on
+    screen (or in the browser's memory/devtools) by default."""
+    row = (
+        supabase.table("bookings")
+        .select("id, users(phone)")
+        .eq("id", booking_id)
+        .execute()
+        .data
+    )
+    if not row:
+        raise AppError("Booking not found", 404)
+
+    _audit(user, "booking", booking_id, "revealed_patient_phone")
+    return {"phone": (row[0].get("users") or {}).get("phone")}
 
 
 # ── 5. Procedure bills under review ──────────────────────────────────────────
@@ -246,17 +303,18 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
     """
     The numbers the admin landing page needs, in one round trip rather than the
     six the dashboard was making.
+
+    Each table is paged through in full (see `_fetch_all`) rather than fetched
+    in one `.execute()` — past 1000 rows, an unpaged query is silently
+    truncated by PostgREST and every count/sum below would quietly undercount.
     """
-    doctors = supabase.table("doctors").select("verification_status, suspended").execute().data or []
-    bookings = supabase.table("bookings").select("status, price_confirmed").execute().data or []
-    complaints = supabase.table("complaints").select("status").execute().data or []
-    bills = supabase.table("procedure_bills").select("status, total").execute().data or []
-    ledger = (
-        supabase.table("doctor_ledger_entries")
+    doctors = _fetch_all(lambda: supabase.table("doctors").select("verification_status, suspended"))
+    bookings = _fetch_all(lambda: supabase.table("bookings").select("status, price_confirmed"))
+    complaints = _fetch_all(lambda: supabase.table("complaints").select("status"))
+    bills = _fetch_all(lambda: supabase.table("procedure_bills").select("status, total"))
+    ledger = _fetch_all(
+        lambda: supabase.table("doctor_ledger_entries")
         .select("net_amount, commission_amount, status")
-        .execute()
-        .data
-        or []
     )
 
     def count(rows, field, value):
@@ -383,7 +441,7 @@ def _audit(user: dict, entity: str, entity_id: Optional[str], action: str) -> No
             "action": action,
         }).execute()
     except Exception as exc:  # pragma: no cover
-        print(f"[audit] failed to record {action} on {entity}/{entity_id}: {exc}")
+        logger.error("failed to record %s on %s/%s: %s", action, entity, entity_id, exc)
 
 
 # ── Doctor account-deletion requests (ops fulfils) ───────────────────────────

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.conftest import make_chain, make_supabase
+from tests.conftest import make_chain, make_chain_seq, make_supabase
 
 OPS     = {"sub": "admin", "role": "ops"}
 DOCTOR  = {"sub": "doc-1", "role": "doctor"}
@@ -237,6 +237,27 @@ def test_metrics_requires_ops():
     db = make_supabase({})
     for c in _client(DOCTOR, db):
         assert c.get("/admin/metrics", headers=AUTH).status_code == 403
+
+
+def test_dashboard_metrics_counts_past_the_1000_row_page_cap():
+    """
+    PostgREST caps a single response at 1000 rows. A table with more than that
+    must not be silently undercounted — the doctors total here spans two pages.
+    """
+    page1 = [{"verification_status": "verified", "suspended": False}] * 1000
+    page2 = [{"verification_status": "verified", "suspended": False}]
+    db = make_supabase({
+        "doctors": make_chain_seq(page1, page2),
+        "bookings": make_chain(list_data=[]),
+        "complaints": make_chain(list_data=[]),
+        "procedure_bills": make_chain(list_data=[]),
+        "doctor_ledger_entries": make_chain(list_data=[]),
+    })
+    for c in _client(OPS, db):
+        m = c.get("/admin/metrics", headers=AUTH).json()
+
+    assert m["doctors"]["total"] == 1001
+    assert m["doctors"]["verified"] == 1001
 
 
 # ── complaints ────────────────────────────────────────────────────────────────
