@@ -20,7 +20,8 @@ function Guard({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    // Served at charak.care/admin — see vite.config.ts's `base` for why.
+    <BrowserRouter basename="/admin">
       <Suspense fallback={<div className="p-8 text-sm text-muted-foreground">Loading…</div>}>
         <Routes>
           <Route path="/login" element={<Login />} />
