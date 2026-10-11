@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -64,8 +65,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   bool _googleReady = false;
 
-  /// Sign in with Google. Returns whether the profile step (name + phone) is
-  /// still owed, or null if the person closed the account picker.
+  /// Sign in with Google, via Firebase Auth.
+  ///
+  /// google_sign_in still drives the native account picker — Firebase has no
+  /// UI of its own for it — but the token that reaches the backend is a
+  /// Firebase ID token (POST /auth/firebase), not the raw Google one
+  /// (POST /auth/google, which stays live server-side as a fallback but is no
+  /// longer called from here). This is the same token shape the website's
+  /// Google sign-in and, later, this app's own phone sign-in produce, so the
+  /// backend verifies all three the same way.
+  ///
+  /// Returns whether the profile step (name + phone) is still owed, or null
+  /// if the person closed the account picker.
   Future<bool?> signInWithGoogle(String role) async {
     if (_kGoogleServerClientId.isEmpty) {
       throw const ApiException(
@@ -83,11 +94,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (e.code == GoogleSignInExceptionCode.canceled) return null;
       throw ApiException('Google sign-in failed. Please try again.', 0);
     }
-    final idToken = account.authentication.idToken;
-    if (idToken == null) {
+    final googleIdToken = account.authentication.idToken;
+    if (googleIdToken == null) {
       throw const ApiException('Google sign-in failed. Please try again.', 0);
     }
-    final res = await _api.post('/auth/google', {'id_token': idToken, 'role': role})
+
+    final fb.UserCredential firebaseCred;
+    try {
+      firebaseCred = await fb.FirebaseAuth.instance.signInWithCredential(
+        fb.GoogleAuthProvider.credential(idToken: googleIdToken),
+      );
+    } on fb.FirebaseAuthException {
+      throw const ApiException('Google sign-in failed. Please try again.', 0);
+    }
+    final firebaseIdToken = await firebaseCred.user?.getIdToken();
+    if (firebaseIdToken == null) {
+      throw const ApiException('Google sign-in failed. Please try again.', 0);
+    }
+
+    final res = await _api.post('/auth/firebase', {'id_token': firebaseIdToken, 'role': role})
         as Map<String, dynamic>;
     return _establish(res);
   }
@@ -155,6 +180,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (_googleReady) {
       try { await GoogleSignIn.instance.signOut(); } catch (_) {}
     }
+    // The backend session (TokenStore) is this app's real session — signing
+    // out of Firebase on top just avoids a stale Firebase user lingering
+    // on-device after the person has explicitly signed out.
+    try { await fb.FirebaseAuth.instance.signOut(); } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     await TokenStore.instance.clear();
     await prefs.remove('user_id');
