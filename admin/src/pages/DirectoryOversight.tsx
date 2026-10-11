@@ -14,12 +14,13 @@ import {
   EmptyState, ErrorState, ListSkeleton, TableCard,
 } from '@/components/shell'
 import { MetaChip, StatusPill } from '@/components/status'
+import { getInitials } from '@/lib/utils'
 import CompositionBar from '@/components/charts/CompositionBar'
 import { SERIES } from '@/lib/chart-theme'
 
 interface Doctor {
   id: string
-  name: string
+  name: string | null
   phone: string | null
   category_id: string | null
   category_name?: string | null
@@ -28,10 +29,6 @@ interface Doctor {
   offers_online_consult: boolean
   offers_home_visit: boolean
   created_at: string
-}
-
-function getInitials(name: string) {
-  return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 }
 
 export default function DirectoryOversight() {
@@ -66,7 +63,7 @@ export default function DirectoryOversight() {
   const filtered = rows.filter(d => {
     if (!search.trim()) return true
     const q = search.toLowerCase()
-    return d.name.toLowerCase().includes(q) || (d.phone ?? '').includes(q)
+    return (d.name ?? '').toLowerCase().includes(q) || (d.phone ?? '').includes(q)
   })
 
   const count = (s: Doctor['verification_status']) =>

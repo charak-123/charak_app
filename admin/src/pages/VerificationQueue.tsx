@@ -11,18 +11,15 @@ import {
   EmptyState, ErrorState, ListSkeleton,
 } from '@/components/shell'
 import { StatusPill } from '@/components/status'
+import { getInitials } from '@/lib/utils'
 
 interface PendingDoctor {
   id: string
-  name: string
+  name: string | null
   phone: string | null
   license_number: string
   verification_document_url: string | null
   created_at: string
-}
-
-function getInitials(name: string) {
-  return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 }
 
 function daysWaiting(iso: string) {
