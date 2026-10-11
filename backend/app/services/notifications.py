@@ -28,6 +28,7 @@ import httpx
 from ..config import (
     FCM_PROJECT_ID,
     FCM_SERVER_KEY,
+    FIREBASE_ADMIN_CREDENTIALS_JSON,
     GOOGLE_APPLICATION_CREDENTIALS,
 )
 from ..db import supabase
@@ -41,7 +42,9 @@ _ROLE_TABLE = {"doctor": "doctors", "patient": "users", "ops": None}
 
 
 def push_enabled() -> bool:
-    return bool(FCM_SERVER_KEY) or bool(FCM_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS)
+    return bool(FCM_SERVER_KEY) or bool(
+        FCM_PROJECT_ID and (FIREBASE_ADMIN_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS)
+    )
 
 
 # ── Core ─────────────────────────────────────────────────────────────────────
@@ -133,7 +136,7 @@ def _fcm_token(recipient_id: str, recipient_role: str) -> Optional[str]:
 
 
 def _send(token: str, title: str, body: str, data: dict) -> None:
-    if FCM_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS:
+    if FCM_PROJECT_ID and (FIREBASE_ADMIN_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS):
         _send_v1(token, title, body, data)
     else:
         _send_legacy(token, title, body, data)
@@ -168,18 +171,30 @@ def _send_v1(token: str, title: str, body: str, data: dict) -> None:
 
 def _google_access_token() -> str:
     """
-    Mint an OAuth token from the service-account file.
+    Mint an OAuth token for the FCM v1 API.
 
-    ``google-auth`` is imported lazily so the package is only required once FCM
-    v1 is actually switched on.
+    Prefers FIREBASE_ADMIN_CREDENTIALS_JSON (the full service-account JSON as
+    an env var — Cloud Run secrets mount as env vars, not files; this is the
+    same credential services/firebase_auth.py uses to verify sign-in tokens).
+    Falls back to GOOGLE_APPLICATION_CREDENTIALS, a file path, for a
+    deployment that has one sitting on disk instead. ``google-auth`` is
+    imported lazily so the package is only required once FCM is actually
+    switched on.
     """
+    import json
+
     from google.oauth2 import service_account          # type: ignore
     from google.auth.transport.requests import Request  # type: ignore
 
-    creds = service_account.Credentials.from_service_account_file(
-        GOOGLE_APPLICATION_CREDENTIALS,
-        scopes=["https://www.googleapis.com/auth/firebase.messaging"],
-    )
+    scopes = ["https://www.googleapis.com/auth/firebase.messaging"]
+    if FIREBASE_ADMIN_CREDENTIALS_JSON:
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(FIREBASE_ADMIN_CREDENTIALS_JSON), scopes=scopes,
+        )
+    else:
+        creds = service_account.Credentials.from_service_account_file(
+            GOOGLE_APPLICATION_CREDENTIALS, scopes=scopes,
+        )
     creds.refresh(Request())
     return creds.token
 

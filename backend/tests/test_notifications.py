@@ -344,3 +344,55 @@ def test_unregistering_clears_the_token_on_logout():
         res = TestClient(app).delete("/push/register", headers=AUTH)
     assert res.status_code == 200
     assert users.update.call_args[0][0] == {"fcm_token": None, "fcm_platform": None}
+
+
+# ── push_enabled() and FCM v1 credential resolution ────────────────────────────
+
+def test_push_enabled_with_the_shared_firebase_json_credential():
+    with patch.object(notif, "FCM_PROJECT_ID", "charak-website"), \
+         patch.object(notif, "FIREBASE_ADMIN_CREDENTIALS_JSON", '{"type": "service_account"}'), \
+         patch.object(notif, "GOOGLE_APPLICATION_CREDENTIALS", ""), \
+         patch.object(notif, "FCM_SERVER_KEY", ""):
+        assert notif.push_enabled() is True
+
+
+def test_push_enabled_false_with_a_project_id_but_no_credential_at_all():
+    with patch.object(notif, "FCM_PROJECT_ID", "charak-website"), \
+         patch.object(notif, "FIREBASE_ADMIN_CREDENTIALS_JSON", ""), \
+         patch.object(notif, "GOOGLE_APPLICATION_CREDENTIALS", ""), \
+         patch.object(notif, "FCM_SERVER_KEY", ""):
+        assert notif.push_enabled() is False
+
+
+def test_google_access_token_prefers_the_json_credential_over_a_file_path():
+    """
+    Both happen to be set (e.g. a deployment mid-migration) — the JSON env var
+    must win, since that's the one Cloud Run secrets actually populate.
+    """
+    fake_creds = MagicMock()
+    fake_creds.token = "minted-token"
+    with patch.object(notif, "FIREBASE_ADMIN_CREDENTIALS_JSON", '{"type": "service_account"}'), \
+         patch.object(notif, "GOOGLE_APPLICATION_CREDENTIALS", "/some/file.json"), \
+         patch("google.oauth2.service_account.Credentials.from_service_account_info",
+               return_value=fake_creds) as from_info, \
+         patch("google.oauth2.service_account.Credentials.from_service_account_file") as from_file, \
+         patch("google.auth.transport.requests.Request"):
+        token = notif._google_access_token()
+
+    assert token == "minted-token"
+    from_info.assert_called_once()
+    from_file.assert_not_called()
+
+
+def test_google_access_token_falls_back_to_a_file_path():
+    fake_creds = MagicMock()
+    fake_creds.token = "minted-token"
+    with patch.object(notif, "FIREBASE_ADMIN_CREDENTIALS_JSON", ""), \
+         patch.object(notif, "GOOGLE_APPLICATION_CREDENTIALS", "/some/file.json"), \
+         patch("google.oauth2.service_account.Credentials.from_service_account_file",
+               return_value=fake_creds) as from_file, \
+         patch("google.auth.transport.requests.Request"):
+        token = notif._google_access_token()
+
+    assert token == "minted-token"
+    from_file.assert_called_once()

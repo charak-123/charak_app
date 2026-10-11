@@ -57,8 +57,13 @@ GEMINI_MODEL      = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # ── Push ─────────────────────────────────────────────────────────────────────
-# FCM HTTP v1 (preferred): set FCM_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS.
-# Legacy server key is still honoured for a quicker switch-on.
+# FCM HTTP v1 (preferred): set FCM_PROJECT_ID. Credentials are the same
+# service-account JSON as FIREBASE_ADMIN_CREDENTIALS_JSON above (Firebase ID
+# token verification and FCM send are two capabilities of the one
+# charak-backend-firebase service account) — no second credential to manage.
+# GOOGLE_APPLICATION_CREDENTIALS (a file path) is still accepted too, for a
+# deployment that already has one sitting on disk; not required if the JSON
+# env var is set. Legacy server key is honoured for a quicker switch-on.
 FCM_PROJECT_ID = os.getenv("FCM_PROJECT_ID", "")
 FCM_SERVER_KEY = os.getenv("FCM_SERVER_KEY", "")
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
