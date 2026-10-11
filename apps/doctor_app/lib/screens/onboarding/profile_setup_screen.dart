@@ -11,6 +11,13 @@ final _categoriesProvider = FutureProvider<List<Map<String, dynamic>>>((ref) asy
   return res.cast<Map<String, dynamic>>();
 });
 
+// Not a real category — a doctor whose specialty isn't in the fixed list
+// (Ayurveda, Homeopathy, and anything else not yet a category) had no way to
+// register at all. Picking this reveals a free-text field instead of sending
+// a category_id; ops assigns the right category by hand during verification,
+// same stance the admin dashboard already takes for an unmatched specialty.
+const _otherSpecialtyValue = '__other__';
+
 class ProfileSetupScreen extends ConsumerStatefulWidget {
   const ProfileSetupScreen({super.key});
 
@@ -22,16 +29,20 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   final _nameCtrl = TextEditingController();
   final _bioCtrl  = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _specialtyOtherCtrl = TextEditingController();
   String? _categoryId;
   File?   _photo;
   bool    _loading = false;
   String? _error;
+
+  bool get _isOther => _categoryId == _otherSpecialtyValue;
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _bioCtrl.dispose();
     _phoneCtrl.dispose();
+    _specialtyOtherCtrl.dispose();
     super.dispose();
   }
 
@@ -59,6 +70,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
   bool get _valid =>
       _nameCtrl.text.trim().length >= 2 && _categoryId != null &&
+      (!_isOther || _specialtyOtherCtrl.text.trim().isNotEmpty) &&
       (!_needsPhone || _phoneDigits.length == 10);
 
   Future<void> _submit() async {
@@ -66,9 +78,16 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     try {
       await ApiClient.instance.patch('/doctors/me', {
         'name': _nameCtrl.text.trim(),
-        'category_id': _categoryId,
+        // Not sent for "Other" — there is no matching category_id, and
+        // sending the sentinel value itself would fail the backend's uuid
+        // check. application_details.specialty_other is what ops reads
+        // instead while assigning the right category by hand.
+        if (!_isOther) 'category_id': _categoryId,
         'bio': _bioCtrl.text.trim(),
         if (_needsPhone) 'phone': '+91$_phoneDigits',
+        if (_isOther) 'application_details': {
+          'specialty_other': _specialtyOtherCtrl.text.trim(),
+        },
       });
 
       final photo = _photo;
@@ -146,14 +165,30 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                       data: (list) => ShadSelect<String>(
                         placeholder: const Text('Select specialty'),
                         initialValue: _categoryId,
-                        options: list.map((c) => ShadOption(value: c['id'] as String, child: Text(c['name'] as String))).toList(),
-                        selectedOptionBuilder: (context, value) =>
-                            Text(list.firstWhere((c) => c['id'] == value)['name'] as String),
+                        options: [
+                          ...list.map((c) => ShadOption(value: c['id'] as String, child: Text(c['name'] as String))),
+                          const ShadOption(value: _otherSpecialtyValue, child: Text('Other')),
+                        ],
+                        selectedOptionBuilder: (context, value) => Text(
+                          value == _otherSpecialtyValue
+                              ? 'Other'
+                              : list.firstWhere((c) => c['id'] == value)['name'] as String,
+                        ),
                         onChanged: (v) => setState(() => _categoryId = v),
                       ),
                       loading: () => const LinearProgressIndicator(),
                       error: (e, _) => Text('Failed to load specialties', style: CharakText.caption.copyWith(color: CharakColors.danger)),
                     ),
+                    if (_isOther) ...[
+                      const SizedBox(height: 10),
+                      CharakInput(
+                        label: 'What do you practise?',
+                        placeholder: 'e.g., Ayurveda, Homeopathy',
+                        description: "Not in the list yet — our team assigns the right category when they review your application.",
+                        controller: _specialtyOtherCtrl,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ],
                     const SizedBox(height: 12),
 
                     Text('Profile photo', style: _fieldLabel),

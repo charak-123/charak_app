@@ -104,7 +104,7 @@ def list_pending_doctors(user: dict = Depends(require_ops)):
             "id, name, phone, email, license_number, bio, "
             "offers_online_consult, offers_home_visit, "
             "verification_document_path, verification_document_mime, "
-            "photo_url, created_at, categories(name)"
+            "photo_url, created_at, categories(name), application_details"
         )
         .eq("verification_status", "pending")
         .order("created_at", desc=False)

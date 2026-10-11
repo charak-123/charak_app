@@ -25,6 +25,11 @@ interface PendingDoctor {
   verification_document_path: string | null
   verification_document_mime: string | null
   categories: { name: string } | null
+  // Set when the doctor picked "Other" at registration — no category_id
+  // exists yet for whatever they typed. See matchCategoryId in the website's
+  // Register.jsx and the app's profile_setup_screen.dart for the two places
+  // this gets written.
+  application_details: { specialty_other?: string } | null
   created_at: string
 }
 
@@ -120,6 +125,9 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
             says, so ops can judge it without opening anything else. */}
         <div className="flex flex-wrap items-center gap-1.5 text-sm">
           {doctor.categories?.name && <MetaChip>{doctor.categories.name}</MetaChip>}
+          {!doctor.categories?.name && doctor.application_details?.specialty_other && (
+            <MetaChip>{doctor.application_details.specialty_other} (not yet a category)</MetaChip>
+          )}
           {doctor.offers_online_consult && (
             <MetaChip><Video size={12} className="mr-1 inline" />Online</MetaChip>
           )}
