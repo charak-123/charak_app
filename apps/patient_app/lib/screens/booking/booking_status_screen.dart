@@ -10,18 +10,56 @@ final _bookingProvider =
   return res as Map<String, dynamic>;
 });
 
-class BookingStatusScreen extends ConsumerWidget {
+// Statuses still waiting on someone else to act — a doctor's decision, a
+// payment hold expiring. Anything else (paid, completed, declined,
+// cancelled) is the end of the line for this screen and needs no more polls.
+const _liveStatuses = {'requested', 'accepted'};
+
+class BookingStatusScreen extends ConsumerStatefulWidget {
   final String bookingId;
   const BookingStatusScreen({super.key, required this.bookingId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(_bookingProvider(bookingId));
+  ConsumerState<BookingStatusScreen> createState() => _BookingStatusScreenState();
+}
+
+class _BookingStatusScreenState extends ConsumerState<BookingStatusScreen> {
+  CharakPoller? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    // The push for a doctor's decision is the real signal; this is the same
+    // backstop request_sent_screen.dart already uses — a patient who
+    // navigates here directly (history, a restored app) rather than straight
+    // from sending the request gets the same live update, not just whoever
+    // was on the other screen when it happened.
+    _poll = CharakPoller(onPoll: _refresh)..start();
+  }
+
+  Future<bool> _refresh() async {
+    if (!mounted) return true;
+    ref.invalidate(_bookingProvider(widget.bookingId));
+    final booking = await ref.read(_bookingProvider(widget.bookingId).future);
+    final status = booking['status'] as String? ?? 'requested';
+    return !_liveStatuses.contains(status);
+  }
+
+  @override
+  void dispose() {
+    _poll?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final async = ref.watch(_bookingProvider(widget.bookingId));
     return CharakScreen(
       body: async.when(
         loading: () => const _StatusLoading(),
-        error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_bookingProvider(bookingId))),
-        data: (booking) => _StatusBody(booking: booking, bookingId: bookingId),
+        error: (e, _) => CharakErrorState(
+            error: e, onRetry: () => ref.invalidate(_bookingProvider(widget.bookingId))),
+        data: (booking) => _StatusBody(booking: booking, bookingId: widget.bookingId),
       ),
     );
   }
