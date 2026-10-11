@@ -128,7 +128,7 @@ class HomeTab extends ConsumerWidget {
               label: label,
               icon: icon,
               toneIndex: tone,
-              onTap: () => context.push('/directory', extra: filter),
+              onTap: () => context.push('/directory?q=${Uri.encodeQueryComponent(filter)}'),
             );
           },
         ),

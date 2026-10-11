@@ -30,7 +30,7 @@ class _State extends ConsumerState<PhoneEntryScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       await ref.read(authProvider.notifier).sendOtp(_e164, 'patient');
-      if (mounted) context.push('/auth/otp', extra: _e164);
+      if (mounted) context.push('/auth/otp?phone=${Uri.encodeQueryComponent(_e164)}');
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {

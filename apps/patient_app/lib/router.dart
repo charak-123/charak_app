@@ -93,7 +93,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Phone + OTP: back once DLT approval lets MSG91 deliver SMS.
       GoRoute(path: '/auth/phone',           pageBuilder: (_, __) => _push(const PhoneEntryScreen())),
       GoRoute(path: '/auth/otp',
-          pageBuilder: (_, s) => _push(OtpScreen(phone: s.extra as String))),
+          // In the query string, not `extra`: `extra` is in-memory only and is
+          // null if this route is ever reached any other way (a push
+          // notification, a restored app, a deep link) — a bad cast would
+          // crash instead of just sending the user back to enter their phone.
+          redirect: (_, s) => (s.uri.queryParameters['phone']?.isNotEmpty ?? false)
+              ? null : '/auth/phone',
+          pageBuilder: (_, s) =>
+              _push(OtpScreen(phone: s.uri.queryParameters['phone']!))),
       GoRoute(path: '/auth/name',            pageBuilder: (_, __) => _push(const NameEntryScreen())),
 
       // ── Main shell ───────────────────────────────────────────────────────
@@ -102,24 +109,38 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // ── Directory ────────────────────────────────────────────────────────
       GoRoute(path: '/directory',
-          pageBuilder: (_, s) => _card(s, DirectoryScreen(initialQuery: s.extra as String?))),
+          pageBuilder: (_, s) =>
+              _card(s, DirectoryScreen(initialQuery: s.uri.queryParameters['q']))),
       GoRoute(path: '/doctor/:id',
           pageBuilder: (_, s) => _card(s, DoctorProfileScreen(doctorId: s.pathParameters['id']!))),
 
       // ── Booking flow ─────────────────────────────────────────────────────
       GoRoute(path: '/book/:doctorId/slots',
           pageBuilder: (_, s) => _push(SlotSelectionScreen(doctorId: s.pathParameters['doctorId']!))),
+      // These three carry a booking draft built up across the previous steps
+      // (selected slot, channel, intake media the patient has already picked)
+      // — state that cannot be reconstructed from a URL, unlike the string
+      // params above. If this route is ever reached any other way (not a
+      // `context.push` from the previous step in the same session — a
+      // restored app, a stray deep link), the draft is gone regardless of how
+      // the route is written, so the honest fix is to send the patient back
+      // to pick up the flow again rather than hand a bad cast to the screen.
       GoRoute(path: '/book/:doctorId/channel',
+          redirect: (_, s) => s.extra is Map<String, dynamic>
+              ? null : '/doctor/${s.pathParameters['doctorId']}',
           pageBuilder: (_, s) => _push(ChannelConfirmScreen(
             doctorId: s.pathParameters['doctorId']!,
             extra: s.extra as Map<String, dynamic>,
           ))),
       GoRoute(path: '/book/:doctorId/intake',
+          redirect: (_, s) => s.extra is Map<String, dynamic>
+              ? null : '/doctor/${s.pathParameters['doctorId']}',
           pageBuilder: (_, s) => _push(IntakeScreen(
             doctorId: s.pathParameters['doctorId']!,
             extra: s.extra as Map<String, dynamic>,
           ))),
       GoRoute(path: '/book/review',
+          redirect: (_, s) => s.extra is Map<String, dynamic> ? null : '/home',
           pageBuilder: (_, s) => _push(ReviewConfirmScreen(booking: s.extra as Map<String, dynamic>))),
 
       // Outcome screens rise rather than slide — they end a flow.
