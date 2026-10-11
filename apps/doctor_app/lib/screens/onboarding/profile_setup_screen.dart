@@ -18,6 +18,18 @@ final _categoriesProvider = FutureProvider<List<Map<String, dynamic>>>((ref) asy
 // same stance the admin dashboard already takes for an unmatched specialty.
 const _otherSpecialtyValue = '__other__';
 
+// Mirrors the website's practitioner types (src/pages/Register.jsx) — a
+// nurse or physiotherapist maps straight to their fixed category by name;
+// yoga and other practitioners have no category yet and go through
+// application_details.specialtyOther for ops to assign by hand.
+const _practitionerTypes = [
+  ('doctor', 'Doctor'),
+  ('nurse', 'Nurse'),
+  ('physiotherapist', 'Physiotherapist'),
+  ('yoga', 'Yoga practitioner'),
+  ('other', 'Other healthcare professional'),
+];
+
 class ProfileSetupScreen extends ConsumerStatefulWidget {
   const ProfileSetupScreen({super.key});
 
@@ -30,12 +42,20 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   final _bioCtrl  = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _specialtyOtherCtrl = TextEditingController();
+  String? _practitionerType;
   String? _categoryId;
   File?   _photo;
   bool    _loading = false;
   String? _error;
 
-  bool get _isOther => _categoryId == _otherSpecialtyValue;
+  bool get _isDoctor => _practitionerType == 'doctor';
+  bool get _isOther => _isDoctor && _categoryId == _otherSpecialtyValue;
+  // A nurse/physiotherapist auto-matches a fixed category; yoga and "other"
+  // have none — same free-text fallback the doctor "Other" pick uses.
+  bool get _needsSpecialtyOther =>
+      _isOther || _practitionerType == 'yoga' || _practitionerType == 'other';
+  String get _practitionerLabel =>
+      _practitionerTypes.firstWhere((t) => t.$1 == _practitionerType, orElse: () => ('', '')).$2;
 
   @override
   void dispose() {
@@ -69,24 +89,50 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   String get _phoneDigits => _phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
 
   bool get _valid =>
-      _nameCtrl.text.trim().length >= 2 && _categoryId != null &&
-      (!_isOther || _specialtyOtherCtrl.text.trim().isNotEmpty) &&
+      _nameCtrl.text.trim().length >= 2 && _practitionerType != null &&
+      (!_isDoctor || _categoryId != null) &&
+      (!_needsSpecialtyOther || _specialtyOtherCtrl.text.trim().isNotEmpty) &&
       (!_needsPhone || _phoneDigits.length == 10);
 
   Future<void> _submit() async {
     setState(() { _loading = true; _error = null; });
     try {
+      final cats = ref.read(_categoriesProvider).value ?? const [];
+      String? byName(String name) =>
+          cats.firstWhere((c) => (c['name'] as String).toLowerCase() == name.toLowerCase(),
+              orElse: () => const {})['id'] as String?;
+      final matchedCategoryId = _isDoctor
+          ? (_isOther ? null : _categoryId)
+          : _practitionerType == 'nurse'
+              ? byName('Nurse')
+              : _practitionerType == 'physiotherapist'
+                  ? byName('Physiotherapy')
+                  : null;
+
       await ApiClient.instance.patch('/doctors/me', {
         'name': _nameCtrl.text.trim(),
-        // Not sent for "Other" — there is no matching category_id, and
-        // sending the sentinel value itself would fail the backend's uuid
-        // check. application_details.specialty_other is what ops reads
-        // instead while assigning the right category by hand.
-        if (!_isOther) 'category_id': _categoryId,
+        // Null for "Other"/yoga/an unmatched nurse or physio — there is no
+        // category_id to send, and sending the sentinel value itself would
+        // fail the backend's uuid check. application_details.specialtyOther
+        // is what ops reads instead while assigning the right category by
+        // hand. Keys and shape match the website's Register.jsx exactly,
+        // which writes the same application_details blob: `specialty` always
+        // carries a display label (the picked specialty, or the practitioner
+        // type's name for anyone who isn't a doctor); `specialtyOther` is
+        // reserved for genuine free text — a doctor's own "Other" write-in,
+        // or an "other" practitioner's write-in.
+        if (matchedCategoryId != null) 'category_id': matchedCategoryId,
         'bio': _bioCtrl.text.trim(),
         if (_needsPhone) 'phone': '+91$_phoneDigits',
-        if (_isOther) 'application_details': {
-          'specialty_other': _specialtyOtherCtrl.text.trim(),
+        'application_details': {
+          'practitionerType': _practitionerType,
+          'specialty': _isDoctor
+              ? (_isOther ? 'Other' : cats.firstWhere(
+                  (c) => c['id'] == _categoryId,
+                  orElse: () => const {},
+                )['name'] as String?)
+              : _practitionerLabel,
+          if (_needsSpecialtyOther) 'specialtyOther': _specialtyOtherCtrl.text.trim(),
         },
       });
 
@@ -159,37 +205,59 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                       const SizedBox(height: 12),
                     ],
 
-                    Text('Specialty', style: _fieldLabel),
+                    Text('You are a', style: _fieldLabel),
                     const SizedBox(height: 7),
-                    cats.when(
-                      data: (list) => ShadSelect<String>(
-                        placeholder: const Text('Select specialty'),
-                        initialValue: _categoryId,
-                        options: [
-                          ...list.map((c) => ShadOption(value: c['id'] as String, child: Text(c['name'] as String))),
-                          const ShadOption(value: _otherSpecialtyValue, child: Text('Other')),
-                        ],
-                        selectedOptionBuilder: (context, value) => Text(
-                          value == _otherSpecialtyValue
-                              ? 'Other'
-                              : list.firstWhere((c) => c['id'] == value)['name'] as String,
-                        ),
-                        onChanged: (v) => setState(() => _categoryId = v),
-                      ),
-                      loading: () => const LinearProgressIndicator(),
-                      error: (e, _) => Text('Failed to load specialties', style: CharakText.caption.copyWith(color: CharakColors.danger)),
+                    ShadSelect<String>(
+                      placeholder: const Text('Select one'),
+                      initialValue: _practitionerType,
+                      options: _practitionerTypes
+                          .map((t) => ShadOption(value: t.$1, child: Text(t.$2)))
+                          .toList(),
+                      selectedOptionBuilder: (context, value) =>
+                          Text(_practitionerTypes.firstWhere((t) => t.$1 == value).$2),
+                      onChanged: (v) => setState(() {
+                        // A specialty picked for one type means nothing for
+                        // another — same reset the website does on this change.
+                        _practitionerType = v;
+                        _categoryId = null;
+                        _specialtyOtherCtrl.clear();
+                      }),
                     ),
-                    if (_isOther) ...[
-                      const SizedBox(height: 10),
+                    const SizedBox(height: 12),
+
+                    if (_isDoctor) ...[
+                      Text('Specialty', style: _fieldLabel),
+                      const SizedBox(height: 7),
+                      cats.when(
+                        data: (list) => ShadSelect<String>(
+                          placeholder: const Text('Select specialty'),
+                          initialValue: _categoryId,
+                          options: [
+                            ...list.map((c) => ShadOption(value: c['id'] as String, child: Text(c['name'] as String))),
+                            const ShadOption(value: _otherSpecialtyValue, child: Text('Other')),
+                          ],
+                          selectedOptionBuilder: (context, value) => Text(
+                            value == _otherSpecialtyValue
+                                ? 'Other'
+                                : list.firstWhere((c) => c['id'] == value)['name'] as String,
+                          ),
+                          onChanged: (v) => setState(() => _categoryId = v),
+                        ),
+                        loading: () => const LinearProgressIndicator(),
+                        error: (e, _) => Text('Failed to load specialties', style: CharakText.caption.copyWith(color: CharakColors.danger)),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_needsSpecialtyOther) ...[
                       CharakInput(
-                        label: 'What do you practise?',
-                        placeholder: 'e.g., Ayurveda, Homeopathy',
+                        label: _isDoctor ? 'Which specialisation?' : 'What do you practise?',
+                        placeholder: _isDoctor ? 'e.g., Ayurveda, Homeopathy' : 'e.g., Dietitian',
                         description: "Not in the list yet — our team assigns the right category when they review your application.",
                         controller: _specialtyOtherCtrl,
                         onChanged: (_) => setState(() {}),
                       ),
+                      const SizedBox(height: 12),
                     ],
-                    const SizedBox(height: 12),
 
                     Text('Profile photo', style: _fieldLabel),
                     const SizedBox(height: 7),

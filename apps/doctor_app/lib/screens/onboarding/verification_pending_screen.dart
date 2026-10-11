@@ -147,7 +147,7 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
                   child: CharakButton(
                     label: 'Explore the app',
                     outlined: true,
-                    onPressed: () => context.go('/setup/channels'),
+                    onPressed: () => context.go('/home'),
                   ),
                 ),
                 const SizedBox(height: 10),

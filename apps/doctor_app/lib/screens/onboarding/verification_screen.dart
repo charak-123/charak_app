@@ -16,6 +16,26 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   PlatformFile? _doc;
   bool _loading = false;
   String? _error;
+  // Yoga has no statutory council, so — like the website's registration
+  // form — the number here is optional and verified off the certificate
+  // alone. Read once: practitionerType is fixed by the previous screen.
+  bool _isYoga = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPractitionerType();
+  }
+
+  Future<void> _loadPractitionerType() async {
+    try {
+      final me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+      final type = (me['application_details'] as Map?)?['practitionerType'] as String?;
+      if (mounted) setState(() => _isYoga = type == 'yoga');
+    } catch (_) {
+      // Default (license required) stands if this can't be read.
+    }
+  }
 
   @override
   void dispose() {
@@ -48,7 +68,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   // verify. The upload goes through `POST /uploads/doctor/verification-document`
   // — a client-side Storage write is rejected, because these apps authenticate
   // with a FastAPI JWT rather than a Supabase auth session.
-  bool get _valid => _licenseCtrl.text.trim().isNotEmpty && _doc != null;
+  bool get _valid => (_isYoga || _licenseCtrl.text.trim().isNotEmpty) && _doc != null;
 
   Future<void> _submit() async {
     final doc = _doc;
@@ -99,21 +119,22 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                     // `.step-dots` — step 2 of 3.
                     const CharakStepDots(current: 1),
                     const SizedBox(height: 10),
-                    const Text('Verify your license', style: CharakText.titleLarge),
+                    Text(_isYoga ? 'Verify your certification' : 'Verify your license',
+                        style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text('Manual check by our team — usually within 1 working day. You can explore the app meanwhile.',
                         style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted)),
                     const SizedBox(height: 18),
 
                     CharakInput(
-                      label: 'Medical council registration no.',
-                      placeholder: 'MCI-118342',
+                      label: _isYoga ? 'Certificate number' : 'Medical council registration no.',
+                      placeholder: _isYoga ? 'Optional, e.g. from YCB' : 'MCI-118342',
                       controller: _licenseCtrl,
                       onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 12),
 
-                    Text('Degree certificate / council ID',
+                    Text(_isYoga ? 'Yoga certificate' : 'Degree certificate / council ID',
                         style: CharakText.caption.copyWith(color: CharakColors.ink, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 7),
                     CharakUploadTile(

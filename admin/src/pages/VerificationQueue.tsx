@@ -25,12 +25,40 @@ interface PendingDoctor {
   verification_document_path: string | null
   verification_document_mime: string | null
   categories: { name: string } | null
-  // Set when the doctor picked "Other" at registration — no category_id
-  // exists yet for whatever they typed. See matchCategoryId in the website's
-  // Register.jsx and the app's profile_setup_screen.dart for the two places
-  // this gets written.
-  application_details: { specialty_other?: string } | null
+  // Written by both the website (Register.jsx) and the app
+  // (profile_setup_screen.dart / verification_screen.dart) — camelCase
+  // throughout, matching the website's original field names. Anything with a
+  // dedicated column already (name, phone, license_number, offers_*) is not
+  // duplicated here; this is only what has nowhere else to live.
+  application_details: {
+    practitionerType?: string
+    // Set when the doctor picked "Other" at registration — no category_id
+    // exists yet for whatever they typed. See matchCategoryId in the
+    // website's Register.jsx and the app's profile_setup_screen.dart.
+    specialtyOther?: string
+    qualification?: string
+    college?: string
+    passingYear?: string
+    council?: string
+    registrationYear?: string
+    nuid?: string
+    hprId?: string
+    certBody?: string
+    registeredName?: string
+    experience?: string
+    city?: string
+    state?: string
+    country?: string
+  } | null
   created_at: string
+}
+
+const PRACTITIONER_LABELS: Record<string, string> = {
+  doctor: 'Doctor',
+  nurse: 'Nurse',
+  physiotherapist: 'Physiotherapist',
+  yoga: 'Yoga practitioner',
+  other: 'Other healthcare professional',
 }
 
 function daysWaiting(iso: string) {
@@ -124,9 +152,12 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
         {/* The application itself — what the form the user filled in actually
             says, so ops can judge it without opening anything else. */}
         <div className="flex flex-wrap items-center gap-1.5 text-sm">
+          {doctor.application_details?.practitionerType && (
+            <MetaChip>{PRACTITIONER_LABELS[doctor.application_details.practitionerType] ?? doctor.application_details.practitionerType}</MetaChip>
+          )}
           {doctor.categories?.name && <MetaChip>{doctor.categories.name}</MetaChip>}
-          {!doctor.categories?.name && doctor.application_details?.specialty_other && (
-            <MetaChip>{doctor.application_details.specialty_other} (not yet a category)</MetaChip>
+          {!doctor.categories?.name && doctor.application_details?.specialtyOther && (
+            <MetaChip>{doctor.application_details.specialtyOther} (not yet a category)</MetaChip>
           )}
           {doctor.offers_online_consult && (
             <MetaChip><Video size={12} className="mr-1 inline" />Online</MetaChip>
@@ -145,6 +176,39 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
             {doctor.bio}
           </p>
         )}
+
+        {/* Everything ops needs to actually check the credential against —
+            the richer fields neither the website nor the app has a dedicated
+            column for. Yoga has no college/council/registration year, and
+            today's app onboarding collects none of these yet, so this is
+            built from whatever is actually present rather than assumed. */}
+        {(() => {
+          const details = doctor.application_details
+          const entries = (details ? [
+            ['Qualification', details.qualification],
+            ['College / institute', details.college],
+            ['Certified by', details.certBody],
+            ['Year of passing', details.passingYear],
+            ['Council', details.council],
+            ['Year of registration', details.registrationYear],
+            ['NUID', details.nuid],
+            ['HPR ID', details.hprId],
+            ['Name on certificate', details.registeredName],
+            ['Experience', details.experience && `${details.experience} yrs`],
+            ['Location', [details.city, details.state].filter(Boolean).join(', ')],
+          ] as const : []).filter(([, v]) => !!v)
+          if (entries.length === 0) return null
+          return (
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-tile border border-border p-2.5 text-sm sm:grid-cols-3">
+              {entries.map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs text-muted-foreground">{label}</dt>
+                  <dd className="font-medium">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )
+        })()}
 
         {verifyMutation.isError && (
           <p className="text-xs text-destructive">
