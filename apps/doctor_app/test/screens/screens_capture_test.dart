@@ -47,6 +47,7 @@ final _screens = <(String, String, int?)>[
   ('06_request_detail', '/request/rq-1', null),
   ('07_active_visit', '/visit/ac-2', null),
   ('08_profile_setup', '/onboarding/profile', null),
+  ('08c_verified_welcome', '/onboarding/verified', null),
   ('09_channels', '/setup/channels', null),
   ('10_pricing', '/setup/pricing', null),
 ];
