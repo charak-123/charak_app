@@ -91,9 +91,21 @@ def admin_login(body: AdminLoginRequest):
 
 @router.get("/doctors/pending")
 def list_pending_doctors(user: dict = Depends(require_ops)):
+    """
+    Everything ops needs to decide approve/reject without leaving the page:
+    the application details the doctor filled in (specialty, bio, channels,
+    contact), plus enough about the submitted document (mime type; the file
+    itself is read on demand through GET /uploads/doctor/{id}/verification-
+    document, which mints a short-lived signed URL rather than a durable one).
+    """
     result = (
         supabase.table("doctors")
-        .select("id, name, phone, license_number, verification_document_url, verification_document_path, verification_document_mime, photo_url, created_at")
+        .select(
+            "id, name, phone, email, license_number, bio, "
+            "offers_online_consult, offers_home_visit, "
+            "verification_document_path, verification_document_mime, "
+            "photo_url, created_at, categories(name)"
+        )
         .eq("verification_status", "pending")
         .order("created_at", desc=False)
         .execute()
