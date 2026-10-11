@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "930547326957-he5paes4j9bfejkgpu0pblc8uau5ur0h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.charak.doctor_app",
+            "certificate_hash": "c9410df112b17ddd65161e20b2c0c6ccf57d0c0a"
+          }
+        },
+        {
           "client_id": "930547326957-jvrpedld61dm2uh66mjjhe8ooi3q31kv.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -56,6 +64,14 @@
           "android_info": {
             "package_name": "com.charak.patient_app",
             "certificate_hash": "9e2baf9921d7a61dfc83b6d365179ac900ca1f2d"
+          }
+        },
+        {
+          "client_id": "930547326957-pvojm02q0m0asio6qoed7it3korsvpgo.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.charak.patient_app",
+            "certificate_hash": "d6e3b5de39a96442981b0b8e64b71e0aae579936"
           }
         },
         {
