@@ -49,7 +49,7 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
       _rejectionReason = me['verification_rejection_reason'] as String?;
     });
     if (status == 'verified') {
-      context.go('/setup/channels');
+      context.go('/onboarding/verified');
       return true;
     }
     return false;

@@ -9,6 +9,7 @@ import 'screens/auth/otp_screen.dart';
 import 'screens/onboarding/profile_setup_screen.dart';
 import 'screens/onboarding/verification_screen.dart';
 import 'screens/onboarding/verification_pending_screen.dart';
+import 'screens/onboarding/verified_welcome_screen.dart';
 import 'screens/setup/channel_setup_screen.dart';
 import 'screens/setup/online_consult_setup_screen.dart';
 import 'screens/setup/home_visit_setup_screen.dart';
@@ -92,6 +93,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/onboarding/profile',    pageBuilder: (_, __) => _push(const ProfileSetupScreen())),
       GoRoute(path: '/onboarding/verification', pageBuilder: (_, __) => _push(const VerificationScreen())),
       GoRoute(path: '/onboarding/verification-pending', pageBuilder: (_, __) => _rise(const VerificationPendingScreen())),
+      GoRoute(path: '/onboarding/verified',   pageBuilder: (_, __) => _rise(const VerifiedWelcomeScreen())),
       GoRoute(path: '/setup/channels',        pageBuilder: (_, __) => _push(const ChannelSetupScreen())),
       GoRoute(path: '/setup/online',          pageBuilder: (_, __) => _push(const OnlineConsultSetupScreen())),
       GoRoute(path: '/setup/home-visit',

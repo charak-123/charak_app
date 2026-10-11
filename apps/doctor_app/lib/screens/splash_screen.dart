@@ -52,7 +52,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       } else if (status == 'rejected') {
         context.go('/onboarding/verification');
       } else if (!offersOnline && !offersHome) {
-        context.go('/setup/channels');
+        // Just approved and hasn't set up channels/pricing yet — whether
+        // that's because they're opening the app for the first time since
+        // (a push, or just curiosity) or the live poll on the pending screen
+        // caught it, this is the one moment ops approval should be visible
+        // as a moment, not a silent redirect into a setup form.
+        context.go('/onboarding/verified');
       } else {
         context.go('/home');
       }
