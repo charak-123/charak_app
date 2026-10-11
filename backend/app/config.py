@@ -22,6 +22,19 @@ RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 # is normally all that is needed. Empty disables POST /auth/google.
 GOOGLE_CLIENT_IDS = [c.strip() for c in os.getenv("GOOGLE_CLIENT_IDS", "").split(",") if c.strip()]
 
+# ── Firebase ID token sign-in ────────────────────────────────────────────────
+# A second, separate sign-in path from POST /auth/google above — that one
+# verifies a raw Google OAuth token from the apps' own google_sign_in package.
+# This one verifies a Firebase Auth ID token (the website's Google sign-in
+# already goes through Firebase; phone sign-in will too). Different token
+# shape, different verification library, so it gets its own endpoint rather
+# than trying to make one accept both.
+#
+# The full service-account JSON, not a path — Cloud Run secrets mount as env
+# vars, not files. Empty disables POST /auth/firebase, same fail-closed
+# pattern as GOOGLE_CLIENT_IDS above.
+FIREBASE_ADMIN_CREDENTIALS_JSON = os.getenv("FIREBASE_ADMIN_CREDENTIALS_JSON", "")
+
 AGORA_APP_ID          = os.getenv("AGORA_APP_ID", "")
 AGORA_APP_CERTIFICATE = os.getenv("AGORA_APP_CERTIFICATE", "")
 

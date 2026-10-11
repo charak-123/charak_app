@@ -32,7 +32,7 @@ from ..config import (
 from ..db import supabase
 from ..errors import AppError
 from ..phone import normalize_e164
-from ..services import otp_store, erasure
+from ..services import otp_store, erasure, firebase_auth
 
 router = APIRouter()
 
@@ -215,6 +215,64 @@ def google_login(req: GoogleLoginRequest):
         supabase.table(table)
         .upsert({"google_sub": claims["sub"], "email": claims.get("email")},
                 on_conflict="google_sub")
+        .execute()
+    )
+    if not result.data:
+        raise AppError("Could not create your account. Please try again.", 500)
+    return _session(result.data[0], req.role)
+
+
+class FirebaseLoginRequest(BaseModel):
+    id_token: str
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def _check_role(cls, v: str) -> str:
+        if v not in ("patient", "doctor"):
+            raise ValueError("role must be 'patient' or 'doctor'")
+        return v
+
+
+@router.post("/firebase")
+def firebase_login(req: FirebaseLoginRequest):
+    """
+    Sign in with a Firebase Auth ID token.
+
+    A separate path from POST /auth/google above: that one verifies a raw
+    Google OAuth token the apps mint directly with the google_sign_in
+    package. This one verifies a Firebase ID token — the website's Google
+    sign-in already produces one of these (a different token shape, a
+    different `sub`), and Firebase Phone Auth will too. Keyed by the Firebase
+    uid, never by email or phone, since either can be absent depending on
+    which provider actually signed the token.
+    """
+    if not firebase_auth.enabled():
+        raise AppError("Firebase sign-in is not configured on this server", 503)
+    try:
+        claims = firebase_auth.verify(req.id_token)
+    except firebase_auth.FirebaseTokenError:
+        raise AppError("Sign-in failed. Please try again.", 401)
+
+    provider = claims.get("firebase", {}).get("sign_in_provider")
+    if provider not in ("google.com", "phone"):
+        raise AppError("This sign-in method is not supported.", 401)
+    if provider == "google.com" and not claims.get("email_verified"):
+        raise AppError("Your Google account's email is not verified.", 401)
+
+    update = {"firebase_uid": claims["sub"]}
+    if provider == "google.com" and claims.get("email"):
+        update["email"] = claims["email"]
+    if provider == "phone" and claims.get("phone_number"):
+        update["phone"] = claims["phone_number"]
+        # Firebase has already confirmed this number by SMS — equivalent to
+        # the otp_store-based flow's own confirmation.
+        update["otp_verified"] = True
+
+    table = "doctors" if req.role == "doctor" else "users"
+    result = (
+        supabase.table(table)
+        .upsert(update, on_conflict="firebase_uid")
         .execute()
     )
     if not result.data:

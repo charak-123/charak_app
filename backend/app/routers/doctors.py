@@ -29,6 +29,9 @@ class DoctorProfileUpdate(BaseModel):
     accepting_requests: Optional[bool]       = None
     # Collected on the profile step after Google sign-in. Not OTP-verified.
     phone: Optional[str]                     = None
+    # The website registration form's fields with no dedicated column
+    # (qualification, college, practitioner type, …) — see migration 0019.
+    application_details: Optional[dict]      = None
 
     @field_validator("phone")
     @classmethod
