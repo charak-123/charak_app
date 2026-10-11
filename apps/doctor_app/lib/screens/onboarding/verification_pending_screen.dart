@@ -71,12 +71,21 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
     return Scaffold(
       backgroundColor: CharakColors.ground,
       body: SafeArea(
-        // `.ok-state` — 40px top padding, 24px gutters, centred column.
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
+        // `.ok-state` — 24px gutters, centred column. A terminal/empty state
+        // like this one is meant to sit in the middle of the screen, not
+        // pinned to the top with a dead zone below it — the LayoutBuilder +
+        // minHeight gives the Column the full viewport to center within,
+        // while still scrolling normally if the content (e.g. a long
+        // rejection reason) ever outgrows the screen.
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
               // `.ok-state .wait-ic` — 88px circle, 40px glyph.
               Container(
                 width: 88,
@@ -155,7 +164,9 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
                   onPressed: () => context.go('/onboarding/verification'),
                 ),
               ],
-            ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
