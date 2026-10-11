@@ -271,14 +271,16 @@ credentials, and it is obvious which mode you are in.
 CRON_SECRET=<64 random hex chars>
 ```
 
-Two endpoints must be called on a timer. Both refuse to run at all if
+These endpoints must be called on a timer. All of them refuse to run at all if
 `CRON_SECRET` is unset (503) — an endpoint that mutates bookings will not run
 unauthenticated just because a deploy forgot a variable.
 
 | Endpoint | Frequency | What breaks without it |
 |---|---|---|
-| `POST /maintenance/release-expired-holds` | every 2 min | An unpaid booking holds a doctor's slot forever |
-| `POST /maintenance/purge-expired-otps` | daily | Dead OTP rows accumulate as PII |
+| `POST /maintenance/release-expired-holds` | every 2–5 min | An unpaid booking holds a doctor's slot forever |
+| `POST /maintenance/purge-expired-otps` | hourly | Dead OTP rows accumulate as PII |
+| `POST /maintenance/purge-deleted-accounts` | daily | A self-deleted patient's data outlives its 30-day grace window |
+| `POST /maintenance/purge-old-rate-limit-hits` | daily | `rate_limit_hits` (admin login, bookings, uploads) grows forever — nothing reads a row older than an hour |
 
 Call with the header `X-Cron-Secret: <value>`. Any scheduler works — a Fly
 machine running cron, GitHub Actions on a schedule, or an external pinger:
@@ -292,11 +294,17 @@ curl -fsS -X POST -H "X-Cron-Secret: $CRON_SECRET" \
 
 ## 7. Ops and hardening
 
+Admin accounts are per-person with mandatory TOTP, not a shared password.
+Create the first one with `scripts/create_admin.py <email>` (needs
+`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — point it at `backend/.env` or
+export the production values first). It prints instructions for the one-time
+QR-code enrollment step done at `/admin/login` itself.
+
 ```
-ADMIN_PASSWORD=<strong value>              # default is 'charak-admin-2024' — change it
 ALLOWED_ORIGINS=https://admin.charak.care    # default '*' — tighten before launch
 PLATFORM_COMMISSION_PCT=15                 # Charak's cut; per-doctor override in doctors.commission_pct
 PAYMENT_HOLD_MINUTES=10                    # how long a slot is held for payment
+ADMIN_TOKEN_TTL_HOURS=12                   # default — admin sessions are short-lived by design
 JWT_SECRET=<64 random hex chars>           # rotating this logs every user out
 ```
 

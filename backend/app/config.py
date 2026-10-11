@@ -76,10 +76,14 @@ ALLOW_INSECURE_PAYMENTS = os.getenv("ALLOW_INSECURE_PAYMENTS", "").lower() in ("
 ALLOW_OTP_STUB = os.getenv("ALLOW_OTP_STUB", "").lower() in ("1", "true", "yes")
 
 # ── Ops ──────────────────────────────────────────────────────────────────────
-# No fallback: a missing/empty ADMIN_PASSWORD disables admin login entirely
-# rather than silently accepting a well-known default. admin_login fails closed
-# when this is empty.
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+# Admin login is per-account (admin_users table + mandatory TOTP — see
+# services/admin_auth.py), created with scripts/create_admin.py. There is no
+# shared password any more.
+#
+# Short-lived on purpose: this is a staff dashboard used in a browser session,
+# not a mobile app someone keeps signed into for weeks. A stolen laptop with a
+# browser left logged in is dead within hours, not a month.
+ADMIN_TOKEN_TTL_HOURS = int(os.getenv("ADMIN_TOKEN_TTL_HOURS", "12"))
 
 # Shared secret for internal/cron endpoints (hold sweeper, payout runs).
 CRON_SECRET = os.getenv("CRON_SECRET", "")

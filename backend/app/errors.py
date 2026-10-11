@@ -6,16 +6,20 @@ logger = logging.getLogger(__name__)
 
 
 class AppError(Exception):
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(self, message: str, status_code: int = 400, **extra):
         self.message = message
         self.status_code = status_code
+        # Extra JSON fields beyond {"error": message} — e.g. admin login's 428
+        # response tells the client which step comes next ("next": "totp").
+        # Almost nothing uses this; most callers pass none.
+        self.extra = extra
         super().__init__(message)
 
 
 async def app_error_handler(request: Request, exc: AppError):
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": exc.message},
+        content={"error": exc.message, **exc.extra},
     )
 
 

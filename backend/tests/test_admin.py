@@ -2,6 +2,8 @@
 Tests for the admin router — doctor verification, directory suspension, and the
 dashboard metrics the ops panel reads.
 """
+import bcrypt
+import pyotp
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -9,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from tests.conftest import make_chain, make_chain_seq, make_supabase
 
-OPS     = {"sub": "admin", "role": "ops"}
+OPS     = {"sub": "admin-1", "role": "ops"}
 DOCTOR  = {"sub": "doc-1", "role": "doctor"}
 AUTH    = {"Authorization": "Bearer t"}
 
@@ -25,22 +27,102 @@ def _client(payload, db):
 
 
 # ── login ─────────────────────────────────────────────────────────────────────
+# admin_auth.py and rate_limit.py each bind their own `supabase` name, so each
+# gets patched independently of app.routers.admin's.
 
-def test_admin_login_issues_an_ops_token():
-    from jose import jwt as jose_jwt
-    from app.config import JWT_SECRET
+AUTH_DB = "app.services.admin_auth.supabase"
+RL_DB   = "app.services.rate_limit.supabase"
 
-    with patch("app.routers.admin.ADMIN_PASSWORD", "secret"):
-        res = TestClient(app).post("/admin/login", json={"password": "secret"})
+_SECRET = pyotp.random_base32()
 
-    assert res.status_code == 200
-    assert jose_jwt.decode(res.json()["token"], JWT_SECRET, algorithms=["HS256"])["role"] == "ops"
+
+def _admin_row(totp_enabled: bool, password: str = "correct horse battery staple"):
+    return {
+        "id": "admin-1",
+        "email": "ops@charak.care",
+        "password_hash": bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode(),
+        "totp_secret": _SECRET,
+        "totp_enabled": totp_enabled,
+    }
+
+
+def _login(body, admin_row=None, rl_hits=None):
+    admin_db = make_supabase({"admin_users": make_chain(list_data=[admin_row] if admin_row else [])})
+    rl_db = make_supabase({"rate_limit_hits": make_chain(list_data=rl_hits or [])})
+    with patch(AUTH_DB, admin_db), patch(RL_DB, rl_db):
+        return TestClient(app).post("/admin/login", json=body)
+
+
+def test_admin_login_rejects_an_unknown_email():
+    res = _login({"email": "nobody@charak.care", "password": "whatever"})
+    assert res.status_code == 401
+    assert "Invalid email or password" in res.json()["error"]
 
 
 def test_admin_login_rejects_a_wrong_password():
-    with patch("app.routers.admin.ADMIN_PASSWORD", "secret"):
-        res = TestClient(app).post("/admin/login", json={"password": "guess"})
+    res = _login({"email": "ops@charak.care", "password": "guess"}, admin_row=_admin_row(True))
     assert res.status_code == 401
+
+
+def test_admin_login_on_a_fresh_account_asks_for_totp_setup():
+    """First login after scripts/create_admin.py: password alone gets a QR
+    code to scan, not a session."""
+    res = _login({"email": "ops@charak.care", "password": "correct horse battery staple"},
+                 admin_row=_admin_row(False))
+    assert res.status_code == 428
+    body = res.json()
+    assert body["next"] == "totp_setup"
+    assert "otpauth://" in body["provisioning_uri"]
+
+
+def test_admin_login_enrolled_account_asks_for_a_code():
+    res = _login({"email": "ops@charak.care", "password": "correct horse battery staple"},
+                 admin_row=_admin_row(True))
+    assert res.status_code == 428
+    assert res.json()["next"] == "totp"
+
+
+def test_admin_login_completes_setup_and_issues_a_token():
+    from jose import jwt as jose_jwt
+    from app.config import JWT_SECRET
+
+    code = pyotp.TOTP(_SECRET).now()
+    res = _login(
+        {"email": "ops@charak.care", "password": "correct horse battery staple", "totp_code": code},
+        admin_row=_admin_row(False),
+    )
+    assert res.status_code == 200
+    claims = jose_jwt.decode(res.json()["token"], JWT_SECRET, algorithms=["HS256"])
+    assert claims["role"] == "ops"
+    assert claims["sub"] == "admin-1"
+
+
+def test_admin_login_with_a_valid_code_issues_a_token():
+    code = pyotp.TOTP(_SECRET).now()
+    res = _login(
+        {"email": "ops@charak.care", "password": "correct horse battery staple", "totp_code": code},
+        admin_row=_admin_row(True),
+    )
+    assert res.status_code == 200
+    assert "token" in res.json()
+
+
+def test_admin_login_rejects_a_wrong_totp_code():
+    res = _login(
+        {"email": "ops@charak.care", "password": "correct horse battery staple", "totp_code": "000000"},
+        admin_row=_admin_row(True),
+    )
+    assert res.status_code == 401
+
+
+def test_admin_login_is_rate_limited():
+    five_recent_attempts = [{"id": i} for i in range(5)]
+    res = _login(
+        {"email": "ops@charak.care", "password": "correct horse battery staple"},
+        admin_row=_admin_row(True),
+        rl_hits=five_recent_attempts,
+    )
+    assert res.status_code == 429
 
 
 # ── verification ──────────────────────────────────────────────────────────────
@@ -151,6 +233,52 @@ def test_reinstating_clears_the_suspension_fields():
     assert written["suspended"] is False
     assert written["suspended_reason"] is None
     assert written["suspended_at"] is None
+
+
+# ── session revocation ─────────────────────────────────────────────────────────
+
+def test_revoking_a_doctors_sessions_stamps_sessions_revoked_at():
+    doctors = make_chain()
+    doctors.execute.side_effect = [
+        MagicMock(data=[{"id": "doc-1"}]),   # existence check
+        MagicMock(data=[{"id": "doc-1"}]),   # the update
+    ]
+    db = make_supabase({"doctors": doctors, "audit_log": make_chain(list_data=[{"id": "a-1"}])})
+    for c in _client(OPS, db):
+        res = c.patch("/admin/doctors/doc-1/revoke-sessions", headers=AUTH)
+
+    assert res.status_code == 200
+    written = doctors.update.call_args[0][0]
+    assert written["sessions_revoked_at"] is not None
+
+
+def test_revoking_sessions_for_an_unknown_doctor_404s():
+    db = make_supabase({"doctors": make_chain(list_data=[])})
+    for c in _client(OPS, db):
+        res = c.patch("/admin/doctors/nope/revoke-sessions", headers=AUTH)
+    assert res.status_code == 404
+
+
+def test_revoking_a_patients_sessions_stamps_sessions_revoked_at():
+    users = make_chain()
+    users.execute.side_effect = [
+        MagicMock(data=[{"id": "u-1"}]),
+        MagicMock(data=[{"id": "u-1"}]),
+    ]
+    db = make_supabase({"users": users, "audit_log": make_chain(list_data=[{"id": "a-1"}])})
+    for c in _client(OPS, db):
+        res = c.patch("/admin/users/u-1/revoke-sessions", headers=AUTH)
+
+    assert res.status_code == 200
+    written = users.update.call_args[0][0]
+    assert written["sessions_revoked_at"] is not None
+
+
+def test_revoke_sessions_requires_ops():
+    db = make_supabase({})
+    for c in _client(DOCTOR, db):
+        assert c.patch("/admin/doctors/doc-1/revoke-sessions", headers=AUTH).status_code == 403
+        assert c.patch("/admin/users/u-1/revoke-sessions", headers=AUTH).status_code == 403
 
 
 def test_suspension_notifies_the_doctor():
@@ -347,15 +475,11 @@ def test_timeseries_clamps_the_window_and_requires_ops():
         assert c.get("/admin/metrics/timeseries", headers=AUTH).status_code == 403
 
 
-def test_admin_login_is_disabled_when_no_password_is_configured():
+def test_admin_login_has_no_built_in_default_credential():
     """
-    Regression for the strix finding: with ADMIN_PASSWORD unset the endpoint must
-    fail closed (503), never fall back to a built-in default or accept an empty
-    password.
+    Regression for the original strix finding (a hardcoded fallback password):
+    per-account auth has no fallback by construction, but pin it down anyway —
+    the old well-known default must not work against an unconfigured instance.
     """
-    with patch("app.routers.admin.ADMIN_PASSWORD", ""):
-        res = TestClient(app).post("/admin/login", json={"password": ""})
-    assert res.status_code == 503
-    with patch("app.routers.admin.ADMIN_PASSWORD", ""):
-        res = TestClient(app).post("/admin/login", json={"password": "charak-admin-2024"})
-    assert res.status_code == 503
+    res = _login({"email": "admin@charak.care", "password": "charak-admin-2024"})
+    assert res.status_code == 401

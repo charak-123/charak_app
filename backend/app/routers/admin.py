@@ -1,5 +1,4 @@
 import logging
-import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -7,11 +6,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from jose import jwt
 from pydantic import BaseModel, Field
 
-from ..config import ADMIN_PASSWORD, JWT_SECRET
+from ..config import ADMIN_TOKEN_TTL_HOURS, JWT_SECRET
 from ..db import supabase
 from ..deps import require_ops
 from ..errors import AppError
-from ..services import erasure, notifications, payouts
+from ..services import admin_auth, erasure, notifications, payouts
+from ..services.admin_auth import AdminAuthError
+from ..services.rate_limit import rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,9 @@ def _fetch_all(build_query) -> list[dict]:
 # ── Models ────────────────────────────────────────────────────────────────────
 
 class AdminLoginRequest(BaseModel):
+    email: str
     password: str
+    totp_code: Optional[str] = None
 
 
 class VerifyDoctorRequest(BaseModel):
@@ -60,20 +63,25 @@ VALID_COMPLAINT_STATUSES = {"open", "in_review", "resolved", "closed"}
 
 # ── 1. Admin Login (no auth required) ────────────────────────────────────────
 
-@router.post("/login")
+@router.post("/login", dependencies=[rate_limiter("admin-login", 5, 900)])
 def admin_login(body: AdminLoginRequest):
-    # Fail closed: if no admin password is configured, admin login is disabled
-    # outright. Never fall back to a built-in default.
-    if not ADMIN_PASSWORD:
-        raise AppError("Admin login is not configured", 503)
-    # Constant-time comparison to avoid leaking the password via timing.
-    if not hmac.compare_digest(body.password, ADMIN_PASSWORD):
-        raise AppError("Invalid admin password", 401)
+    """
+    Per-admin account + mandatory TOTP. See services/admin_auth.py for the
+    two-call protocol (password, then password+code). Rate-limited to 5
+    attempts per 15 minutes per IP — on top of bcrypt's own cost per guess,
+    this is enough to make an online brute force impractical.
+    """
+    email = body.email.strip().lower()
+    try:
+        admin = admin_auth.authenticate(email, body.password, body.totp_code)
+    except AdminAuthError as exc:
+        raise AppError(exc.message, exc.status_code, **exc.extra) from exc
 
     payload = {
-        "sub": "admin",
+        "sub": admin["id"],
+        "email": admin["email"],
         "role": "ops",
-        "exp": datetime.now(timezone.utc) + timedelta(days=30),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=ADMIN_TOKEN_TTL_HOURS),
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
     return {"token": token}
@@ -175,6 +183,39 @@ def suspend_doctor(
     _audit(user, "doctors", doctor_id, "suspended" if body.suspended else "reinstated")
 
     return result.data[0]
+
+
+# ── 3b. Force-expire a doctor's or patient's existing sessions ────────────────
+#
+# A shorter token lifetime (TOKEN_TTL_DAYS, routers/auth.py) bounds how long a
+# forgotten phone works for; this is the other half — a *reported* lost or
+# stolen phone, where waiting out even a 14-day window is not acceptable.
+# Every token issued before this moment stops working immediately
+# (deps.get_current_user checks it on every request); a fresh sign-in is
+# unaffected.
+
+@router.patch("/doctors/{doctor_id}/revoke-sessions")
+def revoke_doctor_sessions(doctor_id: str, user: dict = Depends(require_ops)):
+    doctor = supabase.table("doctors").select("id").eq("id", doctor_id).execute().data
+    if not doctor:
+        raise AppError("Doctor not found", 404)
+    supabase.table("doctors").update(
+        {"sessions_revoked_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", doctor_id).execute()
+    _audit(user, "doctors", doctor_id, "sessions_revoked")
+    return {"ok": True}
+
+
+@router.patch("/users/{user_id}/revoke-sessions")
+def revoke_patient_sessions(user_id: str, user: dict = Depends(require_ops)):
+    patient = supabase.table("users").select("id").eq("id", user_id).execute().data
+    if not patient:
+        raise AppError("Patient not found", 404)
+    supabase.table("users").update(
+        {"sessions_revoked_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", user_id).execute()
+    _audit(user, "users", user_id, "sessions_revoked")
+    return {"ok": True}
 
 
 # ── 3c. Full doctor list for directory management ─────────────────────────────
@@ -434,7 +475,7 @@ def _audit(user: dict, entity: str, entity_id: Optional[str], action: str) -> No
     """
     try:
         supabase.table("audit_log").insert({
-            "actor_id": None,          # admin login is a shared account, not a user row
+            "actor_id": user.get("sub"),   # the admin_users.id of whoever is logged in
             "actor_role": user.get("role", "ops"),
             "entity": entity,
             "entity_id": entity_id,

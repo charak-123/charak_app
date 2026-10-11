@@ -8,6 +8,10 @@ pydantic==2.13.4
 pydantic[email]==2.13.4
 # Required for multipart file uploads (app/routers/uploads.py)
 python-multipart==0.0.32
+# Admin account passwords (app/services/admin_auth.py)
+bcrypt==4.3.0
+# Admin TOTP two-factor codes (app/services/admin_auth.py)
+pyotp==2.9.0
 
 # ── Optional, only needed once the matching credentials are configured ────────
 # Razorpay orders + webhooks (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET)
