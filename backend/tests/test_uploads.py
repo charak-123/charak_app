@@ -358,3 +358,20 @@ def test_read_is_bounded_to_the_kind_cap_and_rejects_oversize():
     assert exc.value.status_code == 413
     # Never asked for more than the cap + 1 byte.
     assert requested["n"] == cap + 1
+
+
+def test_doctor_photo_upload_is_rate_limited():
+    """10 uploads in 10 minutes is the cap (services/rate_limit.py)."""
+    db, _ = _photo_db()
+    ten_recent_attempts = [{"id": i} for i in range(10)]
+    rl_db = make_supabase({"rate_limit_hits": make_chain(list_data=ten_recent_attempts)})
+    content, ct = PNG
+
+    with patch(UP_DB, db), patch("app.services.rate_limit.supabase", rl_db), patch(JWT) as jw:
+        jw.decode.return_value = DOCTOR
+        res = TestClient(app).post(
+            "/uploads/doctor/photo", headers=AUTH,
+            files={"file": ("whatever.png", content, ct)},
+        )
+
+    assert res.status_code == 429

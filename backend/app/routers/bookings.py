@@ -10,6 +10,7 @@ from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor, require_patient
 from ..errors import AppError
 from ..services import availability, geo, notifications
+from ..services.rate_limit import rate_limiter
 
 router = APIRouter()
 
@@ -50,7 +51,7 @@ class BookingCreate(BaseModel):
     # names its own price names what it will be charged.
 
 
-@router.post("/", status_code=201)
+@router.post("/", status_code=201, dependencies=[rate_limiter("booking-create", 10, 600)])
 def create_booking(
     body: BookingCreate,
     background: BackgroundTasks,

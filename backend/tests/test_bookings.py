@@ -378,3 +378,23 @@ def test_cancelling_an_unpaid_booking_does_not_touch_payments():
     assert resp.status_code == 200
     assert resp.json()["refunded_payments"] == 0
     refund_fn.assert_not_called()
+
+
+def test_create_booking_is_rate_limited():
+    """10 bookings in 10 minutes is the cap (services/rate_limit.py)."""
+    ten_recent_attempts = [{"id": i} for i in range(10)]
+    rl_db = make_supabase({"rate_limit_hits": make_chain(list_data=ten_recent_attempts)})
+
+    with patch(PATCH_TARGET, make_supabase({})), \
+         patch("app.services.rate_limit.supabase", rl_db), \
+         patch(JWT_TARGET) as jw:
+        jw.decode.return_value = PATIENT_PAYLOAD
+        client = TestClient(app)
+        resp = client.post(
+            "/bookings/",
+            json={"doctor_id": "doc-1", "channel": "online_consult",
+                  "scheduled_start": "2026-08-25T09:00:00+00:00"},
+            headers={"Authorization": PATIENT_TOKEN},
+        )
+
+    assert resp.status_code == 429

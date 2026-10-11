@@ -10,6 +10,44 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 
+@pytest.fixture(autouse=True)
+def _no_revoked_sessions():
+    """
+    app.deps.get_current_user looks up sessions_revoked_at on every
+    authenticated request (see test_deps.py for that behaviour itself). Every
+    other test in the suite authenticates via `patch("app.deps.jwt")` and has
+    no reason to care about revocation, so this default stands in for "never
+    revoked" everywhere, the same way a real account with no revocation ever
+    recorded behaves. A test that wants the other behaviour patches
+    `app.deps.supabase` itself, which simply shadows this for its own `with`
+    block.
+    """
+    db = MagicMock()
+    db.table.return_value.select.return_value.eq.return_value.execute.return_value = \
+        MagicMock(data=[])
+    with patch("app.deps.supabase", db):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _rate_limit_never_triggers():
+    """
+    Several routes now carry a `rate_limiter(...)` dependency (admin login,
+    booking creation, uploads — see services/rate_limit.py), which queries
+    `rate_limit_hits` on every call. Tests for those routes patch their own
+    router module's `supabase`, not rate_limit.py's, so without this they'd
+    fall through to the real (unconfigured, in-test) client. Default to "no
+    hits recorded yet" everywhere; test_rate_limit.py and the admin-login
+    tests that care about 429s patch `app.services.rate_limit.supabase`
+    themselves, which simply shadows this for their own `with` block.
+    """
+    db = MagicMock()
+    db.table.return_value.select.return_value.eq.return_value.eq.return_value \
+        .gte.return_value.execute.return_value = MagicMock(data=[])
+    with patch("app.services.rate_limit.supabase", db):
+        yield
+
+
 def make_chain(data=None, list_data=None):
     """Build a mock Supabase query chain."""
     c = MagicMock()

@@ -6,7 +6,7 @@ because the caller is a scheduler (Fly machine cron, GitHub Actions, or an
 external pinger), not a person. When CRON_SECRET is unset these are ops-only, so
 a missing secret in development is inconvenient rather than dangerous.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header
 from typing import Optional
@@ -82,6 +82,26 @@ def release_expired_holds(_: bool = Depends(require_cron)):
 def purge_expired_otps(_: bool = Depends(require_cron)):
     """Drop OTP rows more than a day past expiry — they are dead weight and PII."""
     return {"deleted": otp_store.purge_expired()}
+
+
+@router.post("/purge-old-rate-limit-hits")
+def purge_old_rate_limit_hits(_: bool = Depends(require_cron)):
+    """
+    Drop rate_limit_hits rows older than a day. Every limiter in the app
+    (services/rate_limit.py) looks back at most an hour, so nothing older than
+    that is ever read again — it's pure growth otherwise, on a table written
+    once per request to every rate-limited endpoint.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    deleted = (
+        supabase.table("rate_limit_hits")
+        .delete()
+        .lt("created_at", cutoff)
+        .execute()
+        .data
+        or []
+    )
+    return {"deleted": len(deleted)}
 
 
 @router.post("/purge-deleted-accounts")

@@ -16,6 +16,7 @@ from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor, require_ops
 from ..errors import AppError
 from ..services import storage, transcription
+from ..services.rate_limit import rate_limiter
 
 router = APIRouter()
 
@@ -62,7 +63,7 @@ async def _read(file: UploadFile, kind: str) -> tuple[bytes, str, str]:
 
 # ── Doctor profile photo ─────────────────────────────────────────────────────
 
-@router.post("/doctor/photo", status_code=201)
+@router.post("/doctor/photo", status_code=201, dependencies=[rate_limiter("upload-photo", 10, 600)])
 async def upload_doctor_photo(
     file: UploadFile = File(...),
     user: dict = Depends(require_doctor),
@@ -97,7 +98,7 @@ async def upload_doctor_photo(
 
 # ── Verification document ────────────────────────────────────────────────────
 
-@router.post("/doctor/verification-document", status_code=201)
+@router.post("/doctor/verification-document", status_code=201, dependencies=[rate_limiter("upload-verification-doc", 10, 600)])
 async def upload_verification_document(
     file: UploadFile = File(...),
     user: dict = Depends(require_doctor),
@@ -170,7 +171,7 @@ def read_verification_document(doctor_id: str, user: dict = Depends(get_current_
 
 # ── Intake media ─────────────────────────────────────────────────────────────
 
-@router.post("/bookings/{booking_id}/intake", status_code=201)
+@router.post("/bookings/{booking_id}/intake", status_code=201, dependencies=[rate_limiter("upload-intake", 30, 600)])
 async def upload_intake_media(
     booking_id: str,
     background: BackgroundTasks,
