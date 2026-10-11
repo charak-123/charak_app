@@ -62,14 +62,23 @@ def verify(id_token: str) -> dict:
     Verifies a Firebase ID token and returns its decoded claims.
 
     Raises FirebaseTokenError on anything wrong with the token (expired,
-    malformed, wrong project, revoked) or if no credential is configured.
-    Never trust `sub`/`uid` from an unverified token — this is the only
-    place in the codebase that is allowed to read one as real.
+    malformed, wrong project) or if no credential is configured. Never trust
+    `sub`/`uid` from an unverified token — this is the only place in the
+    codebase that is allowed to read one as real.
+
+    Deliberately not check_revoked=True: that makes an extra network call to
+    Firebase to compare the token's issued-at time against the account's
+    validSince, and that comparison has a real propagation delay right after
+    a fresh sign-in — confirmed in testing, where a token minted a moment
+    earlier was rejected as if revoked. Session revocation already has its
+    own mechanism at the JWT level (sessions_revoked_at, deps.py), so this
+    bought fragility without covering anything that wasn't already covered.
     """
     app = _get_app()
     if app is None:
         raise FirebaseTokenError("Firebase sign-in is not configured on this server")
     try:
-        return firebase_auth_sdk.verify_id_token(id_token, app=app, check_revoked=True)
+        return firebase_auth_sdk.verify_id_token(id_token, app=app)
     except Exception as exc:
+        logger.warning("Firebase token verification failed: %s", exc)
         raise FirebaseTokenError("Invalid or expired sign-in token") from exc
