@@ -36,7 +36,13 @@ from ..services import otp_store, erasure
 
 router = APIRouter()
 
-TOKEN_TTL_DAYS = 30
+# Was 30. Shortened because there is no refresh token yet — a session is a
+# single JWT with a fixed lifetime from the moment it's issued, so the number
+# here is exactly how long a lost or stolen phone keeps working for. Pairs
+# with sessions_revoked_at (checked in deps.get_current_user): ops can kill a
+# specific session immediately (a reported loss) without waiting out this
+# window, which is for the common case nobody reports.
+TOKEN_TTL_DAYS = 14
 
 
 class SendOTPRequest(BaseModel):
