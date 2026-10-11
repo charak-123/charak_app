@@ -13,12 +13,16 @@ import {
 import { MetaChip, StatusPill } from '@/components/status'
 import { money } from '@/lib/chart-theme'
 
-type BillItem = { name: string; qty: number; price: number }
+// Matches BillLineItem in backend/app/routers/procedure_bills.py — a doctor
+// submits name + price per item, with no quantity concept. (The patient app's
+// own bill screen reads a `quantity` field with `?? 1`, but nothing ever
+// writes one — this just mirrors what create_bill actually stores.)
+type BillItem = { name: string; price: number }
 
 type ProcedureBill = {
   id: string
   booking_id: string
-  total_amount: number
+  total: number
   status: string
   items: BillItem[]
   bookings: { id: string; doctor_id: string; doctors: { name: string } }
@@ -47,8 +51,8 @@ export default function SeniorReviewQueue() {
     invalidate()
   }
 
-  const pendingValue = bills.reduce((s, b) => s + Number(b.total_amount ?? 0), 0)
-  const largest = bills.reduce((m, b) => Math.max(m, Number(b.total_amount ?? 0)), 0)
+  const pendingValue = bills.reduce((s, b) => s + Number(b.total ?? 0), 0)
+  const largest = bills.reduce((m, b) => Math.max(m, Number(b.total ?? 0)), 0)
   const lineItems = bills.reduce(
     (s, b) => s + (Array.isArray(b.items) ? b.items.length : 0), 0,
   )
@@ -134,23 +138,15 @@ export default function SeniorReviewQueue() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Item</TableHead>
-                                <TableHead className="text-right">Qty</TableHead>
                                 <TableHead className="text-right">Price</TableHead>
-                                <TableHead className="text-right">Subtotal</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {items.map((item, i) => (
                                 <TableRow key={i}>
                                   <TableCell className="text-sm">{item.name}</TableCell>
-                                  <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                                    {item.qty}
-                                  </TableCell>
-                                  <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                                    {money(item.price)}
-                                  </TableCell>
                                   <TableCell className="text-right text-sm tabular-nums">
-                                    {money(item.qty * item.price)}
+                                    {money(item.price)}
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -162,7 +158,7 @@ export default function SeniorReviewQueue() {
                       <div className="flex items-center justify-between border-t pt-3">
                         <span className="text-sm text-muted-foreground">Total</span>
                         <span className="text-base font-semibold tabular-nums">
-                          {money(bill.total_amount)}
+                          {money(bill.total)}
                         </span>
                       </div>
                     </CardContent>

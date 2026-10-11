@@ -20,8 +20,8 @@ type BookingStatus =
 
 type Booking = {
   id: string
-  channel: 'online' | 'home_visit'
-  scheduled_at: string
+  channel: 'online_consult' | 'home_visit'
+  scheduled_start: string
   status: BookingStatus
   created_at: string
   price_confirmed?: number | null
@@ -177,7 +177,7 @@ export default function BookingsMonitor() {
                         <MetaChip>{b.channel === 'home_visit' ? 'Home visit' : 'Online'}</MetaChip>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-sm">
-                        {b.scheduled_at ? format(new Date(b.scheduled_at), 'd MMM, HH:mm') : '—'}
+                        {b.scheduled_start ? format(new Date(b.scheduled_start), 'd MMM, HH:mm') : '—'}
                       </TableCell>
                       <TableCell><StatusPill status={b.status} /></TableCell>
                       <TableCell className="whitespace-nowrap text-right text-sm text-muted-foreground">

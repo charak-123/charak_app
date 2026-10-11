@@ -60,7 +60,12 @@ export const MARK = {
   stackGap: 2,
 }
 
-export const money = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+// Accepts null/undefined/NaN defensively rather than throwing — a mismatch
+// between what a page assumes the API returns and what it actually sends
+// (see the SeniorReviewQueue fix: total_amount vs. the real total column)
+// should show "—", not take the whole page down.
+export const money = (n: number | null | undefined) =>
+  n == null || Number.isNaN(n) ? '—' : `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 
 const trim = (s: string) => s.replace(/\.0$/, '')
 
