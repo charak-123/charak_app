@@ -37,7 +37,13 @@ export default function DirectoryOversight() {
 
   const { data, isLoading, isError, error } = useQuery<Doctor[]>({
     queryKey: ['doctors-directory'],
-    queryFn: () => api.get('/doctors/search'),
+    // /doctors/search is the public patient-facing endpoint (paginated,
+    // default limit 20, server-capped at 100) — it returns {items, total,
+    // ...}, not a bare array. This page has no pagination UI, so ask for the
+    // server's max page size to be a real "whole directory" view for ops
+    // rather than silently showing only the first 20.
+    queryFn: () =>
+      api.get<{ items: Doctor[] }>('/doctors/search?limit=100').then(r => r.items),
   })
 
   const suspendMutation = useMutation({
