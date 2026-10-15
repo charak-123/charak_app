@@ -64,6 +64,10 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
     final homePrice   = (homeP?['price'] as num?)?.toDouble() ?? 0;
     final onlineExtra = (onlineP?['extra_rate_per_15min'] as num?)?.toDouble() ?? 150;
     final homeExtra   = (homeP?['extra_rate_per_15min'] as num?)?.toDouble() ?? 200;
+    final onlineMins  = (onlineP?['base_duration_min'] as num?)?.toInt() ?? 15;
+    final homeMins    = (homeP?['base_duration_min'] as num?)?.toInt() ?? 15;
+    final onlineExtraMins = (onlineP?['extra_duration_min'] as num?)?.toInt() ?? 15;
+    final homeExtraMins   = (homeP?['extra_duration_min'] as num?)?.toInt() ?? 15;
     final radius      = async.maybeWhen(
       data: (d) => d['service_radius_km'],
       orElse: () => null,
@@ -89,9 +93,9 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
                 iconBg: CharakColors.primarySoft,
                 iconColor: CharakColors.primaryDeep,
                 title: 'Online consult',
-                description: 'Video call on CHARAK. Price covers a 15-min '
+                description: 'Video call on CHARAK. Price covers a $onlineMins-min '
                     'consult, paid before the call.',
-                note: '+ ${CharakFormat.rupees(onlineExtra)} per extra 15 min',
+                note: '+ ${CharakFormat.rupees(onlineExtra)} per extra $onlineExtraMins min',
                 price: onlinePrice,
                 onTap: () => setState(() => _channel = 'online_consult'),
               ),
@@ -106,9 +110,9 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
                 iconBg: successBg,
                 iconColor: CharakColors.success,
                 title: 'Home visit',
-                description: 'Doctor comes to you. Consult fee paid upfront; '
+                description: 'Doctor comes to you. Consult fee covers $homeMins min, paid upfront; '
                     'procedures (if any) billed after at fixed rates.',
-                note: '+ ${CharakFormat.rupees(homeExtra)} per extra 15 min'
+                note: '+ ${CharakFormat.rupees(homeExtra)} per extra $homeExtraMins min'
                     '${radius != null ? ' · within $radius km' : ''}',
                 price: homePrice,
                 onTap: () => setState(() => _channel = 'home_visit'),

@@ -70,8 +70,9 @@ GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 
 # ── Money ────────────────────────────────────────────────────────────────────
 # Charak's cut of every confirmed consult fee and procedure bill, as a
-# percentage. A per-doctor override lives in doctors.commission_pct.
-PLATFORM_COMMISSION_PCT = float(os.getenv("PLATFORM_COMMISSION_PCT", "15"))
+# percentage. Zero at launch: the whole fee goes to the doctor. A per-doctor
+# override lives in doctors.commission_pct.
+PLATFORM_COMMISSION_PCT = float(os.getenv("PLATFORM_COMMISSION_PCT", "0"))
 
 # How long an accepted booking is held for the patient to pay before it is
 # released back to the doctor's calendar.

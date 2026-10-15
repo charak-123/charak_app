@@ -133,6 +133,8 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
     final p        = pricing.where((p) => p['channel'] == channel).firstOrNull;
     final price    = (p?['price'] as num?)?.toDouble() ?? 0;
     final extra    = (p?['extra_rate_per_15min'] as num?)?.toDouble() ?? 0;
+    final mins     = (p?['base_duration_min'] as num?)?.toInt() ?? 15;
+    final extraMins = (p?['extra_duration_min'] as num?)?.toInt() ?? 15;
 
     final intakeLabel = text.isNotEmpty
         ? 'Text'
@@ -162,12 +164,12 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
               const CharakSummaryDivider(),
               if (price > 0)
                 CharakSummaryRow(
-                    label: 'Consult fee · 15 min',
+                    label: 'Consult fee · $mins min',
                     value: CharakFormat.rupees(price),
                     tabular: true),
               if (extra > 0)
                 CharakSummaryRow(
-                    label: 'Extra 15 min',
+                    label: 'Extra $extraMins min',
                     value: CharakFormat.rupees(extra),
                     muted: true,
                     tabular: true),

@@ -13,6 +13,7 @@ import 'screens/onboarding/verified_welcome_screen.dart';
 import 'screens/setup/channel_setup_screen.dart';
 import 'screens/setup/online_consult_setup_screen.dart';
 import 'screens/setup/home_visit_setup_screen.dart';
+import 'screens/setup/payout_details_screen.dart';
 import 'screens/setup/pricing_setup_screen.dart';
 import 'screens/home/home_shell.dart';
 import 'screens/home/shell_providers.dart';
@@ -99,6 +100,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/setup/home-visit',
           pageBuilder: (_, state) => _push(HomeVisitSetupScreen(fromSetup: state.extra as bool? ?? false))),
       GoRoute(path: '/setup/pricing',         pageBuilder: (_, __) => _push(const PricingSetupScreen())),
+      GoRoute(path: '/setup/payout',          pageBuilder: (_, __) => _push(const PayoutDetailsScreen())),
       GoRoute(path: '/home',                  pageBuilder: (_, __) => _rise(const HomeShell())),
 
       // ── Phase 2: Requests & Fulfillment ───────────────────────────────────

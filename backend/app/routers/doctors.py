@@ -41,7 +41,13 @@ class DoctorProfileUpdate(BaseModel):
 
 @router.get("/me")
 def get_me(user: dict = Depends(require_doctor)):
-    doctor = fetch_one(supabase.table("doctors").select("*").eq("id", user["sub"]))
+    # Pricing and procedures ride along so the profile and the pricing editor
+    # show the doctor's saved rates instead of placeholders.
+    doctor = fetch_one(
+        supabase.table("doctors")
+        .select("*, doctor_pricing(*), doctor_procedures(*)")
+        .eq("id", user["sub"])
+    )
     if not doctor:
         raise AppError("Doctor profile not found", 404)
     return doctor
@@ -101,10 +107,18 @@ def submit_verification(body: VerificationSubmit, user: dict = Depends(require_d
 
 # ── Pricing ───────────────────────────────────────────────────────────────────
 
+# Lengths a doctor can charge for: 5, 10, … 60 min. The base fee covers one
+# session; extra time is billed per extra block of extra_duration_min.
+SESSION_LENGTHS_MIN = tuple(range(5, 61, 5))
+
+
 class PricingItem(BaseModel):
     channel: str           # "online_consult" | "home_visit"
     price: float
+    base_duration_min: int = 15
+    # Rate per extra block of extra_duration_min (column name is historical).
     extra_rate_per_15min: float = 0
+    extra_duration_min: int = 15
 
 
 @router.get("/me/pricing")
@@ -117,6 +131,11 @@ def upsert_pricing(items: list[PricingItem], user: dict = Depends(require_doctor
     for item in items:
         if item.channel not in ("online_consult", "home_visit"):
             raise AppError(f"Invalid channel: {item.channel}", 400)
+        if item.base_duration_min not in SESSION_LENGTHS_MIN \
+                or item.extra_duration_min not in SESSION_LENGTHS_MIN:
+            raise AppError("Session and extra-time lengths must be 5–60 min, in steps of 5", 400)
+        if item.price <= 0 or item.extra_rate_per_15min < 0:
+            raise AppError("Fees must be positive", 400)
         supabase.table("doctor_pricing").upsert(
             {"doctor_id": user["sub"], **item.model_dump()},
             on_conflict="doctor_id,channel",

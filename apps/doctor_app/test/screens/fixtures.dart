@@ -31,7 +31,7 @@ final me = <String, dynamic>{
   'procedure_review_threshold': 5000.0,
   'doctor_pricing': [
     {'channel': 'online_consult', 'price': 650.0, 'base_duration_min': 15, 'extra_rate_per_15min': 100.0},
-    {'channel': 'home_visit', 'price': 1100.0, 'base_duration_min': 30, 'extra_rate_per_15min': 150.0},
+    {'channel': 'home_visit', 'price': 1100.0, 'base_duration_min': 30, 'extra_rate_per_15min': 150.0, 'extra_duration_min': 10},
   ],
 };
 
@@ -81,6 +81,13 @@ String _day(int offset) {
 MockClient doctorBackend() => MockClient((req) async {
       final p = req.url.path.replaceAll(RegExp(r'/$'), '');
       if (p == '/doctors/me') return _json(me);
+      if (p == '/payouts/me/bank-account') {
+        return _json({
+          'account_holder': 'Dr Ananya Rao', 'upi_id': 'ananya@okhdfcbank',
+          'account_number': '••••9012', 'ifsc': 'HDFC0001234',
+          'bank_name': 'HDFC Bank', 'verified': true,
+        });
+      }
       if (p == '/doctors/me/procedures') {
         return _json([
           {'id': 'pr-1', 'name': 'Nebulisation', 'price': 400.0},

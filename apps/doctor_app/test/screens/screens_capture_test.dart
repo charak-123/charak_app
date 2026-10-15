@@ -50,6 +50,7 @@ final _screens = <(String, String, int?)>[
   ('08c_verified_welcome', '/onboarding/verified', null),
   ('09_channels', '/setup/channels', null),
   ('10_pricing', '/setup/pricing', null),
+  ('11_payout', '/setup/payout', null),
 ];
 
 void main() {

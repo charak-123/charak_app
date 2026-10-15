@@ -55,7 +55,8 @@ class _Body extends StatelessWidget {
     final homePricing   = pricing.where((p) => p['channel'] == 'home_visit').firstOrNull;
     final onlineExtra   = (onlinePricing?['extra_rate_per_15min'] as num?)?.toDouble() ?? 0;
     final homeExtra     = (homePricing?['extra_rate_per_15min'] as num?)?.toDouble() ?? 0;
-    final extra         = onlineExtra > 0 ? onlineExtra : homeExtra;
+    int mins(Map<String, dynamic>? p) => (p?['base_duration_min'] as num?)?.toInt() ?? 15;
+    int extraMins(Map<String, dynamic>? p) => (p?['extra_duration_min'] as num?)?.toInt() ?? 15;
 
     String money(Object? p) => CharakFormat.rupees(p as num);
 
@@ -123,20 +124,22 @@ class _Body extends StatelessWidget {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 CharakFeeList(rows: [
                   if (onlinePricing != null)
-                    CharakFeeRow('Online consult', money(onlinePricing['price'])),
+                    CharakFeeRow('Online consult · ${mins(onlinePricing)} min', money(onlinePricing['price'])),
                   if (homePricing != null)
-                    CharakFeeRow('Home visit', money(homePricing['price'])),
-                  if (extra > 0)
-                    CharakFeeRow('Extra time (per 15 min)',
-                        CharakFormat.rupees(extra), muted: true),
+                    CharakFeeRow('Home visit · ${mins(homePricing)} min', money(homePricing['price'])),
+                  if (onlinePricing != null && onlineExtra > 0)
+                    CharakFeeRow('Online extra (per ${extraMins(onlinePricing)} min)',
+                        CharakFormat.rupees(onlineExtra), muted: true),
+                  if (homePricing != null && homeExtra > 0)
+                    CharakFeeRow('Home extra (per ${extraMins(homePricing)} min)',
+                        CharakFormat.rupees(homeExtra), muted: true),
                 ]),
                 const SizedBox(height: 10),
                 Text.rich(
                   const TextSpan(children: [
-                    TextSpan(text: 'Price covers a '),
-                    TextSpan(text: '15-minute', style: TextStyle(fontWeight: FontWeight.w600)),
-                    TextSpan(text: " consult. Each extra 15 min is charged at "
-                        "the doctor's extra-time rate."),
+                    TextSpan(text: 'Price covers one session of the length shown. '),
+                    TextSpan(text: 'Extra time', style: TextStyle(fontWeight: FontWeight.w600)),
+                    TextSpan(text: " is charged per block at the doctor's extra-time rate."),
                   ]),
                   style: charakHintStyle,
                 ),

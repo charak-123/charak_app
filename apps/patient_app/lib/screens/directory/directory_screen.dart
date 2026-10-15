@@ -217,7 +217,7 @@ class _DoctorCard extends StatelessWidget {
                     text: CharakFormat.rupees(anyPrice['price'] as num),
                     style: CharakText.numeric.copyWith(color: CharakColors.ink)),
                 TextSpan(
-                    text: ' /15 min',
+                    text: ' /${(anyPrice['base_duration_min'] as num?)?.toInt() ?? 15} min',
                     style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
               ])),
           ]),

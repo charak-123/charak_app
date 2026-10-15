@@ -3,10 +3,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 
+/// Lengths a doctor can charge for (5, 10, … 60 min), for a session and for
+/// each extra-time block; matches SESSION_LENGTHS_MIN in
+/// backend/app/routers/doctors.py.
+final _kSessionLengths = [for (var m = 5; m <= 60; m += 5) m];
+
 class _ProcedureEntry {
+  /// Set for a procedure already saved on the server; null for a new row.
+  final String? id;
   final nameCtrl  = TextEditingController();
   final priceCtrl = TextEditingController();
-  _ProcedureEntry();
+  _ProcedureEntry({this.id, String name = '', String price = ''}) {
+    nameCtrl.text = name;
+    priceCtrl.text = price;
+  }
   void dispose() { nameCtrl.dispose(); priceCtrl.dispose(); }
   bool get valid => nameCtrl.text.trim().isNotEmpty && double.tryParse(priceCtrl.text) != null;
 }
@@ -26,7 +36,15 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
   final _homeExtraCtrl   = TextEditingController();
   final _thresholdCtrl   = TextEditingController();
 
+  int _onlineMins = 15, _homeMins = 15;
+  int _onlineExtraMins = 15, _homeExtraMins = 15;
+
   final List<_ProcedureEntry> _procs = [_ProcedureEntry()];
+  final List<String> _removedProcIds = [];
+
+  /// True once this doctor has saved prices before: the screen is then a
+  /// settings editor pushed from the profile, not the last onboarding step.
+  bool _editing = false;
 
   bool _loadingDoctorInfo = true;
   bool _offersOnline = false, _offersHome = false;
@@ -53,9 +71,44 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
   Future<void> _loadDoctorInfo() async {
     try {
       final me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+      final pricing = List<Map<String, dynamic>>.from(me['doctor_pricing'] as List? ?? []);
+      final procs = List<Map<String, dynamic>>.from(me['doctor_procedures'] as List? ?? [])
+          .where((p) => p['active'] != false)
+          .toList();
+      String fmt(Object? v) => v is num ? v.toStringAsFixed(v % 1 == 0 ? 0 : 2) : '';
+      void fill(String channel, TextEditingController base, TextEditingController extra,
+          void Function(int) setMins, void Function(int) setExtraMins) {
+        final row = pricing.where((p) => p['channel'] == channel).firstOrNull;
+        if (row == null) return;
+        base.text = fmt(row['price']);
+        final x = row['extra_rate_per_15min'];
+        extra.text = x is num && x > 0 ? fmt(x) : '';
+        final mins = (row['base_duration_min'] as num?)?.toInt();
+        if (mins != null && _kSessionLengths.contains(mins)) setMins(mins);
+        final extraMins = (row['extra_duration_min'] as num?)?.toInt();
+        if (extraMins != null && _kSessionLengths.contains(extraMins)) setExtraMins(extraMins);
+      }
       setState(() {
         _offersOnline = me['offers_online_consult'] as bool? ?? false;
         _offersHome   = me['offers_home_visit']    as bool? ?? false;
+        fill('online_consult', _onlineBaseCtrl, _onlineExtraCtrl, (m) => _onlineMins = m,
+            (m) => _onlineExtraMins = m);
+        fill('home_visit', _homeBaseCtrl, _homeExtraCtrl, (m) => _homeMins = m,
+            (m) => _homeExtraMins = m);
+        _thresholdCtrl.text = fmt(me['procedure_review_threshold']);
+        if (procs.isNotEmpty) {
+          for (final p in _procs) {
+            p.dispose();
+          }
+          _procs
+            ..clear()
+            ..addAll(procs.map((p) => _ProcedureEntry(
+                  id: p['id'] as String?,
+                  name: p['name'] as String? ?? '',
+                  price: fmt(p['price']),
+                )));
+        }
+        _editing = pricing.isNotEmpty;
         _loadingDoctorInfo = false;
       });
     } catch (_) {
@@ -72,6 +125,8 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
         pricingItems.add({
           'channel': 'online_consult',
           'price': double.parse(_onlineBaseCtrl.text),
+          'base_duration_min': _onlineMins,
+          'extra_duration_min': _onlineExtraMins,
           'extra_rate_per_15min': double.tryParse(_onlineExtraCtrl.text) ?? 0,
         });
       }
@@ -79,13 +134,19 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
         pricingItems.add({
           'channel': 'home_visit',
           'price': double.parse(_homeBaseCtrl.text),
+          'base_duration_min': _homeMins,
+          'extra_duration_min': _homeExtraMins,
           'extra_rate_per_15min': double.tryParse(_homeExtraCtrl.text) ?? 0,
         });
       }
       await ApiClient.instance.put('/doctors/me/pricing', pricingItems);
 
-      // Procedures
-      for (final p in _procs.where((p) => p.valid)) {
+      // Procedures: drop the removed ones, add only rows that are new.
+      for (final id in _removedProcIds) {
+        await ApiClient.instance.delete('/doctors/me/procedures/$id');
+      }
+      _removedProcIds.clear();
+      for (final p in _procs.where((p) => p.id == null && p.valid)) {
         await ApiClient.instance.post('/doctors/me/procedures', {
           'name': p.nameCtrl.text.trim(),
           'price': double.parse(p.priceCtrl.text),
@@ -99,7 +160,13 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
         });
       }
 
-      if (mounted) context.go('/home');
+      if (!mounted) return;
+      if (_editing && context.canPop()) {
+        showCharakToast(context, message: 'Prices saved');
+        context.pop(true);
+      } else {
+        context.go('/home');
+      }
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {
@@ -109,12 +176,21 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
 
   /// One consult-fee block: `.field` label, then the base-price row
   /// (18px ₹ + flexible input + `.price-suffix`) and the 86px extra-rate row.
-  Widget _feeSection(String label, TextEditingController baseCtrl, TextEditingController extraCtrl) {
+  Widget _feeSection(String label, TextEditingController baseCtrl, TextEditingController extraCtrl,
+      int mins, ValueChanged<int> onMins, int extraMins, ValueChanged<int> onExtraMins) {
+    Widget lengths(int value, ValueChanged<int> onPick) => CharakChipRow(children: [
+      for (final m in _kSessionLengths)
+        CharakChip(label: '$m min', numeric: true, selected: m == value, onTap: () => onPick(m)),
+    ]);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: _fieldLabel),
         const SizedBox(height: 7),
+        Text('Session length', style: _suffix),
+        const SizedBox(height: 6),
+        lengths(mins, onMins),
+        const SizedBox(height: 10),
         Row(children: [
           Text('₹', style: _rupee),
           const SizedBox(width: 10),
@@ -126,9 +202,13 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
             ),
           ),
           const SizedBox(width: 10),
-          Text('per 15 min', style: _suffix),
+          Text('per $mins min', style: _suffix),
         ]),
-        const SizedBox(height: 8),
+        const SizedBox(height: 14),
+        Text('Extra time, charged per', style: _suffix),
+        const SizedBox(height: 6),
+        lengths(extraMins, onExtraMins),
+        const SizedBox(height: 10),
         Row(children: [
           SizedBox(
             width: 86,
@@ -139,7 +219,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
             ),
           ),
           const SizedBox(width: 10),
-          Text('extra per 15 min', style: _suffix),
+          Text('per extra $extraMins min', style: _suffix),
         ]),
       ],
     );
@@ -194,23 +274,29 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const CharakStepDots(current: 2),
-                    const SizedBox(height: 10),
-                    const Text('Set your prices', style: CharakText.titleLarge),
+                    if (!_editing) ...[
+                      const CharakStepDots(current: 2),
+                      const SizedBox(height: 10),
+                    ],
+                    Text(_editing ? 'Your prices' : 'Set your prices', style: CharakText.titleLarge),
                     const SizedBox(height: 5),
                     Text(
-                      'Consult fee covers a base time (min 15 min). Extra time is charged '
-                      'per additional 15 min — your call.',
+                      'Pick how long one session is and what it costs, and how extra '
+                      'time is charged. The whole fee goes to you.',
                       style: CharakText.body.copyWith(fontSize: 14, color: CharakColors.inkMuted),
                     ),
                     const SizedBox(height: 18),
 
                     if (_offersOnline) ...[
-                      _feeSection('Online consult', _onlineBaseCtrl, _onlineExtraCtrl),
+                      _feeSection('Online consult', _onlineBaseCtrl, _onlineExtraCtrl,
+                          _onlineMins, (m) => setState(() => _onlineMins = m),
+                          _onlineExtraMins, (m) => setState(() => _onlineExtraMins = m)),
                       const SizedBox(height: 12),
                     ],
                     if (_offersHome) ...[
-                      _feeSection('Home visit', _homeBaseCtrl, _homeExtraCtrl),
+                      _feeSection('Home visit', _homeBaseCtrl, _homeExtraCtrl,
+                          _homeMins, (m) => setState(() => _homeMins = m),
+                          _homeExtraMins, (m) => setState(() => _homeExtraMins = m)),
                       const SizedBox(height: 14),
 
                       const CharakSectionTitle(label: 'Procedure prices · fixed'),
@@ -258,6 +344,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                             if (_procs.length > 1)
                               GestureDetector(
                                 onTap: () {
+                                  if (p.id != null) _removedProcIds.add(p.id!);
                                   p.dispose();
                                   setState(() => _procs.removeAt(i));
                                 },
@@ -308,11 +395,11 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
                             style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
                             children: [
                               const TextSpan(text: 'Patients see '),
-                              TextSpan(text: '₹$onlineShown', style: _previewStrong),
+                              TextSpan(text: '₹$onlineShown / $_onlineMins min', style: _previewStrong),
                               const TextSpan(text: ' online and '),
-                              TextSpan(text: '₹$homeShown', style: _previewStrong),
+                              TextSpan(text: '₹$homeShown / $_homeMins min', style: _previewStrong),
                               const TextSpan(
-                                text: ' for home visits for a 15-min consult — plus your fixed '
+                                text: ' for home visits — plus your fixed '
                                     'procedure rates and the senior-review note.',
                               ),
                             ],
@@ -331,7 +418,7 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
             ),
             CharakCtaBar.single(
               CharakButton(
-                label: 'Finish — go live',
+                label: _editing ? 'Save prices' : 'Finish — go live',
                 onPressed: (onlineValid && homeValid) ? _submit : null,
                 isLoading: _loading,
               ),

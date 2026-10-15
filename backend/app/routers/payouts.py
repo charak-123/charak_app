@@ -8,6 +8,7 @@ The transfer itself is deliberately manual-by-default: ``mark_payout`` records
 what ops did in the bank portal. Razorpay Payouts (RazorpayX) can be plugged into
 ``_initiate_transfer`` without touching the ledger model.
 """
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -64,16 +65,24 @@ def my_payouts(user: dict = Depends(require_doctor)):
 # ── Doctor: bank account ──────────────────────────────────────────────────────
 
 class BankAccount(BaseModel):
+    """
+    Where a doctor is paid: a UPI ID, a bank account (number + IFSC), or both.
+
+    ``account_number`` may be left out on an edit to keep the one on file:
+    the app only ever sees it masked, so it cannot send it back.
+    """
     account_holder: str = Field(min_length=2, max_length=120)
-    account_number: str = Field(min_length=6, max_length=20)
-    ifsc: str
+    account_number: Optional[str] = Field(default=None, max_length=20)
+    ifsc: Optional[str] = None
     bank_name: Optional[str] = None
     upi_id: Optional[str] = None
 
     @field_validator("ifsc")
     @classmethod
-    def _check_ifsc(cls, v: str) -> str:
-        v = v.strip().upper()
+    def _check_ifsc(cls, v: Optional[str]) -> Optional[str]:
+        v = (v or "").strip().upper()
+        if not v:
+            return None
         # RBI format: 4 letters, '0', then 6 alphanumerics.
         if len(v) != 11 or not v[:4].isalpha() or v[4] != "0" or not v[5:].isalnum():
             raise ValueError("ifsc must be 11 characters, e.g. HDFC0001234")
@@ -81,10 +90,25 @@ class BankAccount(BaseModel):
 
     @field_validator("account_number")
     @classmethod
-    def _check_account(cls, v: str) -> str:
-        v = v.strip()
-        if not v.isdigit():
-            raise ValueError("account_number must be digits only")
+    def _check_account(cls, v: Optional[str]) -> Optional[str]:
+        v = (v or "").strip()
+        if not v:
+            return None
+        if not v.isdigit() or not 6 <= len(v) <= 20:
+            raise ValueError("account_number must be 6–20 digits")
+        return v
+
+    @field_validator("upi_id")
+    @classmethod
+    def _check_upi(cls, v: Optional[str]) -> Optional[str]:
+        v = (v or "").strip().lower()
+        if not v:
+            return None
+        # NPCI VPA shape: handle@psp, e.g. name@okhdfcbank.
+        handle, _, psp = v.partition("@")
+        if not handle or not psp or not re.fullmatch(r"[a-z0-9._-]{2,256}", handle) \
+                or not re.fullmatch(r"[a-z0-9]{2,64}", psp):
+            raise ValueError("upi_id must look like name@bank")
         return v
 
 
@@ -97,6 +121,16 @@ def upsert_bank_account(body: BankAccount, user: dict = Depends(require_doctor))
     treating it as verified is how money reaches the wrong person.
     """
     payload = {**body.model_dump(), "doctor_id": user["sub"], "verified": False}
+    if body.account_number is None and body.ifsc is not None:
+        existing = (
+            supabase.table("doctor_bank_accounts").select("account_number")
+            .eq("doctor_id", user["sub"]).execute().data or []
+        )
+        payload["account_number"] = existing[0]["account_number"] if existing else None
+    if (payload["account_number"] is None) != (payload["ifsc"] is None):
+        raise AppError("Add both the account number and the IFSC", 400)
+    if payload["account_number"] is None and payload["upi_id"] is None:
+        raise AppError("Add a UPI ID or a bank account", 400)
     row = (
         supabase.table("doctor_bank_accounts")
         .upsert(payload, on_conflict="doctor_id")
@@ -120,6 +154,8 @@ def get_bank_account(user: dict = Depends(require_doctor)):
 def _mask(row: dict) -> dict:
     """Never echo a full account number back — last four is enough to recognise."""
     number = str(row.get("account_number") or "")
+    if not number:
+        return row
     return {**row, "account_number": f"••••{number[-4:]}" if len(number) >= 4 else "••••"}
 
 

@@ -8,16 +8,44 @@ final _doctorProfileProvider = FutureProvider<Map<String, dynamic>>((ref) async 
   return await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
 });
 
+/// The payout destination, or null when none is saved yet (404).
+final _payoutAccountProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
+  try {
+    return await ApiClient.instance.get('/payouts/me/bank-account') as Map<String, dynamic>;
+  } on ApiException catch (e) {
+    if (e.statusCode == 404) return null;
+    rethrow;
+  }
+});
+
+/// "₹500 / 30 min · +₹150 per extra 10" for one channel's pricing row.
+String? _rateLine(Map<String, dynamic>? row) {
+  final price = row?['price'] as num?;
+  if (price == null) return null;
+  final mins = (row?['base_duration_min'] as num?)?.toInt() ?? 15;
+  final extra = row?['extra_rate_per_15min'] as num? ?? 0;
+  final extraMins = (row?['extra_duration_min'] as num?)?.toInt() ?? 15;
+  return [
+    '${CharakFormat.rupees(price.toDouble())} / $mins min',
+    if (extra > 0) '+${CharakFormat.rupees(extra.toDouble())} per extra $extraMins',
+  ].join(' · ');
+}
+
 class ProfileTab extends ConsumerWidget {
   const ProfileTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(_doctorProfileProvider);
+    final payout = ref.watch(_payoutAccountProvider);
 
     return CharakLargeTitleScaffold(
       title: 'Profile',
-      onRefresh: () => ref.refresh(_doctorProfileProvider.future),
+      onRefresh: () async {
+        ref.invalidate(_payoutAccountProvider);
+        ref.invalidate(_doctorProfileProvider);
+        await ref.read(_doctorProfileProvider.future);
+      },
       children: profile.when(
         loading: () => const [
           CharakSkeletonCard(footer: false),
@@ -41,9 +69,15 @@ class ProfileTab extends ConsumerWidget {
           final spec    = (me['categories'] as Map<String, dynamic>?)?['name'] as String?;
           final phone   = me['phone'] as String? ?? '';
           final pricing = List<Map<String, dynamic>>.from(me['doctor_pricing'] as List? ?? []);
-          final onlineP = pricing.where((p) => p['channel'] == 'online_consult').firstOrNull;
-          final onlinePrice = (onlineP?['price'] as num?)?.toStringAsFixed(0);
-          final onlineExtra = (onlineP?['extra_rate_per_15min'] as num?)?.toStringAsFixed(0);
+          final onlineLine = _rateLine(pricing.where((p) => p['channel'] == 'online_consult').firstOrNull);
+          final homeLine   = _rateLine(pricing.where((p) => p['channel'] == 'home_visit').firstOrNull);
+          final acct       = payout.valueOrNull;
+          final payoutLine = acct == null
+              ? (payout.isLoading ? null : 'Add UPI or bank to get paid')
+              : [
+                  if (acct['upi_id'] != null) acct['upi_id'] as String,
+                  if (acct['account_number'] != null) 'A/c ${acct['account_number']}',
+                ].join(' · ');
 
           return [
             CharakCard(
@@ -77,8 +111,14 @@ class ProfileTab extends ConsumerWidget {
                 CharakListRow(
                   icon: LucideIcons.indianRupee,
                   title: 'Pricing & procedures',
-                  subtitle: onlinePrice != null ? '₹$onlinePrice per 15 min · +₹$onlineExtra per extra 15' : null,
-                  onTap: () => context.push('/setup/pricing'),
+                  subtitle: [
+                    if (online && onlineLine != null) 'Online $onlineLine',
+                    if (home && homeLine != null) 'Home $homeLine',
+                  ].join('\n').ifEmpty('Not set'),
+                  onTap: () async {
+                    await context.push('/setup/pricing');
+                    ref.invalidate(_doctorProfileProvider);
+                  },
                 ),
                 CharakListRow(
                   icon: LucideIcons.mapPin,
@@ -93,6 +133,22 @@ class ProfileTab extends ConsumerWidget {
                   onTap: () {
                     ref.read(doctorTabIndexProvider.notifier).state = 1;
                     context.go('/home');
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            CharakGroupedList(
+              label: 'Payouts',
+              children: [
+                CharakListRow(
+                  icon: LucideIcons.landmark,
+                  title: 'Payout details',
+                  subtitle: payoutLine,
+                  last: true,
+                  onTap: () async {
+                    await context.push('/setup/payout');
+                    ref.invalidate(_payoutAccountProvider);
                   },
                 ),
               ],

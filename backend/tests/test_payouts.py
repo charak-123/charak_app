@@ -330,6 +330,50 @@ def test_saving_a_bank_account_clears_the_verified_flag():
     assert db.table("doctor_bank_accounts").upsert.call_args[0][0]["verified"] is False
 
 
+def test_a_upi_id_alone_is_a_valid_payout_destination():
+    db = make_supabase({"doctor_bank_accounts": make_chain(list_data=[{
+        "id": "b1", "doctor_id": "doc-1", "account_holder": "Dr A",
+        "account_number": None, "ifsc": None, "upi_id": "dra@okhdfcbank",
+    }])})
+    for c in _client(DOCTOR_PAYLOAD, db):
+        res = c.put("/payouts/me/bank-account", headers=AUTH, json={
+            "account_holder": "Dr A", "upi_id": " DrA@okhdfcbank ",
+        })
+        assert res.status_code == 200
+    saved = db.table("doctor_bank_accounts").upsert.call_args[0][0]
+    assert saved["upi_id"] == "dra@okhdfcbank"
+    assert saved["account_number"] is None
+
+
+def test_a_payout_destination_needs_upi_or_a_bank_account():
+    db = make_supabase({})
+    for c in _client(DOCTOR_PAYLOAD, db):
+        res = c.put("/payouts/me/bank-account", headers=AUTH, json={"account_holder": "Dr A"})
+        assert res.status_code == 400
+
+
+def test_a_malformed_upi_id_is_rejected():
+    db = make_supabase({})
+    for c in _client(DOCTOR_PAYLOAD, db):
+        res = c.put("/payouts/me/bank-account", headers=AUTH, json={
+            "account_holder": "Dr A", "upi_id": "not-a-vpa",
+        })
+        assert res.status_code == 422
+
+
+def test_editing_without_the_account_number_keeps_the_one_on_file():
+    db = make_supabase({"doctor_bank_accounts": make_chain(list_data=[{
+        "id": "b1", "doctor_id": "doc-1", "account_holder": "Dr A",
+        "account_number": "999988887777", "ifsc": "HDFC0001234",
+    }])})
+    for c in _client(DOCTOR_PAYLOAD, db):
+        res = c.put("/payouts/me/bank-account", headers=AUTH, json={
+            "account_holder": "Dr A", "ifsc": "HDFC0001234", "upi_id": "dra@ybl",
+        })
+        assert res.status_code == 200
+    assert db.table("doctor_bank_accounts").upsert.call_args[0][0]["account_number"] == "999988887777"
+
+
 def test_marking_a_payout_paid_requires_a_bank_reference():
     """Every rupee that leaves the account must be traceable to a transaction."""
     db = make_supabase({})
