@@ -56,8 +56,8 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30">
-      <Card className="w-[380px]">
+    <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4">
+      <Card className="w-full max-w-[380px]">
         <CardHeader>
           <CardTitle className="flex items-baseline gap-2">
             <span className="text-2xl font-extrabold tracking-wide" style={{ fontStretch: '125%' }}>CHARAK</span>

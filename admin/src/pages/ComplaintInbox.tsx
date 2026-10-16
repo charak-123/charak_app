@@ -94,8 +94,8 @@ export default function ComplaintInbox() {
 
         <Section title="Inbox" hint={`${complaints.length} shown`}>
           <Toolbar>
-            <Tabs value={statusFilter} onValueChange={v => setStatusFilter(v as StatusFilter)}>
-              <TabsList>
+            <Tabs className="min-w-0 max-w-full" value={statusFilter} onValueChange={v => setStatusFilter(v as StatusFilter)}>
+              <TabsList className="max-w-full justify-start overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {STATUS_TABS.map(({ label, value }) => (
                   <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
                 ))}

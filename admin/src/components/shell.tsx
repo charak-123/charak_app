@@ -21,15 +21,15 @@ export function PageHeader({
   right?: React.ReactNode
 }) {
   return (
-    <div className="border-b bg-background px-6 py-5">
-      <div className="flex items-start justify-between gap-6">
+    <div className="border-b bg-background px-4 py-4 sm:px-6 sm:py-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div>
           {/* font-heading: Anek's wide axis for page titles (design-system
               §2, "Anek goes wide for headers"). */}
           <h1 className="font-heading text-xl font-semibold tracking-tight">{title}</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
         </div>
-        {right && <div className="shrink-0">{right}</div>}
+        {right && <div className="sm:shrink-0">{right}</div>}
       </div>
     </div>
   )
@@ -37,7 +37,7 @@ export function PageHeader({
 
 /** One vertical rhythm for every page body. */
 export function PageBody({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6 p-6">{children}</div>
+  return <div className="space-y-6 p-4 sm:p-6">{children}</div>
 }
 
 export function SectionHeading({
@@ -78,7 +78,7 @@ export function Toolbar({
 }) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-wrap items-center gap-2">{children}</div>
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{children}</div>
       {right && <div className="shrink-0 text-sm text-muted-foreground">{right}</div>}
     </div>
   )
@@ -155,7 +155,7 @@ export function StatTile({
 
 /** Summary strips are always this grid, so tiles line up across pages. */
 export function StatGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
+  return <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{children}</div>
 }
 
 /* ── States ───────────────────────────────────────────────────────────────── */
