@@ -192,7 +192,9 @@ def test_step6_doctor_sees_the_incoming_request(silent_push):
     assert [b["id"] for b in res.json()] == [BOOKING_ID]
 
 
-def test_step7_doctor_starts_a_clarification_call(silent_push):
+def test_step7_doctor_starts_a_clarification_call(silent_push, monkeypatch):
+    # Stub mode regardless of any Agora certificate in the local backend/.env.
+    monkeypatch.setattr("app.routers.calls.AGORA_APP_CERTIFICATE", "")
     calls = make_chain()
     calls.execute.side_effect = [
         MagicMock(data=[]),                                                  # none active

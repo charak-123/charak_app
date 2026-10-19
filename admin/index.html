@@ -2,6 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- The CSP in vercel.json allows this inline script by its sha256 hash.
+         Editing it (even whitespace) means recomputing that hash. -->
     <script>
       // After a deploy, a page cached from before it asks for script files
       // that no longer exist. Reload once to pick up the current page, and

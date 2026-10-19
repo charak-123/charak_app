@@ -37,3 +37,4 @@ dist/
 
 # Golden-test failure output (regenerated on every failing run)
 **/test/**/failures/
+.vercel

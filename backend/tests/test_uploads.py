@@ -25,6 +25,7 @@ UP_DB   = "app.routers.uploads.supabase"
 JWT     = "app.deps.jwt"
 
 PNG = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 200, "image/png")
+M4A = b"\x00\x00\x00\x20ftypM4A " + b"\x00" * 488
 
 
 def _client(payload, db):
@@ -264,7 +265,7 @@ def test_a_voice_note_is_queued_for_transcription():
          patch("app.services.transcription.transcribe_media") as tr:
         for c in _client(PATIENT, db):
             res = c.post("/uploads/bookings/bk-1/intake?media_type=voice", headers=AUTH,
-                         files={"file": ("note.m4a", b"\x00" * 500, "audio/mp4")})
+                         files={"file": ("note.m4a", M4A, "audio/mp4")})
     assert res.status_code == 201
     assert db.table("intake_media").insert.call_args[0][0]["transcript_status"] == "pending"
     tr.assert_called_once()
@@ -375,3 +376,41 @@ def test_doctor_photo_upload_is_rate_limited():
         )
 
     assert res.status_code == 429
+
+
+# ── content sniffing ─────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("content, ct", [
+    (b"<html><script>alert(1)</script></html>", "image/png"),
+    (b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>', "image/jpeg"),
+    (b"MZ\x90\x00" + b"\x00" * 100, "application/pdf"),     # a Windows executable
+    (b"\x00" * 500, "audio/mp4"),
+])
+def test_a_file_whose_bytes_contradict_its_declared_type_is_refused(content, ct):
+    with pytest.raises(AppError) as e:
+        storage.check_signature(ct, content)
+    assert e.value.status_code == 415
+
+
+@pytest.mark.parametrize("content, ct", [
+    (PNG[0], "image/png"),
+    (b"\xff\xd8\xff\xe0" + b"\x00" * 50, "image/jpeg"),
+    (b"RIFF\x00\x00\x00\x00WEBPVP8 ", "image/webp"),
+    (b"%PDF-1.7\n", "application/pdf"),
+    (M4A, "audio/mp4"),
+    (b"ID3\x04\x00" + b"\x00" * 20, "audio/mpeg"),
+    (b"OggS" + b"\x00" * 20, "audio/ogg"),
+    (b"\x1a\x45\xdf\xa3" + b"\x00" * 20, "video/webm"),
+])
+def test_genuine_files_pass_the_signature_check(content, ct):
+    storage.check_signature(ct, content)
+
+
+def test_a_disguised_html_photo_never_reaches_storage():
+    db, _ = _photo_db()
+    with patch("app.services.storage.upload") as up:
+        for c in _client(DOCTOR, db):
+            res = c.post("/uploads/doctor/photo", headers=AUTH,
+                         files={"file": ("x.png", b"<html><script>alert(1)</script>", "image/png")})
+    assert res.status_code == 415
+    up.assert_not_called()

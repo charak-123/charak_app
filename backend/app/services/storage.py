@@ -111,6 +111,53 @@ def validate(kind: str, content_type: Optional[str], size: int) -> str:
     return allowed[ct]
 
 
+def _is_iso_media(head: bytes) -> bool:
+    """MP4-family container (mp4, m4a, mov, heic): a ``ftyp`` box at offset 4."""
+    return head[4:8] == b"ftyp"
+
+
+def _is_mpeg_audio(head: bytes) -> bool:
+    """MP3 (with or without an ID3 tag) or ADTS AAC: 11-bit frame sync."""
+    return head[:3] == b"ID3" or (
+        len(head) >= 2 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0
+    )
+
+
+# What the first bytes of each accepted type must look like. The declared
+# Content-Type comes from the client and is trivially forged, so it only picks
+# the extension once the bytes agree with it: an HTML or SVG page labelled
+# image/png is refused rather than stored (and, in the public photo bucket,
+# served from Charak's storage domain).
+_SIGNATURES = {
+    "image/jpeg":      lambda h: h[:3] == b"\xff\xd8\xff",
+    "image/png":       lambda h: h[:8] == b"\x89PNG\r\n\x1a\n",
+    "image/webp":      lambda h: h[:4] == b"RIFF" and h[8:12] == b"WEBP",
+    "image/heic":      _is_iso_media,
+    "application/pdf": lambda h: h[:5] == b"%PDF-",
+    "audio/mpeg":      _is_mpeg_audio,
+    "audio/aac":       _is_mpeg_audio,
+    "audio/mp4":       _is_iso_media,
+    "audio/wav":       lambda h: h[:4] == b"RIFF" and h[8:12] == b"WAVE",
+    "audio/x-wav":     lambda h: h[:4] == b"RIFF" and h[8:12] == b"WAVE",
+    "audio/webm":      lambda h: h[:4] == b"\x1a\x45\xdf\xa3",
+    "audio/ogg":       lambda h: h[:4] == b"OggS",
+    "video/mp4":       _is_iso_media,
+    "video/quicktime": lambda h: _is_iso_media(h) or h[4:8] in (b"moov", b"mdat", b"wide", b"free"),
+    "video/webm":      lambda h: h[:4] == b"\x1a\x45\xdf\xa3",
+}
+
+
+def check_signature(content_type: str, content: bytes) -> None:
+    """Refuse a file whose bytes do not match its declared type."""
+    check = _SIGNATURES.get(content_type)
+    if check is None or not check(content[:16]):
+        raise AppError(
+            "That file's contents don't match its type — it may be damaged "
+            "or not really a " + content_type.split("/")[-1].upper() + " file",
+            415,
+        )
+
+
 def build_path(*prefix: str, extension: str) -> str:
     """
     Deterministic-prefix, random-suffix object path.

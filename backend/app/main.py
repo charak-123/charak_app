@@ -44,6 +44,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    # The API only ever returns JSON: never let a browser sniff a response into
+    # HTML, frame it, or leak the URL (which can carry ids) as a referrer.
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
+
+
 # Compress JSON list responses (directory search, history, ledger). Mobile data
 # is the constraint for patients, and these payloads gzip to a fraction.
 app.add_middleware(GZipMiddleware, minimum_size=1024)

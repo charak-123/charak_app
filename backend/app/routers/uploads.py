@@ -58,7 +58,9 @@ async def _read(file: UploadFile, kind: str) -> tuple[bytes, str, str]:
         )
 
     extension = storage.validate(kind, file.content_type, len(content))
-    return content, extension, (file.content_type or "").split(";")[0].strip().lower()
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    storage.check_signature(content_type, content)
+    return content, extension, content_type
 
 
 # ── Doctor profile photo ─────────────────────────────────────────────────────
