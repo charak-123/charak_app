@@ -73,8 +73,14 @@ void main() {
 
   for (final (name, route, extra) in _screens) {
     testWidgets(name, skip: !Platform.environment.containsKey('CAPTURE_SCREENS'), (tester) async {
-      tester.view.physicalSize = const Size(390 * 3, 844 * 3);
+      // CAPTURE_SIZE=360x800 for a typical Android phone (default iPhone 390x844);
+      // CAPTURE_TEXT_SCALE=1.15 to mimic Samsung's larger default font.
+      final size = (Platform.environment['CAPTURE_SIZE'] ?? '390x844').split('x').map(double.parse).toList();
+      tester.view.physicalSize = Size(size[0] * 3, size[1] * 3);
       tester.view.devicePixelRatio = 3;
+      final textScale = double.tryParse(Platform.environment['CAPTURE_TEXT_SCALE'] ?? '');
+      if (textScale != null) tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
       addTearDown(tester.view.reset);
 
       CharakColors.useScheme(CharakScheme.patient);

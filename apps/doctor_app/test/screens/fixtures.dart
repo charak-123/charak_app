@@ -13,6 +13,9 @@ DateTime _at(int dayOffset, int hour, [int minute = 0]) {
 
 const doctorId = 'doc-1';
 
+/// Overrides `verification_status` on `/doctors/me` for one capture.
+String? verificationOverride;
+
 final me = <String, dynamic>{
   'accepting_requests': true,
   'id': doctorId,
@@ -80,7 +83,15 @@ String _day(int offset) {
 
 MockClient doctorBackend() => MockClient((req) async {
       final p = req.url.path.replaceAll(RegExp(r'/$'), '');
-      if (p == '/doctors/me') return _json(me);
+      if (p == '/doctors/me') {
+        if (verificationOverride == null) return _json(me);
+        return _json({
+          ...me,
+          'verification_status': verificationOverride,
+          if (verificationOverride == 'rejected')
+            'verification_rejection_reason': 'The registration number does not match the uploaded certificate.',
+        });
+      }
       if (p == '/payouts/me/bank-account') {
         return _json({
           'account_holder': 'Dr Ananya Rao', 'upi_id': 'ananya@okhdfcbank',

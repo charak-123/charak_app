@@ -219,15 +219,16 @@ class _BaseLocationCard extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 40,
+            height: 40,
+            // Same well as CharakListRow's leading icon.
             decoration: BoxDecoration(
               color: CharakColors.primarySoft,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: const BorderRadius.all(Radius.circular(14)),
             ),
             alignment: Alignment.center,
             child: Icon(LucideIcons.mapPin,
-                size: 16, color: CharakColors.primaryDeep),
+                size: 20, color: CharakColors.primaryDeep),
           ),
           const SizedBox(width: 11),
           Expanded(

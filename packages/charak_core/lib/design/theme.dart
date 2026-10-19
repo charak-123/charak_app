@@ -162,3 +162,38 @@ ShadThemeData charakShadTheme() {
 
 // Keep the old name as a convenience getter for non-ShadApp contexts.
 ThemeData charakTheme() => charakMaterialTheme();
+
+/// The type scale is drawn for a 390dp-wide phone. On narrower screens (most
+/// Androids are 360dp) the wide Anek titles wrap a line early and push actions
+/// below the fold, so text shrinks in proportion to the width, down to 360dp.
+/// The user's own font size still applies on top, capped at 1.3× so the
+/// layouts keep working on "largest font" settings.
+Widget charakPhoneTextScale(BuildContext context, Widget? child) {
+  final mq = MediaQuery.of(context);
+  final fit = (mq.size.width / 390).clamp(360 / 390, 1.0);
+  final user = mq.textScaler.clamp(maxScaleFactor: 1.3);
+  return MediaQuery(
+    data: mq.copyWith(textScaler: _ScaledTextScaler(user, fit)),
+    child: child ?? const SizedBox.shrink(),
+  );
+}
+
+class _ScaledTextScaler extends TextScaler {
+  final TextScaler inner;
+  final double factor;
+  const _ScaledTextScaler(this.inner, this.factor);
+
+  @override
+  double scale(double fontSize) => inner.scale(fontSize) * factor;
+
+  @override
+  // ignore: deprecated_member_use
+  double get textScaleFactor => inner.textScaleFactor * factor;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ScaledTextScaler && other.inner == inner && other.factor == factor;
+
+  @override
+  int get hashCode => Object.hash(inner, factor);
+}

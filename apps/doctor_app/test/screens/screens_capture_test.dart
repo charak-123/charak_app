@@ -47,6 +47,8 @@ final _screens = <(String, String, int?)>[
   ('06_request_detail', '/request/rq-1', null),
   ('07_active_visit', '/visit/ac-2', null),
   ('08_profile_setup', '/onboarding/profile', null),
+  ('08a_verification_pending', '/onboarding/verification-pending', null),
+  ('08b_verification_rejected', '/onboarding/verification-pending', null),
   ('08c_verified_welcome', '/onboarding/verified', null),
   ('09_channels', '/setup/channels', null),
   ('10_pricing', '/setup/pricing', null),
@@ -72,11 +74,18 @@ void main() {
 
   for (final (name, route, tab) in _screens) {
     testWidgets(name, skip: !Platform.environment.containsKey('CAPTURE_SCREENS'), (tester) async {
-      tester.view.physicalSize = const Size(390 * 3, 844 * 3);
+      // CAPTURE_SIZE=360x800 for a typical Android phone (default iPhone 390x844);
+      // CAPTURE_TEXT_SCALE=1.15 to mimic Samsung's larger default font.
+      final size = (Platform.environment['CAPTURE_SIZE'] ?? '390x844').split('x').map(double.parse).toList();
+      tester.view.physicalSize = Size(size[0] * 3, size[1] * 3);
       tester.view.devicePixelRatio = 3;
+      final textScale = double.tryParse(Platform.environment['CAPTURE_TEXT_SCALE'] ?? '');
+      if (textScale != null) tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
       addTearDown(tester.view.reset);
 
       CharakColors.useScheme(CharakScheme.doctor);
+      verificationOverride = name.contains('pending') ? 'pending' : name.contains('rejected') ? 'rejected' : null;
       ApiClient.debugClient = doctorBackend();
       FlutterSecureStorage.setMockInitialValues({'auth_token': 'fixture-token'});
       SharedPreferences.setMockInitialValues({'user_id': doctorId, 'user_name': 'Dr. Meera Kulkarni'});

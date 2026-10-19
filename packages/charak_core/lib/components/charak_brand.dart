@@ -41,7 +41,11 @@ class CharakWordmark extends StatelessWidget {
       letterSpacing: size * 0.04,
       color: CharakColors.ink,
     ).weight(800);
-    return Row(
+    // Scales down rather than overflowing on a 360dp phone at a large
+    // system font size (the "Partner" lockup is ~350dp wide there).
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -60,6 +64,7 @@ class CharakWordmark extends StatelessWidget {
           Text(suffix!, style: CharakText.label.copyWith(fontSize: size * 0.55, color: CharakColors.inkMuted)),
         ],
       ],
+      ),
     );
   }
 }

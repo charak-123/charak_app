@@ -84,35 +84,19 @@ class _State extends ConsumerState<RequestSentScreen> {
         child: Column(children: [
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              child: Padding(
-                // `.wait-state` — 48px of air above the badge.
-                padding: const EdgeInsets.fromLTRB(4, 48, 4, 0),
-                child: Column(children: [
-                  // `.wait-state .wait-ic` — 88px amber circle, 40px glyph.
-                  const _PulsingIcon(),
-                  const SizedBox(height: 22),
-
-                  const CharakStatusPill(
-                    label: 'Pending doctor review',
-                    tone: CharakStatusTone.warning,
-                    pulsingDot: true,
-                  ),
-                  const SizedBox(height: 18),
-
-                  Text('Request sent',
-                      style: charakScreenTitleStyle, textAlign: TextAlign.center),
-                  const SizedBox(height: 5),
-                  Text(
-                    '${CharakFormat.doctor(docName)} will review your request. You\'ll be notified '
+              padding: const EdgeInsets.fromLTRB(20, 44, 20, 24),
+              // Same outcome layout and Chandan "Requested" moment as the
+              // booking status screen's awaiting-response state.
+              child: CharakOutcomeState(
+                tone: CharakOutcomeTone.waiting,
+                icon: LucideIcons.send,
+                title: 'Request sent',
+                message: '$docName will review your request. You\'ll be notified '
                     'the moment they decide — usually within minutes.',
-                    style: charakScreenSubStyle,
-                    textAlign: TextAlign.center,
-                  ),
-
-                  // `.bsum` — the summary block sits 26px below the copy.
+                child: Column(children: [
+                  CharakStatusPill.forStatus('requested'),
                   if (booking != null) ...[
-                    const SizedBox(height: 26),
+                    const SizedBox(height: 20),
                     CharakSummaryCard(rows: [
                       if (formattedTime.isNotEmpty)
                         CharakSummaryRow(label: 'When', value: formattedTime),
@@ -122,7 +106,6 @@ class _State extends ConsumerState<RequestSentScreen> {
                         CharakSummaryRow(label: 'Price', value: priceStr, tabular: true),
                     ]),
                   ],
-
                   const SizedBox(height: 10),
                   Text(
                     'This is not a confirmed appointment yet — you can close '
@@ -151,39 +134,6 @@ class _State extends ConsumerState<RequestSentScreen> {
             ),
           ]),
         ]),
-      ),
-    );
-  }
-}
-
-/// `.wait-state .wait-ic` — the amber badge breathes so a long wait still
-/// reads as "in progress" rather than stuck.
-class _PulsingIcon extends StatefulWidget {
-  const _PulsingIcon();
-  @override
-  State<_PulsingIcon> createState() => _PulsingIconState();
-}
-
-class _PulsingIconState extends State<_PulsingIcon> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 1200),
-  )..repeat(reverse: true);
-  late final Animation<double> _scale = Tween(begin: 0.95, end: 1.05)
-      .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    final (bg, _) = charakToneColors(CharakStatusTone.warning);
-    return ScaleTransition(
-      scale: _scale,
-      child: Container(
-        width: 88, height: 88,
-        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-        alignment: Alignment.center,
-        child: Icon(LucideIcons.send, color: CharakColors.warning, size: 40),
       ),
     );
   }

@@ -159,7 +159,14 @@ class CharakGhostButton extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[Icon(icon, size: 18, color: color), const SizedBox(width: 6)],
-            Text(label, style: CharakText.label.copyWith(fontSize: 16, color: color)),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: CharakText.label.copyWith(fontSize: 16, color: color),
+              ),
+            ),
           ],
         ),
       ),

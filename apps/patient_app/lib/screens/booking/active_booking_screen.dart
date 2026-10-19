@@ -97,9 +97,11 @@ class _Body extends StatelessWidget {
                 const SizedBox(height: 1),
                 Text(when.isNotEmpty ? '$channelLabel · $when' : channelLabel,
                     style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+                // Under the name rather than beside it: on a 360dp phone a
+                // pill on the right squeezes the name and time into 5 lines.
+                const SizedBox(height: 6),
+                CharakStatusPill.forStatus(status),
               ])),
-              const SizedBox(width: 8),
-              CharakStatusPill.forStatus(status),
             ]),
             const SizedBox(height: 14),
             if (isOnline)

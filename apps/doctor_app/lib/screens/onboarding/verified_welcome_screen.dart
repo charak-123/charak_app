@@ -13,35 +13,31 @@ class VerifiedWelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: CharakColors.ground,
-    body: SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CharakOutcomeState(
+        backgroundColor: CharakColors.ground,
+        body: SafeArea(
+          child: Column(children: [
+            const Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(20, 44, 20, 24),
+                child: CharakOutcomeState(
                   tone: CharakOutcomeTone.success,
                   title: "You're verified!",
-                  message: 'Your credentials are confirmed. One more step — tell '
+                  message:
+                      'Your credentials are confirmed. One more step — tell '
                       'us how you consult and what you charge, and you\'ll be '
                       'live in the directory.',
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 240),
-                    child: CharakButton(
-                      label: 'Set up my practice',
-                      onPressed: () => context.go('/setup/channels'),
-                    ),
-                  ),
                 ),
-              ],
+              ),
             ),
-          ),
+            CharakCtaBar(children: [
+              Expanded(
+                child: CharakButton(
+                  label: 'Set up my practice',
+                  onPressed: () => context.go('/setup/channels'),
+                ),
+              ),
+            ]),
+          ]),
         ),
-      ),
-    ),
-  );
+      );
 }

@@ -9,10 +9,12 @@ class VerificationPendingScreen extends ConsumerStatefulWidget {
   const VerificationPendingScreen({super.key});
 
   @override
-  ConsumerState<VerificationPendingScreen> createState() => _VerificationPendingScreenState();
+  ConsumerState<VerificationPendingScreen> createState() =>
+      _VerificationPendingScreenState();
 }
 
-class _VerificationPendingScreenState extends ConsumerState<VerificationPendingScreen> {
+class _VerificationPendingScreenState
+    extends ConsumerState<VerificationPendingScreen> {
   CharakPoller? _poll;
   String _status = 'pending';
   String? _rejectionReason;
@@ -40,8 +42,12 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
   /// Returns true once ops have approved, which stops the poll. A rejection
   /// keeps polling: ops can reverse it after the doctor re-submits.
   Future<bool> _refresh() async {
-    final me = await ApiClient.instance.get('/doctors/me')
-        as Map<String, dynamic>;
+    final Map<String, dynamic> me;
+    try {
+      me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+    } on ApiException {
+      return false; // Offline or server hiccup: keep the last state, poll again.
+    }
     if (!mounted) return true;
     final status = me['verification_status'] as String? ?? 'pending';
     setState(() {
@@ -64,111 +70,64 @@ class _VerificationPendingScreenState extends ConsumerState<VerificationPendingS
   @override
   Widget build(BuildContext context) {
     final isRejected = _status == 'rejected';
-    final (badgeBg, badgeFg) = isRejected
-        ? charakToneColors(CharakStatusTone.danger)
-        : (CharakColors.bgSubtle, CharakColors.inkMuted);
+    final reason = _rejectionReason;
 
+    // Same shape as every other outcome screen: the state up top, actions in
+    // the CTA bar within thumb reach.
     return Scaffold(
       backgroundColor: CharakColors.ground,
       body: SafeArea(
-        // `.ok-state` — 24px gutters, centred column. A terminal/empty state
-        // like this one is meant to sit in the middle of the screen, not
-        // pinned to the top with a dead zone below it — the LayoutBuilder +
-        // minHeight gives the Column the full viewport to center within,
-        // while still scrolling normally if the content (e.g. a long
-        // rejection reason) ever outgrows the screen.
-        child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-              // `.ok-state .wait-ic` — 88px circle, 40px glyph.
-              Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(color: badgeBg, shape: BoxShape.circle),
-                alignment: Alignment.center,
-                child: Icon(
-                  isRejected ? LucideIcons.circleX : LucideIcons.clipboardCheck,
-                  size: 40,
-                  color: badgeFg,
-                ),
-              ),
-              const SizedBox(height: 20),
-              // `.ok-state .title` at the screen's 21px override.
-              Text(
-                isRejected ? 'Verification declined' : 'Under review',
-                textAlign: TextAlign.center,
-                style: CharakText.display.copyWith(fontSize: 21, letterSpacing: -0.21),
-              ),
-              const SizedBox(height: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 260),
-                child: Text(
-                  isRejected
-                      ? 'We could not verify your credentials. Please check and resubmit.'
-                      : "Our team is verifying your license. You can set up your practice now — "
-                          "you'll appear in the directory the moment you're approved.",
-                  textAlign: TextAlign.center,
-                  style: CharakText.body.copyWith(color: CharakColors.inkMuted, fontSize: 15),
-                ),
-              ),
-
-              if (isRejected && _rejectionReason != null) ...[
-                const SizedBox(height: CharakSpacing.base),
-                Container(
-                  padding: const EdgeInsets.all(CharakSpacing.md),
-                  decoration: BoxDecoration(
-                    // Spec danger tint — translucent, not an opaque pink.
-                    color: charakToneColors(CharakStatusTone.danger).$1,
-                    borderRadius: const BorderRadius.all(CharakRadius.card),
-                  ),
-                  child: Text(
-                    'Reason: $_rejectionReason',
-                    style: CharakText.caption.copyWith(color: CharakColors.danger),
-                  ),
-                ),
-              ],
-
-              if (!isRejected) ...[
-                const SizedBox(height: 18),
-                const CharakStatusPill(
-                  label: 'Under review',
-                  tone: CharakStatusTone.warning,
-                  pulsingDot: true,
-                ),
-                const SizedBox(height: 22),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  child: CharakButton(
-                    label: 'Explore the app',
-                    outlined: true,
-                    onPressed: () => context.go('/home'),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const CharakHintLine(
-                  text: 'Nothing goes live until ops approves your license.',
-                  align: TextAlign.center,
-                ),
-              ],
-
-              if (isRejected) ...[
-                const SizedBox(height: CharakSpacing.xl),
-                CharakButton(
-                  label: 'Resubmit credentials',
-                  onPressed: () => context.go('/onboarding/verification'),
-                ),
-              ],
-                ],
-              ),
+        child: Column(children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 44, 20, 24),
+              child: isRejected
+                  ? CharakOutcomeState(
+                      tone: CharakOutcomeTone.neutral,
+                      icon: LucideIcons.circleX,
+                      title: 'Verification declined',
+                      message:
+                          'We could not verify your credentials. Please check and resubmit.',
+                      child: reason == null
+                          ? null
+                          : CharakNoteBanner(
+                              tone: CharakStatusTone.danger,
+                              icon: LucideIcons.circleAlert,
+                              leadLabel: 'Reason',
+                              message: reason,
+                            ),
+                    )
+                  : const CharakOutcomeState(
+                      tone: CharakOutcomeTone.waiting,
+                      icon: LucideIcons.clipboardCheck,
+                      title: 'Under review',
+                      message:
+                          "Our team is verifying your license. You can set up your "
+                          "practice now — you'll appear in the directory the moment "
+                          "you're approved.",
+                      child: CharakStatusPill(
+                        label: 'Under review',
+                        tone: CharakStatusTone.warning,
+                        pulsingDot: true,
+                      ),
+                    ),
             ),
           ),
-        ),
+          CharakCtaBar(children: [
+            Expanded(
+              child: isRejected
+                  ? CharakButton(
+                      label: 'Resubmit credentials',
+                      onPressed: () => context.go('/onboarding/verification'),
+                    )
+                  : CharakButton(
+                      label: 'Explore the app',
+                      outlined: true,
+                      onPressed: () => context.go('/home'),
+                    ),
+            ),
+          ]),
+        ]),
       ),
     );
   }

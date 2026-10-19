@@ -181,26 +181,32 @@ class _DoctorCard extends StatelessWidget {
           CharakAvatar(name: name, imageUrl: photoUrl, radius: 26, tone: 2),
           const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
+            // The name gets the whole row (two lines if it must) and the
+            // rating sits under it: beside it, a 360dp phone cut every
+            // name to "Dr. Meera K…".
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Flexible(
                 child: Text(name,
                     style: CharakText.titleSmall.copyWith(fontSize: 19),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
               ),
               if (verified) ...[
                 const SizedBox(width: 6),
-                Icon(LucideIcons.badgeCheck, size: 17, color: CharakColors.success),
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Icon(LucideIcons.badgeCheck, size: 17, color: CharakColors.success),
+                ),
               ],
             ]),
             if (creds.isNotEmpty)
               Text(creds,
                   style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 6),
+            rating > 0
+                ? CharakRatingChip(rating: rating.toStringAsFixed(1))
+                : const CharakBadge(label: 'New', variant: CharakBadgeVariant.requested),
           ])),
-          const SizedBox(width: 8),
-          rating > 0
-              ? CharakRatingChip(rating: rating.toStringAsFixed(1))
-              : const CharakBadge(label: 'New', variant: CharakBadgeVariant.requested),
         ]),
         const SizedBox(height: 14),
         Container(

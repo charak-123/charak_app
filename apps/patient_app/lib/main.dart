@@ -25,6 +25,7 @@ class PatientApp extends ConsumerWidget {
       theme: charakShadTheme(),
       materialThemeBuilder: (context, theme) => charakMaterialTheme(),
       routerConfig: ref.watch(routerProvider),
+      builder: charakPhoneTextScale,
       scrollBehavior: const CharakScrollBehavior(),
       debugShowCheckedModeBanner: false,
     );

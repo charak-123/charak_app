@@ -225,16 +225,16 @@ class _SuccessBody extends ConsumerWidget {
         child: Column(children: [
           // `.ref-no` — monospaced reference chip.
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
               color: CharakColors.bgSubtle,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: const BorderRadius.all(CharakRadius.pill),
             ),
+            // Tabular Anek rather than a system monospace: same alignment,
+            // and it stays in the app's type.
             child: Text('Ref CMP-$shortRef',
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 13,
-                  height: 1.4,
+                style: CharakText.caption.tabular.copyWith(
+                  fontWeight: FontWeight.w600,
                   color: CharakColors.ink,
                 )),
           ),

@@ -188,8 +188,9 @@ class _ChannelCard extends StatelessWidget {
       padding: const EdgeInsets.all(CharakSpacing.gutter - 2),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
-          width: 44, height: 44,
-          decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(12)),
+          width: 40, height: 40,
+          // Same well as CharakListRow's leading icon.
+          decoration: BoxDecoration(color: iconBg, borderRadius: const BorderRadius.all(Radius.circular(14))),
           alignment: Alignment.center,
           child: Icon(icon, color: iconColor, size: 20),
         ),

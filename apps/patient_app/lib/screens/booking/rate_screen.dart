@@ -122,6 +122,7 @@ class _State extends ConsumerState<RateScreen> {
         child: CharakButton(label: 'Skip', outlined: true, onPressed: _toHistory),
       ),
       Expanded(
+        flex: 2,
         child: CharakButton(
           label: 'Submit rating',
           isLoading: _loading,
