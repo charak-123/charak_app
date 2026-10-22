@@ -1,9 +1,32 @@
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Optional
+
 from ..db import supabase
 
 # Fallback slot length when a doctor has not set one. Doctors choose their own
 # consult length per channel (doctor_pricing.base_duration_min).
 SLOT_MINUTES = 15
+
+# Doctors' schedules are wall-clock times in India, and the patient app books
+# them as "+05:30". India has no daylight saving, so a fixed offset is exact
+# (and needs no tz database in the slim container image).
+IST = timezone(timedelta(hours=5, minutes=30))
+
+# How soon a slot can start and still be offered. The doctor has to accept and
+# the patient has to pay inside the hold window before the visit begins.
+MIN_LEAD_MINUTES = 15
+
+
+def now_ist() -> datetime:
+    return datetime.now(IST)
+
+
+def to_ist(ts) -> datetime:
+    """A stored timestamptz (any offset, 'Z' tolerated) as an IST datetime."""
+    dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=IST)
+    return dt.astimezone(IST)
 
 # Statuses that occupy a slot. A `requested` booking holds its time while the
 # doctor decides, so it has to disappear from the grid too — otherwise a second
@@ -13,7 +36,8 @@ SLOT_MINUTES = 15
 SLOT_OCCUPYING_STATUSES = ["requested", "accepted", "paid", "completed"]
 
 
-def get_available_slots(doctor_id: str, from_date: date, days: int = 14) -> dict:
+def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
+                        now: Optional[datetime] = None) -> dict:
     """
     Returns {date_str: [{"start": "09:00", "end": "09:15"}, ...], ...}
 
@@ -26,9 +50,13 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14) -> dict
 
     The patient picks a time before choosing a channel, so the grid uses the
     longest consult length the doctor offers — a slot then fits either channel.
+
+    Everything is in IST. Slots starting within MIN_LEAD_MINUTES of `now` (or
+    already past) are not offered.
     """
     slot_minutes = slot_minutes_for(doctor_id)
     end_date = from_date + timedelta(days=days)
+    earliest = (now or now_ist()).astimezone(IST) + timedelta(minutes=MIN_LEAD_MINUTES)
 
     schedules = (
         supabase.table("doctor_schedules")
@@ -53,20 +81,24 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14) -> dict
         .select("scheduled_start")
         .eq("doctor_id", doctor_id)
         .in_("status", SLOT_OCCUPYING_STATUSES)
-        .gte("scheduled_start", from_date.isoformat())
-        .lt("scheduled_start", end_date.isoformat())
+        .gte("scheduled_start", datetime.combine(from_date, time(0), IST).isoformat())
+        .lt("scheduled_start", datetime.combine(end_date, time(0), IST).isoformat())
         .execute()
         .data
     )
 
-    # Booked start times per day as minutes-since-midnight. A booking holds
+    # Booked start times per IST day as minutes-since-midnight. A booking holds
     # [start, start + slot_minutes); comparing ranges rather than exact start
     # strings keeps an old booking blocking its time after the doctor changes
     # their consult length and the grid shifts.
+    #
+    # Converted, not sliced: the database hands timestamptz back in UTC, so
+    # reading the hour straight off the string put a 09:00 IST booking at
+    # 03:30 — the real slot stayed on offer and an unrelated one disappeared.
     booked: dict[str, list[int]] = {}
     for b in bookings:
-        start = b["scheduled_start"]
-        booked.setdefault(start[:10], []).append(int(start[11:13]) * 60 + int(start[14:16]))
+        start = to_ist(b["scheduled_start"])
+        booked.setdefault(str(start.date()), []).append(start.hour * 60 + start.minute)
 
     result: dict = {}
     current = from_date
@@ -96,7 +128,9 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14) -> dict
                     abs(start_m - m) < slot_minutes for m in booked.get(day_str, [])
                 )
 
-                if not blocked and not taken:
+                too_soon = datetime.combine(current, t, IST) < earliest
+
+                if not blocked and not taken and not too_soon:
                     slots.append({"start": _fmt(t), "end": _fmt(slot_end)})
 
                 t = slot_end

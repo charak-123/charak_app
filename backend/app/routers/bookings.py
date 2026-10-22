@@ -82,9 +82,11 @@ def create_booking(
         raise AppError("This doctor does not offer online consults", 400)
 
     try:
-        datetime.fromisoformat(body.scheduled_start.replace("Z", "+00:00"))
+        start = datetime.fromisoformat(body.scheduled_start.replace("Z", "+00:00"))
     except ValueError:
         raise AppError("Invalid scheduled_start format", 400)
+    if start.tzinfo is None:
+        raise AppError("scheduled_start must include a timezone offset, e.g. +05:30", 400)
 
     # A home visit needs somewhere to go, and that somewhere has to be inside the
     # radius the doctor agreed to cover.
@@ -104,6 +106,8 @@ def create_booking(
     )
     if existing.data:
         raise AppError("Slot already booked", 409)
+
+    _assert_bookable(body.doctor_id, start)
 
     # The check above loses to a concurrent request that passed it a moment
     # earlier, so uq_booking_doctor_slot_active (migration 0010) is what actually
@@ -258,7 +262,7 @@ def accept_booking(
     if b["status"] != "requested":
         raise AppError(f"Cannot accept a booking with status '{b['status']}'", 400)
 
-    updated = _update_status(booking_id, "accepted", {
+    updated = _update_status(booking_id, "accepted", expected="requested", extra={
         "hold_expires_at": (_now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)).isoformat(),
         # Accepting is what entitles the doctor to the patient's full address.
         # Until now they saw only the area and distance.
@@ -282,7 +286,8 @@ def decline_booking(
     if b["status"] not in ("requested", "accepted"):
         raise AppError(f"Cannot decline a booking with status '{b['status']}'", 400)
 
-    updated = _update_status(booking_id, "declined", {"hold_expires_at": None})
+    updated = _update_status(booking_id, "declined", {"hold_expires_at": None},
+                             expected=b["status"])
 
     doctor = supabase.table("doctors").select("name").eq("id", user["sub"]).execute().data or []
     doctor_name = (doctor[0].get("name") if doctor else None) or "The doctor"
@@ -313,7 +318,8 @@ def complete_booking(
             409,
         )
 
-    updated = _update_status(booking_id, "completed", {"hold_expires_at": None})
+    updated = _update_status(booking_id, "completed", {"hold_expires_at": None},
+                             expected="paid")
     notifications.visit_completed({**b, **updated}, background)
     return updated
 
@@ -361,7 +367,7 @@ def mark_no_show(
             400,
         )
 
-    updated = _update_status(booking_id, "no_show", {
+    updated = _update_status(booking_id, "no_show", expected="accepted", extra={
         "no_show_marked_by": user["sub"],
         "no_show_at": _now_iso(),
         "hold_expires_at": None,
@@ -387,7 +393,7 @@ def cancel_booking(
         raise AppError(f"Cannot cancel a booking with status '{b['status']}'", 400)
 
     by = "patient" if b["patient_id"] == user["sub"] else "doctor"
-    updated = _update_status(booking_id, "cancelled", {
+    updated = _update_status(booking_id, "cancelled", expected=b["status"], extra={
         "cancelled_by": by,
         "hold_expires_at": None,
     })
@@ -409,6 +415,28 @@ def cancel_booking(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _assert_bookable(doctor_id: str, start: datetime) -> None:
+    """
+    Refuse a time the patient could not have picked from the slot grid.
+
+    The grid only ever offers future, unblocked times inside the doctor's
+    schedule, but nothing checked that the request matched it: a crafted
+    request could book 3am, last week, or a time the doctor had blocked off.
+    The same availability service that draws the grid decides here, so the
+    two cannot disagree.
+    """
+    local = availability.to_ist(start)
+    if local <= availability.now_ist():
+        raise AppError("That time has already passed. Pick another slot.", 409)
+
+    open_slots = availability.get_available_slots(doctor_id, local.date(), days=1)
+    starts = {s["start"] for s in open_slots.get(str(local.date()), [])}
+    if local.second or local.microsecond or local.strftime("%H:%M") not in starts:
+        raise AppError(
+            "That time isn't open on this doctor's calendar. Pick another slot.", 409
+        )
+
 
 def _resolve_home_visit_address(body: "BookingCreate", doctor: dict,
                                 patient_id: str) -> dict:
@@ -522,10 +550,29 @@ def _get_booking_for_doctor(booking_id: str, doctor_id: str) -> dict:
     return booking
 
 
-def _update_status(booking_id: str, status: str, extra: Optional[dict] = None) -> dict:
+def _update_status(booking_id: str, status: str, extra: Optional[dict] = None, *,
+                   expected: str) -> dict:
+    """
+    Move a booking to `status` only if it is still in `expected` — the status
+    the caller read and based its decision on.
+
+    Without the condition, two writers racing on one booking both won: a
+    patient's cancel landing just after the doctor accepted, or two cancels
+    each deciding to refund. Now the second writer changes nothing and is told
+    the booking moved under it.
+    """
     data: dict = {"status": status}
     if status in ("accepted", "declined"):
         data["decision_at"] = _now_iso()
     if extra:
         data.update(extra)
-    return supabase.table("bookings").update(data).eq("id", booking_id).execute().data[0]
+    rows = (
+        supabase.table("bookings").update(data)
+        .eq("id", booking_id).eq("status", expected)
+        .execute().data
+    )
+    if not rows:
+        raise AppError(
+            "This booking was just updated. Refresh to see where it stands.", 409
+        )
+    return rows[0]

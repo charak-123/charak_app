@@ -47,8 +47,8 @@ from app.db import supabase                     # noqa: E402 — after the skip 
 _TABLES = [
     "doctor_ledger_entries", "payments", "procedure_bills", "ratings",
     "complaints", "clarification_calls", "intake_media", "notifications",
-    "bookings", "patient_addresses", "slot_blocks", "schedules",
-    "doctor_pricing", "procedures", "doctors", "users", "categories",
+    "bookings", "patient_addresses", "doctor_slot_blocks", "doctor_schedules",
+    "doctor_pricing", "doctor_procedures", "doctors", "users", "categories",
 ]
 
 
@@ -118,6 +118,14 @@ def seed():
             pricing.append({"id": _id(), "doctor_id": doctor["id"],
                             "channel": "home_visit", "price": 800.00})
         supabase.table("doctor_pricing").insert(pricing).execute()
+
+        # create_booking only accepts a time on the doctor's real slot grid, so
+        # the doctor works every day, all day, in the default 15-minute slots.
+        supabase.table("doctor_schedules").insert([
+            {"id": _id(), "doctor_id": doctor["id"], "day_of_week": d,
+             "start_time": "00:00", "end_time": "23:59"}
+            for d in range(7)
+        ]).execute()
 
         return {"category": category, "patient": patient,
                 "other_patient": other_patient, "doctor": doctor,

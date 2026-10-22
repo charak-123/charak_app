@@ -243,11 +243,16 @@ def report_failure(
         }
 
     hold_until = _now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)
-    updated = supabase.table("bookings").update({
+    # Only while still accepted: a hold extended on a booking that was paid or
+    # released a moment ago would put a dead hold back on it.
+    rows = supabase.table("bookings").update({
         "payment_failed_at": _now().isoformat(),
         "hold_expires_at": hold_until.isoformat(),
         "payment_attempts": attempts + 1,
-    }).eq("id", booking_id).execute().data[0]
+    }).eq("id", booking_id).eq("status", "accepted").execute().data
+    if not rows:
+        raise AppError("This booking was just updated. Refresh to see where it stands.", 409)
+    updated = rows[0]
 
     supabase.table("payments").update({"status": "failed"}) \
         .eq("booking_id", booking_id).eq("status", "initiated").execute()
@@ -436,11 +441,27 @@ def _confirm_payment(
     }).eq("id", payment["id"]).execute()
 
     if source == "consult_fee":
-        supabase.table("bookings").update({
-            "status": "paid",
-            "hold_expires_at": None,
-            "payment_failed_at": None,
-        }).eq("id", booking["id"]).execute()
+        # Conditional, like every other status change: the booking read above
+        # can be cancelled (by the patient, the doctor or the hold sweeper)
+        # before this write lands. Flipping it to `paid` regardless would
+        # revive a cancelled booking whose slot may already be someone else's.
+        flipped = (
+            supabase.table("bookings").update({
+                "status": "paid",
+                "hold_expires_at": None,
+                "payment_failed_at": None,
+            }).eq("id", booking["id"]).eq("status", "accepted").execute().data
+        )
+        if not flipped:
+            now_row = fetch_one(
+                supabase.table("bookings").select("status").eq("id", booking["id"])
+            )
+            if now_row and now_row.get("status") in ("cancelled", "declined", "no_show"):
+                # Lost the race to a cancel: same outcome as arriving after it.
+                _refund_orphaned_payment(payment, booking, razorpay_payment_id, background)
+                return {"ok": True, "refunded": True}
+            # Otherwise it is already `paid` — a redelivery finishing a confirm
+            # that got this far before. Nothing left to change.
     else:
         supabase.table("procedure_bills").update({"status": "paid"}) \
             .eq("booking_id", booking["id"]).execute()

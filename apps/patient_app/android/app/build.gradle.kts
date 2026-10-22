@@ -11,9 +11,10 @@ plugins {
 
 // Upload-key credentials. Kept out of git (see android/.gitignore): a release
 // build needs key.properties beside this module, created from
-// key.properties.example. Without it the release build falls back to the debug
-// key, which the Play Store rejects — so CI fails loudly rather than shipping
-// an unsignable bundle.
+// key.properties.example. Without it a release *APK* (`flutter run --release`
+// on a test phone) falls back to the debug key, but a release *App Bundle* —
+// the only thing that goes to Play — refuses to build: see the guard at the
+// bottom of this file.
 val keystoreProperties = Properties().apply {
     val f = rootProject.file("key.properties")
     if (f.exists()) load(FileInputStream(f))
@@ -90,4 +91,20 @@ dependencies {
 
 flutter {
     source = "../.."
+}
+
+// Never produce a Play upload signed with the debug key. Every machine's debug
+// key is different and public-by-convention, so a bundle signed with one is
+// either rejected by Play or — sideloaded to a tester — installs as an app no
+// real update can ever replace. APK builds are left alone for device testing.
+gradle.taskGraph.whenReady {
+    // This module's own bundle task only: plugin modules have release tasks
+    // named bundle…Release too, and those run for APK builds.
+    val bundlingRelease = allTasks.any { it.project == project && it.name == "bundleRelease" }
+    if (bundlingRelease && keystoreProperties.isEmpty) {
+        throw GradleException(
+            "android/key.properties is missing, so this release App Bundle would be " +
+            "signed with the debug key. Create it from key.properties.example first."
+        )
+    }
 }

@@ -458,3 +458,128 @@ def test_ledger_adjustments_are_audited():
     written = audit_db.table("audit_log").insert.call_args[0][0]
     assert written["action"] == "ledger_adjustment"
     assert written["actor_id"] == OPS["sub"]
+
+
+# ── Booking times must come from the doctor's real calendar ──────────────────
+
+from app.routers.bookings import _assert_bookable as _real_assert_bookable  # noqa: E402
+from app.services.availability import IST  # noqa: E402
+
+_FUTURE_DAY = (datetime.now(IST) + timedelta(days=3)).date()
+
+
+def _bookable(start, open_starts):
+    grid = {str(_FUTURE_DAY): [{"start": s} for s in open_starts]}
+    with patch("app.routers.bookings.availability.get_available_slots", return_value=grid):
+        _real_assert_bookable("doc-1", start)
+
+
+def _at(hh, mm, ss=0):
+    return datetime.combine(_FUTURE_DAY, datetime.min.time(), IST).replace(
+        hour=hh, minute=mm, second=ss)
+
+
+def test_an_open_slot_can_be_booked():
+    _bookable(_at(9, 0), ["09:00", "09:15"])
+
+
+def test_a_time_outside_the_grid_is_refused():
+    import pytest
+    from app.errors import AppError
+    with pytest.raises(AppError) as exc:
+        _bookable(_at(3, 0), ["09:00", "09:15"])
+    assert exc.value.status_code == 409
+
+
+def test_an_off_grid_second_is_refused():
+    import pytest
+    from app.errors import AppError
+    with pytest.raises(AppError):
+        _bookable(_at(9, 0, 30), ["09:00"])
+
+
+def test_the_same_instant_in_utc_is_accepted():
+    """The grid is IST; a client sending UTC for the same moment is fine."""
+    _bookable(_at(9, 0).astimezone(timezone.utc), ["09:00"])
+
+
+def test_a_past_time_is_refused_before_the_grid_is_consulted():
+    import pytest
+    from app.errors import AppError
+    past = datetime.now(IST) - timedelta(days=1)
+    with patch("app.routers.bookings.availability.get_available_slots") as grid, \
+         pytest.raises(AppError) as exc:
+        _real_assert_bookable("doc-1", past)
+    assert exc.value.status_code == 409
+    grid.assert_not_called()
+
+
+def test_a_booking_time_without_an_offset_is_refused():
+    doctor = {"id": "doc-1", "verification_status": "verified", "suspended": False,
+              "offers_online_consult": True}
+    db = make_supabase({"doctors": make_chain(data=doctor)})
+    jw = _as(PATIENT)
+    try:
+        with patch("app.routers.bookings.supabase", db):
+            res = client.post("/bookings/", headers=AUTH, json={
+                "doctor_id": "doc-1", "channel": "online_consult",
+                "scheduled_start": "2026-12-01T09:00:00"})
+    finally:
+        jw.stop()
+    assert res.status_code == 400
+    assert "timezone" in res.json()["error"]
+
+
+# ── Status changes are compare-and-set ───────────────────────────────────────
+
+def test_a_cancel_that_loses_a_race_changes_nothing_and_refunds_nothing():
+    booking = {"id": "bk-1", "patient_id": "pat-1", "doctor_id": "doc-1",
+               "status": "paid", "channel": "online_consult"}
+    bookings = make_chain_seq(booking, [])      # read: paid; conditional write: no row
+    jw = _as(PATIENT)
+    try:
+        with patch("app.routers.bookings.supabase", make_supabase({"bookings": bookings})), \
+             patch("app.routers.payments.refund_completed_payments") as refund:
+            res = client.patch("/bookings/bk-1/cancel", headers=AUTH)
+    finally:
+        jw.stop()
+
+    assert res.status_code == 409
+    refund.assert_not_called()
+    bookings.eq.assert_any_call("status", "paid")
+
+
+def test_the_hold_sweeper_only_releases_bookings_still_unpaid():
+    expired = [{"id": "bk-1", "status": "accepted"}, {"id": "bk-2", "status": "accepted"}]
+    # bk-2 was paid between the sweeper's read and its write.
+    bookings = make_chain_seq(expired, [{"id": "bk-1"}])
+    notified = []
+    with patch("app.routers.maintenance.CRON_SECRET", "s"), \
+         patch("app.routers.maintenance.supabase", make_supabase({"bookings": bookings})), \
+         patch("app.routers.maintenance.notifications.booking_hold_expired",
+               side_effect=lambda b: notified.append(b["id"])):
+        res = client.post("/maintenance/release-expired-holds", headers={"X-Cron-Secret": "s"})
+
+    assert res.json() == {"released": 1, "booking_ids": ["bk-1"]}
+    assert notified == ["bk-1"]
+    bookings.eq.assert_any_call("status", "accepted")
+
+
+def test_a_capture_that_loses_a_race_to_a_cancel_is_refunded():
+    from app.routers import payments
+
+    booking = {"id": "bk-1", "doctor_id": "doc-1", "patient_id": "pat-1", "status": "accepted"}
+    payment = {"id": "pay-1", "booking_id": "bk-1", "amount": 500, "type": "consult_fee"}
+    # read: accepted → conditional flip: no row → re-read: cancelled
+    bookings = make_chain_seq(booking, [], {"status": "cancelled"})
+    db = make_supabase({"bookings": bookings, "payments": make_chain()})
+    with patch("app.routers.payments.supabase", db), \
+         patch("app.routers.payments.payouts.credit"), \
+         patch("app.routers.payments._refund_orphaned_payment") as refund, \
+         patch("app.routers.payments.notifications"):
+        out = payments._confirm_payment(payment, "rzp_pay_1", "upi")
+
+    assert out == {"ok": True, "refunded": True}
+    refund.assert_called_once()
+    # The flip to `paid` is conditional on the booking still being accepted.
+    bookings.eq.assert_any_call("status", "accepted")

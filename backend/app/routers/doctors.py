@@ -494,12 +494,12 @@ def get_slots(doctor_id: str, from_date: str = None, days: int = 14):
     never reached get_available_slots.
     """
     from datetime import date
-    from ..services.availability import get_available_slots
+    from ..services.availability import get_available_slots, now_ist
 
     if not 1 <= days <= 60:
         raise AppError("days must be between 1 and 60", 400)
     try:
-        d = date.fromisoformat(from_date) if from_date else date.today()
+        d = date.fromisoformat(from_date) if from_date else now_ist().date()
     except ValueError:
         raise AppError("from_date must be ISO format, e.g. 2026-10-01", 400)
     return get_available_slots(doctor_id, d, days=days)

@@ -59,24 +59,38 @@ def release_expired_holds(_: bool = Depends(require_cron)):
     if not expired:
         return {"released": 0, "booking_ids": []}
 
-    booking_ids = [b["id"] for b in expired]
-
     # Two statements for the whole batch rather than two per booking. This runs
     # on a timer with no user waiting on it, but a backlog (a queue stall, a
     # missed run) is exactly when it is largest and least affordable.
-    supabase.table("bookings").update({
-        "status": "cancelled",
-        "cancelled_by": "system",
-        "hold_expires_at": None,
-    }).in_("id", booking_ids).execute()
+    #
+    # The status and expiry conditions are repeated on the write, not just the
+    # read: a payment confirmed (or a hold extended) between the two must not
+    # be cancelled out from under the patient who just paid.
+    released = (
+        supabase.table("bookings").update({
+            "status": "cancelled",
+            "cancelled_by": "system",
+            "hold_expires_at": None,
+        })
+        .in_("id", [b["id"] for b in expired])
+        .eq("status", "accepted")
+        .lt("hold_expires_at", now)
+        .execute()
+        .data
+        or []
+    )
+    booking_ids = [r["id"] for r in released]
+    if not booking_ids:
+        return {"released": 0, "booking_ids": []}
 
     supabase.table("payments").update({"status": "failed"}) \
         .in_("booking_id", booking_ids).eq("status", "initiated").execute()
 
     # Only once the rows are actually released — a notification about a hold
     # that is still live would be a lie.
-    for booking in expired:
-        notifications.booking_hold_expired(booking)
+    by_id = {b["id"]: b for b in expired}
+    for booking_id in booking_ids:
+        notifications.booking_hold_expired(by_id.get(booking_id) or {"id": booking_id})
 
     return {"released": len(booking_ids), "booking_ids": booking_ids}
 

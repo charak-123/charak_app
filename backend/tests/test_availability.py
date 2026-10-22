@@ -2,7 +2,7 @@
 Unit tests for the slot availability calculation.
 These tests mock the Supabase client so no real DB connection is needed.
 """
-from datetime import date, time
+from datetime import date, datetime, time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,11 +12,20 @@ _mock_supabase = MagicMock()
 
 with patch("app.db.supabase", _mock_supabase):
     from app.services.availability import (
-        get_available_slots,
+        IST,
+        get_available_slots as _get_available_slots,
         _parse_time,
         _add_minutes,
         _fmt,
     )
+
+# The fixtures below are dated August 2026. Pin "now" before them so the
+# grid's no-past-slots rule does not empty every day.
+_BEFORE_ALL_FIXTURES = datetime(2026, 8, 1, 9, 0, tzinfo=IST)
+
+
+def get_available_slots(doctor_id, from_date, days=14, now=_BEFORE_ALL_FIXTURES):
+    return _get_available_slots(doctor_id, from_date, days=days, now=now)
 
 
 def _make_supabase(schedules=None, blocks=None, bookings=None):
@@ -118,7 +127,7 @@ def test_confirmed_booking_removes_slot():
     mock = _make_supabase(
         schedules=[{"day_of_week": 0, "start_time": "09:00", "end_time": "09:30"}],
         blocks=[],
-        bookings=[{"scheduled_start": "2026-08-24T09:00:00+00:00"}],
+        bookings=[{"scheduled_start": "2026-08-24T03:30:00+00:00"}],  # 09:00 IST, as the DB returns it
     )
     with patch("app.services.availability.supabase", mock):
         result = get_available_slots("doc-1", monday, days=1)
@@ -134,7 +143,7 @@ def test_fully_booked_day_absent_from_result():
     mock = _make_supabase(
         schedules=[{"day_of_week": 0, "start_time": "09:00", "end_time": "09:15"}],
         blocks=[],
-        bookings=[{"scheduled_start": "2026-08-24T09:00:00+00:00"}],
+        bookings=[{"scheduled_start": "2026-08-24T03:30:00+00:00"}],  # 09:00 IST, as the DB returns it
     )
     with patch("app.services.availability.supabase", mock):
         result = get_available_slots("doc-1", monday, days=1)
@@ -178,3 +187,32 @@ def test_a_requested_booking_hides_its_slot_from_the_grid():
     for status in SLOT_HOLDING_STATUSES:
         assert status in SLOT_OCCUPYING_STATUSES, (
             f"{status} blocks booking but is still offered as a free slot")
+
+
+def test_a_booking_returned_in_utc_hides_its_ist_slot():
+    """
+    Regression: the grid read the hour straight off the stored string. The
+    database returns timestamptz in UTC, so a 09:00 IST booking ("03:30+00")
+    left 09:00 on offer.
+    """
+    monday = date(2026, 8, 24)
+    mock = _make_supabase(
+        schedules=[{"day_of_week": 0, "start_time": "09:00", "end_time": "09:30"}],
+        bookings=[{"scheduled_start": "2026-08-24T03:30:00+00:00"}],
+    )
+    with patch("app.services.availability.supabase", mock):
+        result = get_available_slots("doc-1", monday, days=1)
+
+    assert [s["start"] for s in result["2026-08-24"]] == ["09:15"]
+
+
+def test_slots_that_have_started_or_are_too_close_are_not_offered():
+    monday = date(2026, 8, 24)
+    mock = _make_supabase(
+        schedules=[{"day_of_week": 0, "start_time": "09:00", "end_time": "10:00"}],
+    )
+    now = datetime(2026, 8, 24, 9, 10, tzinfo=IST)   # 09:00 started; 09:15 is < 15 min away
+    with patch("app.services.availability.supabase", mock):
+        result = get_available_slots("doc-1", monday, days=1, now=now)
+
+    assert [s["start"] for s in result["2026-08-24"]] == ["09:30", "09:45"]

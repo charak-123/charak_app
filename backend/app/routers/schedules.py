@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 from ..db import supabase
 from ..deps import require_doctor
-from ..services.availability import get_available_slots
+from ..services.availability import get_available_slots, now_ist
 
 router = APIRouter()
 
@@ -46,5 +46,5 @@ def replace_home_visit_schedules(blocks: list[ScheduleBlock], user: dict = Depen
 @router.get("/me/slots")
 def get_my_slots(from_date: str = None, user: dict = Depends(require_doctor)):
     from datetime import date
-    d = date.fromisoformat(from_date) if from_date else date.today()
+    d = date.fromisoformat(from_date) if from_date else now_ist().date()
     return get_available_slots(user["sub"], d)

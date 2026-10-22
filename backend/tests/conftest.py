@@ -24,6 +24,12 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 
+def _integration(request) -> bool:
+    """The integration suite runs against a real local database; the unit
+    stand-ins below must not replace what it is there to exercise."""
+    return "integration" in request.node.path.parts
+
+
 @pytest.fixture(autouse=True)
 def _no_revoked_sessions():
     """
@@ -69,19 +75,37 @@ def _rate_limit_never_triggers():
 
 
 @pytest.fixture(autouse=True)
-def _audit_log_is_a_sink():
+def _audit_log_is_a_sink(request):
     """
     services/audit.py binds its own `supabase`. Ops routes across several
     routers now write to audit_log through it; without this they would reach
     the real (unconfigured, in-test) client. Tests that assert on the audit
     trail patch `app.services.audit.supabase` themselves.
     """
+    if _integration(request):   # real database: nothing to stand in for
+        yield
+        return
     with patch("app.services.audit.supabase", MagicMock()):
         yield
 
 
 @pytest.fixture(autouse=True)
-def _notifications_go_nowhere():
+def _every_requested_slot_is_open(request):
+    """
+    create_booking checks the requested time against the doctor's real slot
+    grid (bookings._assert_bookable). Booking tests are about what happens
+    after that, and use fixed dates that are now in the past, so default to
+    "the slot is open". test_security_lockdown.py exercises the real check.
+    """
+    if _integration(request):   # real database: nothing to stand in for
+        yield
+        return
+    with patch("app.routers.bookings._assert_bookable"):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _notifications_go_nowhere(request):
     """
     Most routes that change a booking also call services/notifications.py,
     which binds its own `supabase` — and many tests patch only their router's.
@@ -91,6 +115,9 @@ def _notifications_go_nowhere():
     Tests about notifications patch `app.services.notifications.supabase`
     themselves, which shadows this.
     """
+    if _integration(request):   # real database: nothing to stand in for
+        yield
+        return
     db = MagicMock()
     db.table.return_value = make_chain()
     with patch("app.services.notifications.supabase", db):
@@ -98,7 +125,7 @@ def _notifications_go_nowhere():
 
 
 @pytest.fixture(autouse=True)
-def _phone_release_finds_nothing():
+def _phone_release_finds_nothing(request):
     """
     services/identity.py binds its own `supabase`. verify-otp and Firebase
     phone sign-in call it before their upsert; without this the call would go
@@ -106,6 +133,9 @@ def _phone_release_finds_nothing():
     points at the real project. Tests that exercise the release itself patch
     `app.services.identity.supabase` themselves.
     """
+    if _integration(request):   # real database: nothing to stand in for
+        yield
+        return
     db = MagicMock()
     db.table.return_value.select.return_value.eq.return_value.eq.return_value \
         .execute.return_value = MagicMock(data=[])
