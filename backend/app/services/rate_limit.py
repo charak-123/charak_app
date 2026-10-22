@@ -20,15 +20,18 @@ Usage, as a FastAPI dependency:
         ...
 
 `identifier` defaults to the caller's IP; pass a custom `key` function to limit
-by something else (e.g. the email in the request body) instead or as well.
+by something else. For an identifier only known once the body is parsed (the
+email in a login request), call `enforce(...)` from inside the handler.
 """
 from __future__ import annotations
 
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 from fastapi import Depends, Request
 
+from ..config import TRUSTED_PROXY_HOPS
 from ..db import supabase
 from ..errors import AppError
 
@@ -59,13 +62,50 @@ def record_hit(scope: str, identifier: str) -> None:
     }).execute()
 
 
-def _client_ip(request: Request) -> str:
-    # Cloud Run (and Fly) sit behind a proxy; the real client address is the
-    # first hop in X-Forwarded-For, not request.client (that's the proxy).
+def _bucket(ip: str) -> str:
+    """
+    The unit a limit is counted against. IPv4: the address. IPv6: its /64 —
+    one subscriber is handed a whole /64 and can rotate through it freely, so
+    counting single v6 addresses would be no limit at all.
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return str(addr)
+
+
+def client_ip(request: Request) -> str:
+    """
+    The caller's address as seen by our own edge.
+
+    Cloud Run sits behind Google's front end, which *appends* the address it
+    saw to X-Forwarded-For. Everything to the left of that is whatever the
+    client sent, so the first entry is attacker-controlled: reading it let one
+    machine rotate a fake address per request and never hit a limit. The
+    trustworthy entry is TRUSTED_PROXY_HOPS from the right — 1 for Cloud Run
+    serving its run.app URL directly; 2 with an external HTTPS load balancer
+    in front, which appends its own address after the client's.
+    """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            return _bucket(parts[-min(TRUSTED_PROXY_HOPS, len(parts))])
+    return _bucket(request.client.host) if request.client else "unknown"
+
+
+def enforce(scope: str, identifier: str, max_hits: int, window_seconds: int) -> None:
+    """
+    The limiter as a plain call, for identifiers only known inside a handler
+    (e.g. the email in a login body). Same counting rules as `rate_limiter`.
+    """
+    if hits_in_window(scope, identifier, window_seconds) >= max_hits:
+        record_hit(scope, identifier)
+        raise AppError("Too many attempts. Please try again later.", 429)
+    record_hit(scope, identifier)
 
 
 def rate_limiter(
@@ -81,10 +121,7 @@ def rate_limiter(
     of ever getting back in sooner by stopping).
     """
     def _dep(request: Request) -> None:
-        identifier = key(request) if key else _client_ip(request)
-        if hits_in_window(scope, identifier, window_seconds) >= max_hits:
-            record_hit(scope, identifier)
-            raise AppError("Too many attempts. Please try again later.", 429)
-        record_hit(scope, identifier)
+        identifier = key(request) if key else client_ip(request)
+        enforce(scope, identifier, max_hits, window_seconds)
 
     return Depends(_dep)

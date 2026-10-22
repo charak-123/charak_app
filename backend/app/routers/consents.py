@@ -11,6 +11,7 @@ from pydantic import BaseModel, field_validator
 
 from ..db import supabase
 from ..deps import get_current_user
+from ..services.rate_limit import client_ip
 
 router = APIRouter()
 
@@ -37,7 +38,9 @@ def record_consent(body: ConsentRequest, request: Request,
         "user_id": user["sub"],
         "type": body.type,
         "version": body.version,
-        "ip": request.client.host if request.client else None,
+        # The caller's address, not Cloud Run's proxy (request.client) —
+        # this row is evidence of who consented.
+        "ip": client_ip(request),
     }).execute().data[0]
     return row
 

@@ -3,11 +3,13 @@ from fastapi import APIRouter, Depends
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, field_validator
 
+from ..config import PROCEDURE_REVIEW_THRESHOLD_MAX
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
 from ..phone import normalize_e164
 from ..services import erasure, geo, storage
+from .procedure_bills import effective_review_threshold
 
 router = APIRouter()
 
@@ -18,7 +20,9 @@ class DoctorProfileUpdate(BaseModel):
     name: Optional[str]                      = None
     category_id: Optional[str]               = None
     bio: Optional[str]                       = None
-    photo_url: Optional[str]                 = None
+    # No photo_url: the photo is set only by POST /uploads/doctor/photo, which
+    # stores the file itself. A client-supplied URL could point anywhere, and
+    # every patient browsing the directory would load it.
     offers_online_consult: Optional[bool]    = None
     offers_home_visit: Optional[bool]        = None
     base_lat: Optional[float]                = None
@@ -27,7 +31,8 @@ class DoctorProfileUpdate(BaseModel):
     procedure_review_threshold: Optional[float] = None
     # The Requests tab's "Accepting requests" switch.
     accepting_requests: Optional[bool]       = None
-    # Collected on the profile step after Google sign-in. Not OTP-verified.
+    # Collected on the profile step after Google sign-in. A contact number, not
+    # a proven one: changing it clears otp_verified (see update_profile).
     phone: Optional[str]                     = None
     # The website registration form's fields with no dedicated column
     # (qualification, college, practitioner type, …) — see migration 0019.
@@ -53,6 +58,12 @@ def get_me(user: dict = Depends(require_doctor)):
     return doctor
 
 
+# What ops checked when they verified a doctor. Changing any of these on a
+# verified profile sends it back to the verification queue — otherwise a doctor
+# could be approved under one identity and then rename themselves into another.
+_VERIFIED_IDENTITY_FIELDS = ("name", "category_id", "application_details")
+
+
 @router.patch("/me")
 def update_profile(body: DoctorProfileUpdate, user: dict = Depends(require_doctor)):
     data = body.model_dump(exclude_none=True)
@@ -60,6 +71,34 @@ def update_profile(body: DoctorProfileUpdate, user: dict = Depends(require_docto
         raise AppError("No fields to update", 400)
     if "service_radius_km" in data and data["service_radius_km"] not in (2, 3, 5):
         raise AppError("service_radius_km must be 2, 3, or 5", 400)
+    threshold = data.get("procedure_review_threshold")
+    if threshold is not None and not 0 <= threshold <= PROCEDURE_REVIEW_THRESHOLD_MAX:
+        raise AppError(
+            f"The senior review threshold can be at most ₹{PROCEDURE_REVIEW_THRESHOLD_MAX:,.0f}",
+            400,
+        )
+
+    current = fetch_one(
+        supabase.table("doctors")
+        .select("phone, verification_status, " + ", ".join(_VERIFIED_IDENTITY_FIELDS))
+        .eq("id", user["sub"])
+    )
+    if not current:
+        raise AppError("Doctor profile not found", 404)
+
+    # A typed-in number is a claim, not proof. Only OTP / Firebase phone sign-in
+    # may mark a number verified; changing it here un-verifies the account.
+    if "phone" in data and data["phone"] != current.get("phone"):
+        data["otp_verified"] = False
+
+    changed_identity = [
+        f for f in _VERIFIED_IDENTITY_FIELDS
+        if f in data and data[f] != current.get(f)
+    ]
+    if current.get("verification_status") == "verified" and changed_identity:
+        data["verification_status"] = "pending"
+        data["verification_rejection_reason"] = None
+
     try:
         result = supabase.table("doctors").update(data).eq("id", user["sub"]).execute()
     except APIError as exc:
@@ -185,26 +224,47 @@ def remove_procedure(proc_id: str, user: dict = Depends(require_doctor)):
 
 # ── Directory search (public, for patients) ───────────────────────────────────
 
-# Columns on `doctors` that must never reach an unauthenticated caller. The
-# public directory used to `select("*")`, which leaked the doctor's phone, their
-# verification-document location, their push token and Charak's commission rate.
-_PRIVATE_DOCTOR_FIELDS = {
-    "phone",
-    "fcm_token",
-    "commission_pct",
-    "license_number",
-    "verification_document_url",
-    "verification_document_path",
-    "verification_document_mime",
-    # Exact home coordinates: used server-side for distance, never returned.
-    "base_lat",
-    "base_lng",
-}
+# The only keys of a doctor row an unauthenticated caller may see. An allowlist,
+# not a denylist: the directory used to strip a fixed set of private columns
+# from `select("*")`, so every column added since (email, google_sub,
+# firebase_uid, the registration numbers in application_details, …) went out to
+# anyone who asked. A new column now stays private until it is listed here.
+# Exact home coordinates (base_lat/base_lng) are deliberately absent: distance
+# is computed server-side and returned as distance_km.
+_PUBLIC_DOCTOR_FIELDS = (
+    "id",
+    "name",
+    "bio",
+    "photo_url",
+    "category_id",
+    "categories",
+    "rating_avg",
+    "offers_online_consult",
+    "offers_home_visit",
+    "online_consult_mode",
+    "service_radius_km",
+    "accepting_requests",
+    "doctor_pricing",
+    "doctor_procedures",
+    # Added by geo.annotate_distance on search results.
+    "distance_km",
+    "in_service_area",
+)
 
 
 def _public_doctor(doctor: dict) -> dict:
-    """Strip private columns from a doctor row, adding a small photo thumbnail."""
-    out = {k: v for k, v in doctor.items() if k not in _PRIVATE_DOCTOR_FIELDS}
+    """Keep only the public keys of a doctor row, adding a small photo thumbnail."""
+    out = {k: doctor[k] for k in _PUBLIC_DOCTOR_FIELDS if k in doctor}
+    # What patients are told: bills above this amount go to senior review.
+    out["procedure_review_threshold"] = effective_review_threshold(
+        doctor.get("procedure_review_threshold")
+    )
+    if isinstance(out.get("doctor_procedures"), list):
+        # A removed procedure is soft-deleted (active = false); it is no
+        # longer offered, so patients should not see it.
+        out["doctor_procedures"] = [
+            p for p in out["doctor_procedures"] if p.get("active", True) is not False
+        ]
     if doctor.get("photo_path"):
         out["photo_thumb_url"] = storage.thumb_url(
             storage.BUCKET_DOCTOR_PHOTOS, doctor["photo_path"]

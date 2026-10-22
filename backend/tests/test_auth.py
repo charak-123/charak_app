@@ -278,7 +278,7 @@ def test_verify_otp_upserts_a_doctor_into_the_doctors_table():
 
 
 def test_verify_otp_token_carries_the_subject_and_role():
-    from jose import jwt
+    import jwt
     from app.config import JWT_SECRET
 
     store_db, auth_db = _verify_dbs(

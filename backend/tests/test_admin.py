@@ -20,8 +20,11 @@ NOTIF_DB = "app.services.notifications.supabase"
 JWT      = "app.deps.jwt"
 
 
+AUDIT_DB = "app.services.audit.supabase"
+
+
 def _client(payload, db):
-    with patch(ADMIN_DB, db), patch(NOTIF_DB, db), patch(JWT) as jw:
+    with patch(ADMIN_DB, db), patch(NOTIF_DB, db), patch(AUDIT_DB, db), patch(JWT) as jw:
         jw.decode.return_value = payload
         yield TestClient(app)
 
@@ -83,7 +86,7 @@ def test_admin_login_enrolled_account_asks_for_a_code():
 
 
 def test_admin_login_completes_setup_and_issues_a_token():
-    from jose import jwt as jose_jwt
+    import jwt
     from app.config import JWT_SECRET
 
     code = pyotp.TOTP(_SECRET).now()
@@ -92,7 +95,7 @@ def test_admin_login_completes_setup_and_issues_a_token():
         admin_row=_admin_row(False),
     )
     assert res.status_code == 200
-    claims = jose_jwt.decode(res.json()["token"], JWT_SECRET, algorithms=["HS256"])
+    claims = jwt.decode(res.json()["token"], JWT_SECRET, algorithms=["HS256"])
     assert claims["role"] == "ops"
     assert claims["sub"] == "admin-1"
 

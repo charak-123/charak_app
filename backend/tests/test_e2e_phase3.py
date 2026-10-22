@@ -34,7 +34,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.conftest import make_chain, make_supabase, patch_all_supabase
+from tests.conftest import make_chain, make_chain_seq, make_supabase, patch_all_supabase
 
 DOCTOR_TOKEN  = "Bearer doc_token"
 PATIENT_TOKEN = "Bearer pat_token"
@@ -79,10 +79,12 @@ def _booking(status="requested"):
 # ── Onboarding ────────────────────────────────────────────────────────────────
 
 def test_step1_doctor_saves_their_profile(silent_push):
-    doctors = make_chain(data=[{
-        "id": "doc-1", "name": "Dr Anita Rao", "category_id": "cat-1",
-        "bio": "MBBS, MD — 12 years",
-    }])
+    doctors = make_chain_seq(
+        {"phone": None, "verification_status": "pending", "name": None,
+         "category_id": None, "application_details": None},
+        [{"id": "doc-1", "name": "Dr Anita Rao", "category_id": "cat-1",
+          "bio": "MBBS, MD — 12 years"}],
+    )
     db = make_supabase({"doctors": doctors})
 
     for c in _client(DOC_PAYLOAD, db):
@@ -164,9 +166,11 @@ def test_step4_ops_approves_and_the_doctor_is_notified(silent_push):
 
 
 def test_step5_doctor_sets_pricing_and_the_review_threshold(silent_push):
-    doctors = make_chain(data=[{
-        "id": "doc-1", "procedure_review_threshold": THRESHOLD,
-    }])
+    doctors = make_chain_seq(
+        {"phone": "+919876543210", "verification_status": "verified",
+         "name": "Dr Anita Rao", "category_id": "cat-1", "application_details": None},
+        [{"id": "doc-1", "procedure_review_threshold": THRESHOLD}],
+    )
     db = make_supabase({"doctors": doctors})
 
     for c in _client(DOC_PAYLOAD, db):

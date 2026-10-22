@@ -74,6 +74,11 @@ GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 # override lives in doctors.commission_pct.
 PLATFORM_COMMISSION_PCT = float(os.getenv("PLATFORM_COMMISSION_PCT", "0"))
 
+# Senior review of procedure bills. A doctor may set a lower threshold for their
+# own bills, never a higher one, and a doctor who sets none gets this one. The
+# doctor is the party under review, so the ceiling cannot be theirs to choose.
+PROCEDURE_REVIEW_THRESHOLD_MAX = float(os.getenv("PROCEDURE_REVIEW_THRESHOLD_MAX", "5000"))
+
 # How long an accepted booking is held for the patient to pay before it is
 # released back to the doctor's calendar.
 PAYMENT_HOLD_MINUTES = int(os.getenv("PAYMENT_HOLD_MINUTES", "10"))
@@ -103,6 +108,19 @@ ALLOW_OTP_STUB = os.getenv("ALLOW_OTP_STUB", "").lower() in ("1", "true", "yes")
 # not a mobile app someone keeps signed into for weeks. A stolen laptop with a
 # browser left logged in is dead within hours, not a month.
 ADMIN_TOKEN_TTL_HOURS = int(os.getenv("ADMIN_TOKEN_TTL_HOURS", "12"))
+
+# How many X-Forwarded-For entries, counted from the right, our own proxies
+# append. The client's real address is that entry; anything further left came
+# from the client and is not trusted. 1 = Cloud Run serving its run.app URL
+# directly. Set 2 if an external HTTPS load balancer is put in front.
+TRUSTED_PROXY_HOPS = max(1, int(os.getenv("TRUSTED_PROXY_HOPS", "1")))
+
+# Phone sign-in only sends SMS to these country codes. Every OTP is a paid SMS,
+# and an open international range is what SMS-pumping fraud farms: request
+# codes to premium-rate numbers, collect a share of the termination fee.
+OTP_ALLOWED_COUNTRY_CODES = [
+    c.strip() for c in os.getenv("OTP_ALLOWED_COUNTRY_CODES", "+91").split(",") if c.strip()
+]
 
 # Shared secret for internal/cron endpoints (hold sweeper, payout runs).
 CRON_SECRET = os.getenv("CRON_SECRET", "")

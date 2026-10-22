@@ -5,6 +5,20 @@ Each router imports supabase as `from ..db import supabase`, binding a local nam
 Patching `app.db.supabase` won't reach them — we must patch each router module's
 own supabase reference. This conftest provides a helper to do that cleanly.
 """
+import os
+
+# The unit suite must never reach a real database. app.config loads
+# backend/.env, which on a developer machine holds the live project's
+# service-role key — so any module whose `supabase` a test forgot to patch
+# would read and write production. Point the client at a dead local port
+# before the app is imported (load_dotenv never overrides a set variable);
+# a missed patch then fails loudly instead. The integration suite sets
+# CHARAK_INTEGRATION and its own SUPABASE_URL, and is left alone.
+if not os.getenv("CHARAK_INTEGRATION"):
+    os.environ["SUPABASE_URL"] = "http://127.0.0.1:9"
+    os.environ["SUPABASE_ANON_KEY"] = "unit-tests-have-no-database"
+    os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "unit-tests-have-no-database"
+
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
@@ -22,9 +36,15 @@ def _no_revoked_sessions():
     `app.deps.supabase` itself, which simply shadows this for its own `with`
     block.
     """
+    def table(name):
+        t = MagicMock()
+        # An ops token stays valid while its admin_users row exists.
+        rows = [{"id": "admin"}] if name == "admin_users" else []
+        t.select.return_value.eq.return_value.execute.return_value = MagicMock(data=rows)
+        return t
+
     db = MagicMock()
-    db.table.return_value.select.return_value.eq.return_value.execute.return_value = \
-        MagicMock(data=[])
+    db.table.side_effect = table
     with patch("app.deps.supabase", db):
         yield
 
@@ -45,6 +65,51 @@ def _rate_limit_never_triggers():
     db.table.return_value.select.return_value.eq.return_value.eq.return_value \
         .gte.return_value.execute.return_value = MagicMock(data=[])
     with patch("app.services.rate_limit.supabase", db):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _audit_log_is_a_sink():
+    """
+    services/audit.py binds its own `supabase`. Ops routes across several
+    routers now write to audit_log through it; without this they would reach
+    the real (unconfigured, in-test) client. Tests that assert on the audit
+    trail patch `app.services.audit.supabase` themselves.
+    """
+    with patch("app.services.audit.supabase", MagicMock()):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _notifications_go_nowhere():
+    """
+    Most routes that change a booking also call services/notifications.py,
+    which binds its own `supabase` — and many tests patch only their router's.
+    Unpatched, every such test tried to insert a notification row (and look up
+    a push token) in whatever project backend/.env points at. Default to a
+    sink that records nothing and finds no device token, so nothing is sent.
+    Tests about notifications patch `app.services.notifications.supabase`
+    themselves, which shadows this.
+    """
+    db = MagicMock()
+    db.table.return_value = make_chain()
+    with patch("app.services.notifications.supabase", db):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _phone_release_finds_nothing():
+    """
+    services/identity.py binds its own `supabase`. verify-otp and Firebase
+    phone sign-in call it before their upsert; without this the call would go
+    to whatever SUPABASE_URL the environment holds — a developer's backend/.env
+    points at the real project. Tests that exercise the release itself patch
+    `app.services.identity.supabase` themselves.
+    """
+    db = MagicMock()
+    db.table.return_value.select.return_value.eq.return_value.eq.return_value \
+        .execute.return_value = MagicMock(data=[])
+    with patch("app.services.identity.supabase", db):
         yield
 
 

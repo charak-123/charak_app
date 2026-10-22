@@ -34,9 +34,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import bcrypt
+import hmac
 import pyotp
 
 from ..db import supabase
+from . import rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,34 @@ class AdminAuthError(Exception):
         self.status_code = status_code
         self.extra = extra
         super().__init__(message)
+
+
+# A TOTP code is valid for its own 30s step plus one either side (clock drift),
+# so a code seen over a shoulder or lifted from a phishing page could be
+# replayed for up to ~90s. Each accepted step is recorded and refused after.
+_TOTP_REPLAY_SCOPE = "admin-totp-used"
+_TOTP_REPLAY_WINDOW_SECONDS = 180
+
+
+def _matched_step(secret: str, code: str) -> Optional[int]:
+    """The time step `code` belongs to (current ±1), or None if it matches none."""
+    totp = pyotp.TOTP(secret)
+    current = totp.timecode(datetime.now(timezone.utc))
+    for step in (current, current - 1, current + 1):
+        if hmac.compare_digest(totp.generate_otp(step), str(code).strip()):
+            return step
+    return None
+
+
+def _check_totp(admin: dict, code: str) -> None:
+    """Accept a code once. Raises AdminAuthError for a wrong or reused code."""
+    step = _matched_step(admin["totp_secret"], code)
+    if step is None:
+        raise AdminAuthError("Invalid code. Check your authenticator app and try again.", 401)
+    used = f"{admin['id']}:{step}"
+    if rate_limit.hits_in_window(_TOTP_REPLAY_SCOPE, used, _TOTP_REPLAY_WINDOW_SECONDS):
+        raise AdminAuthError("That code has already been used. Wait for the next one.", 401)
+    rate_limit.record_hit(_TOTP_REPLAY_SCOPE, used)
 
 
 def _get_admin(email: str) -> Optional[dict]:
@@ -94,16 +124,14 @@ def authenticate(email: str, password: str, totp_code: Optional[str]) -> dict:
                 next="totp_setup",
                 provisioning_uri=uri,
             )
-        if not pyotp.TOTP(admin["totp_secret"]).verify(totp_code, valid_window=1):
-            raise AdminAuthError("Invalid code. Check your authenticator app and try again.", 401)
+        _check_totp(admin, totp_code)
         supabase.table("admin_users").update({"totp_enabled": True}) \
             .eq("id", admin["id"]).execute()
         admin["totp_enabled"] = True
     else:
         if not totp_code:
             raise AdminAuthError("Enter your two-factor code.", 428, next="totp")
-        if not pyotp.TOTP(admin["totp_secret"]).verify(totp_code, valid_window=1):
-            raise AdminAuthError("Invalid code. Check your authenticator app and try again.", 401)
+        _check_totp(admin, totp_code)
 
     try:
         supabase.table("admin_users").update(

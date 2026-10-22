@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_ops
 from ..errors import AppError
-from ..services import notifications
+from ..services import audit, notifications
 
 router = APIRouter()
 
@@ -77,4 +77,5 @@ def update_complaint_status(
 
     result = supabase.table("complaints").update({"status": body.status}) \
         .eq("id", complaint_id).execute()
+    audit.record(user, "complaints", complaint_id, f"status_{body.status}")
     return result.data[0]

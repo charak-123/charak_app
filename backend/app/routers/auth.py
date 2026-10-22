@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from jose import jwt
+import jwt
 from pydantic import BaseModel, field_validator
 
 from ..config import (
@@ -28,11 +28,13 @@ from ..config import (
     MSG91_API_KEY,
     MSG91_SENDER_ID,
     MSG91_TEMPLATE_ID,
+    OTP_ALLOWED_COUNTRY_CODES,
 )
 from ..db import supabase
 from ..errors import AppError
 from ..phone import normalize_e164
-from ..services import otp_store, erasure, firebase_auth
+from ..services import otp_store, erasure, firebase_auth, identity
+from ..services.rate_limit import rate_limiter
 
 router = APIRouter()
 
@@ -114,12 +116,16 @@ async def _send_sms(phone: str, code: str) -> None:
             raise AppError("Could not send OTP right now. Please try again.", 502)
 
 
-@router.post("/send-otp")
+# Per caller, on top of otp_store's per-number cap. The per-number cap alone
+# still lets one machine walk a list of numbers and spend an SMS on each.
+@router.post("/send-otp", dependencies=[rate_limiter("send-otp", 20, 3600)])
 async def send_otp(req: SendOTPRequest):
     # No SMS gateway and no explicit dev opt-in: refuse up front rather than
     # issue a code that only the server log will ever see.
     if not MSG91_API_KEY and not ALLOW_OTP_STUB:
         raise AppError("Phone sign-in is not available. Continue with Google.", 503)
+    if not any(req.phone.startswith(cc) for cc in OTP_ALLOWED_COUNTRY_CODES):
+        raise AppError("Phone sign-in is only available for Indian (+91) numbers.", 400)
     if otp_store.sends_in_last_hour(req.phone) >= otp_store.MAX_SENDS_PER_HOUR:
         raise AppError("Too many OTP requests. Try again in an hour.", 429)
 
@@ -128,7 +134,7 @@ async def send_otp(req: SendOTPRequest):
     return {"message": "OTP sent", "expires_in": otp_store.OTP_TTL_SECONDS}
 
 
-@router.post("/verify-otp")
+@router.post("/verify-otp", dependencies=[rate_limiter("verify-otp", 30, 600)])
 def verify_otp(req: VerifyOTPRequest):
     try:
         otp_row = otp_store.consume(req.phone, req.code)
@@ -145,6 +151,10 @@ def verify_otp(req: VerifyOTPRequest):
         )
 
     table = "doctors" if role == "doctor" else "users"
+    # Proof beats a claim: a row that only typed this number in (otp_verified
+    # false) lets go of it, so the upsert below can never land the number's
+    # real owner inside someone else's account.
+    identity.release_unproven_phone(table, req.phone)
     result = (
         supabase.table(table)
         .upsert({"phone": req.phone, "otp_verified": True}, on_conflict="phone")
@@ -263,13 +273,16 @@ def firebase_login(req: FirebaseLoginRequest):
     update = {"firebase_uid": claims["sub"]}
     if provider == "google.com" and claims.get("email"):
         update["email"] = claims["email"]
+    table = "doctors" if req.role == "doctor" else "users"
     if provider == "phone" and claims.get("phone_number"):
         update["phone"] = claims["phone_number"]
         # Firebase has already confirmed this number by SMS — equivalent to
-        # the otp_store-based flow's own confirmation.
+        # the otp_store-based flow's own confirmation. Same rule as
+        # verify_otp: any row that merely typed the number in lets go of it.
         update["otp_verified"] = True
+        identity.release_unproven_phone(table, update["phone"],
+                                        keep_firebase_uid=claims["sub"])
 
-    table = "doctors" if req.role == "doctor" else "users"
     result = (
         supabase.table(table)
         .upsert(update, on_conflict="firebase_uid")

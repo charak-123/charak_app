@@ -7,11 +7,11 @@ that a fixed-length JWT alone cannot give you (see TOKEN_TTL_DAYS's
 docstring in routers/auth.py).
 """
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from jose import jwt as jose_jwt
+import jwt
 
 from app.config import JWT_SECRET
 from app.deps import get_current_user
@@ -31,7 +31,7 @@ client = TestClient(app)
 
 
 def _token(role: str, sub: str, iat: datetime) -> str:
-    return jose_jwt.encode(
+    return jwt.encode(
         {"sub": sub, "role": role, "iat": iat, "exp": iat + timedelta(days=14)},
         JWT_SECRET,
         algorithm="HS256",
@@ -79,14 +79,22 @@ def test_an_account_never_revoked_is_unaffected():
     assert res.status_code == 200
 
 
-def test_ops_tokens_are_never_looked_up():
-    """admin_users has no sessions_revoked_at column — ops must not even query
-    it (it would 500 against the real schema, not just behave oddly)."""
-    db = MagicMock()
+def test_an_ops_token_works_while_the_admin_account_exists():
+    db = make_supabase({"admin_users": make_chain(list_data=[{"id": "admin-1"}])})
     with patch(DEPS_DB, db):
         res = client.get("/whoami", headers={
             "Authorization": f"Bearer {_token('ops', 'admin-1', datetime.now(timezone.utc))}"
         })
 
     assert res.status_code == 200
-    db.table.assert_not_called()
+
+
+def test_an_ops_token_dies_with_its_admin_account():
+    """Removing an admin ends their access now, not when the 12h token expires."""
+    db = make_supabase({"admin_users": make_chain(list_data=[])})
+    with patch(DEPS_DB, db):
+        res = client.get("/whoami", headers={
+            "Authorization": f"Bearer {_token('ops', 'admin-1', datetime.now(timezone.utc))}"
+        })
+
+    assert res.status_code == 401

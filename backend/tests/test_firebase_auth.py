@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.firebase_auth import FirebaseTokenError
-from tests.conftest import make_chain, make_supabase
+from tests.conftest import make_chain, make_chain_seq, make_supabase
 
 AUTH_DB = "app.routers.auth.supabase"
 ENABLED = "app.routers.auth.firebase_auth.enabled"
@@ -120,7 +120,11 @@ def test_rejects_an_unknown_role():
 
 def test_profile_update_accepts_application_details():
     from app.routers.auth import _issue_jwt
-    doctors = make_chain(list_data=[{"id": "doc-1"}])
+    doctors = make_chain_seq(
+        {"phone": None, "verification_status": "pending", "name": None,
+         "category_id": None, "application_details": None},
+        [{"id": "doc-1"}],
+    )
     db = make_supabase({"doctors": doctors})
     with patch("app.routers.doctors.supabase", db):
         res = client.patch(

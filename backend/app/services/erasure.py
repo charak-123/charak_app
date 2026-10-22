@@ -36,6 +36,10 @@ def request_patient_deletion(user_id: str) -> dict:
         "deleted_at": now.isoformat(),
         "deletion_requested_at": now.isoformat(),
         "fcm_token": None,          # stop push to this device at once
+        # End every existing session too. Signing back in (which cancels the
+        # deletion) issues a fresh token; an old one on a lost phone does not
+        # quietly keep working inside a "deleted" account.
+        "sessions_revoked_at": now.isoformat(),
     }).eq("id", user_id).execute()
 
     # Transient personal data that need not survive the grace window at all.
@@ -130,12 +134,14 @@ def purge_patient(user_id: str) -> None:
     supabase.table("patient_addresses").delete().eq("patient_id", user_id).execute()
 
     # 5. The identity itself. phone becomes a tombstone sentinel that frees the
-    #    real number for a fresh signup; the Google link and email go too, so the
-    #    same Google account signs up afresh instead of landing on this row.
+    #    real number for a fresh signup; the Google and Firebase links and the
+    #    email go too, so the same account signs up afresh instead of landing
+    #    back on this row (and silently "reactivating" it).
     supabase.table("users").update({
         "phone": f"deleted:{user_id}",
         "email": None,
         "google_sub": None,
+        "firebase_uid": None,
         "name": None,
         "fcm_token": None,
         "otp_verified": False,
@@ -162,6 +168,7 @@ def request_doctor_deletion(doctor_id: str) -> dict:
         "suspended_reason": "account deletion requested",
         "suspended_at": now.isoformat(),
         "fcm_token": None,
+        "sessions_revoked_at": now.isoformat(),
     }).eq("id", doctor_id).execute()
     _record_dsr(doctor_id, "erasure")
     _audit(doctor_id, "doctor", "account_deletion_requested")
@@ -194,8 +201,11 @@ def purge_doctor(doctor_id: str) -> None:
         "phone": f"deleted:{doctor_id}",
         "email": None,
         "google_sub": None,
+        "firebase_uid": None,
         "name": None,
         "bio": None,
+        # Qualification, college, council registration, NUID, HPR ID.
+        "application_details": None,
         "photo_url": None,
         "photo_path": None,
         "license_number": None,

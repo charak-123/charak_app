@@ -3,8 +3,10 @@ Procedure bills router.
 
 Flow:
   booking completed → POST /bookings/:id/procedure-bill (doctor submits line items)
-  if total > doctor.procedure_review_threshold → status = under_review
-  else                                          → status = approved (ready for patient payment)
+  if total > effective threshold → status = under_review
+  else                           → status = approved (ready for patient payment)
+  (effective threshold = the doctor's own, capped at PROCEDURE_REVIEW_THRESHOLD_MAX;
+   the cap itself when the doctor has not set one)
   ops approves via admin → status = approved
   patient pays → status = paid (handled in payments router)
 """
@@ -12,12 +14,26 @@ Flow:
 from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 
+from ..config import PROCEDURE_REVIEW_THRESHOLD_MAX
 from ..db import fetch_one, supabase
 from ..deps import require_doctor, require_ops, get_current_user
 from ..errors import AppError
-from ..services import notifications
+from ..services import audit, notifications
 
 router = APIRouter()
+
+
+def effective_review_threshold(doctor_threshold) -> float:
+    """
+    The bill total above which senior review applies.
+
+    The doctor's own setting can only make review stricter. Unset used to mean
+    "never review", and a doctor could raise their own threshold past any bill
+    they meant to send — the reviewed party choosing whether to be reviewed.
+    """
+    if doctor_threshold is None:
+        return PROCEDURE_REVIEW_THRESHOLD_MAX
+    return min(float(doctor_threshold), PROCEDURE_REVIEW_THRESHOLD_MAX)
 
 
 class BillLineItem(BaseModel):
@@ -53,8 +69,8 @@ def create_bill(
     # Check senior review threshold
     doc = fetch_one(supabase.table("doctors").select("procedure_review_threshold") \
         .eq("id", user["sub"]))
-    threshold = doc.get("procedure_review_threshold") if doc else None
-    needs_review = threshold is not None and total > threshold
+    threshold = effective_review_threshold(doc.get("procedure_review_threshold") if doc else None)
+    needs_review = total > threshold
     status = "under_review" if needs_review else "approved"
 
     items = [item.model_dump() for item in body.items]
@@ -107,6 +123,8 @@ def approve_bill(
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", bill["id"]).execute().data[0]
 
+    audit.record(user, "procedure_bills", bill["id"], "bill_approved")
+
     booking = fetch_one(supabase.table("bookings").select("*").eq("id", booking_id))
     if booking:
         notifications.bill_approved(booking, bill["total"], background)
@@ -121,10 +139,12 @@ def flag_bill(booking_id: str, user: dict = Depends(require_ops)):
     if bill["status"] != "under_review":
         raise AppError(f"Bill status is '{bill['status']}', cannot flag", 400)
     from datetime import datetime, timezone
-    return supabase.table("procedure_bills").update({
+    updated = supabase.table("procedure_bills").update({
         "reviewed_by": _reviewer_id(user),
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", bill["id"]).execute().data[0]
+    audit.record(user, "procedure_bills", bill["id"], "bill_flagged")
+    return updated
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

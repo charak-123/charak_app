@@ -55,6 +55,16 @@ def _generate_agora_token(channel: str, uid: int) -> str:
     )
 
 
+def _channel_for(booking_id: str) -> str:
+    """
+    The Agora channel for a booking: the whole id, not a prefix. An 8-character
+    prefix is 32 bits — two bookings sharing it would share a channel, and a
+    token minted for one would admit its holder to the other's call. 43
+    characters, inside Agora's 64-byte limit.
+    """
+    return f"charak_{booking_id}"
+
+
 class CallComplete(BaseModel):
     notes: Optional[str] = None
 
@@ -90,7 +100,7 @@ def initiate_call(
         "call_status": "initiated",
     }).execute().data[0]
 
-    channel_name = f"charak_{booking_id[:8]}"
+    channel_name = _channel_for(booking_id)
     token = _generate_agora_token(channel_name, 0)
 
     notifications.clarification_call_started(b, background)
@@ -139,7 +149,7 @@ def patient_join_token(
     if call[0]["call_status"] != "initiated":
         raise AppError("Call is no longer in progress", 400)
 
-    channel_name = f"charak_{booking_id[:8]}"
+    channel_name = _channel_for(booking_id)
     uid = (body or JoinRequest()).uid
     return {
         "agora_channel": channel_name,
@@ -198,7 +208,7 @@ def join_active_call(
     if not active and not is_paid_consult:
         raise AppError("No call is in progress for this booking", 404)
 
-    channel_name = f"charak_{booking_id[:8]}"
+    channel_name = _channel_for(booking_id)
     uid = (body or JoinRequest()).uid
     token = _generate_agora_token(channel_name, uid)
     return {

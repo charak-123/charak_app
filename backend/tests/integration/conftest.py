@@ -27,6 +27,19 @@ if not os.getenv("CHARAK_INTEGRATION"):
         allow_module_level=True,
     )
 
+from urllib.parse import urlparse                # noqa: E402
+
+# clean_db below deletes every row of every table. CHARAK_INTEGRATION alone is
+# not enough of a guard: with it set and backend/.env pointing at the live
+# project, this suite would wipe production. Refuse anything but the local stack.
+_host = urlparse(os.getenv("SUPABASE_URL", "")).hostname
+if _host not in ("localhost", "127.0.0.1", "::1"):
+    pytest.exit(
+        f"integration suite refuses to run against {_host!r}: it deletes every "
+        "row in every table. Point SUPABASE_URL at the local stack (stack.sh up).",
+        returncode=2,
+    )
+
 from app.db import supabase                     # noqa: E402 — after the skip guard
 
 # Every table the suite writes to, ordered children-before-parents so plain

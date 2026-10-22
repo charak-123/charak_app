@@ -20,7 +20,17 @@ from .routers import (
 )
 from .services.notifications import push_enabled
 
-app = FastAPI(title="Charak API", version="0.2.0")
+# The interactive docs publish a complete map of every route and payload. Useful
+# locally, a free reconnaissance aid in production — so off unless asked for.
+_docs_enabled = os.getenv("ENABLE_API_DOCS", "").lower() in ("1", "true", "yes")
+
+app = FastAPI(
+    title="Charak API",
+    version="0.2.0",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 # The mobile apps are not browsers and send no Origin, so CORS only governs the
 # admin dashboard. ALLOWED_ORIGINS is a comma-separated list; the "*" default
@@ -115,7 +125,10 @@ def ready():
         db_error = None
     except Exception as exc:
         db_ok = False
-        db_error = str(exc)[:200]
+        # The driver's message can name hosts, roles and tables; this endpoint
+        # is unauthenticated, so the detail goes to the log, not the response.
+        logger.error("readiness check: database unreachable — %r", exc)
+        db_error = "unreachable"
 
     return {
         # Live keys with an unverifiable webhook is a degraded deploy, not a

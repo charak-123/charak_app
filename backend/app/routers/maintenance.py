@@ -6,6 +6,7 @@ because the caller is a scheduler (Fly machine cron, GitHub Actions, or an
 external pinger), not a person. When CRON_SECRET is unset these are ops-only, so
 a missing secret in development is inconvenient rather than dangerous.
 """
+import hmac
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header
@@ -27,7 +28,9 @@ def require_cron(x_cron_secret: Optional[str] = Header(None)) -> bool:
     """
     if not CRON_SECRET:
         raise AppError("CRON_SECRET is not configured on this deployment", 503)
-    if not x_cron_secret or x_cron_secret != CRON_SECRET:
+    # Constant-time: `!=` returns at the first differing byte, which leaks how
+    # much of a guess was right.
+    if not x_cron_secret or not hmac.compare_digest(x_cron_secret, CRON_SECRET):
         raise AppError("Invalid cron secret", 401)
     return True
 

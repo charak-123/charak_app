@@ -1,7 +1,11 @@
-fastapi==0.118.0
+fastapi==0.160.0
+# Pinned explicitly: FastAPI accepts older Starlette, and the advisories fixed
+# in 1.x (form-parsing limits, Host/path URL rebuilding) apply to this app.
+starlette==1.9.0
 uvicorn[standard]==0.35.0
 supabase==2.31.0
-python-jose[cryptography]==3.5.0
+# Session JWTs (HS256). Replaces python-jose, which is unmaintained.
+PyJWT==2.15.0
 python-dotenv==1.2.3
 httpx==0.28.1
 pydantic==2.13.4

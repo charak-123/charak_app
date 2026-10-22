@@ -12,7 +12,8 @@ router = APIRouter()
 
 class UserUpdate(BaseModel):
     name: str | None = None
-    # Collected on the profile step after Google sign-in. Not OTP-verified.
+    # Collected on the profile step after Google sign-in. A contact number, not
+    # a proven one: changing it clears otp_verified (see update_me).
     phone: str | None = None
 
     @field_validator("phone")
@@ -27,8 +28,20 @@ def get_me(user: dict = Depends(get_current_user)):
 
 
 @router.patch("/me")
-def update_me(body: UserUpdate, user: dict = Depends(get_current_user)):
+def update_me(body: UserUpdate, user: dict = Depends(require_patient)):
     data = body.model_dump(exclude_none=True)
+    if not data:
+        raise AppError("No fields to update", 400)
+
+    if "phone" in data:
+        current = fetch_one(supabase.table("users").select("phone").eq("id", user["sub"]))
+        if not current:
+            raise AppError("Account not found", 404)
+        # A typed-in number is a claim, not proof. Only OTP / Firebase phone
+        # sign-in may mark a number verified (services/identity.py).
+        if data["phone"] != current.get("phone"):
+            data["otp_verified"] = False
+
     try:
         result = supabase.table("users").update(data).eq("id", user["sub"]).execute()
     except APIError as exc:

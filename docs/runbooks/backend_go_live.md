@@ -42,6 +42,36 @@ not exist.
 
 ---
 
+## 0b. Close Supabase's own client door (required)
+
+The apps and the admin never use Supabase Auth or PostgREST directly; everything
+goes through the API with the service-role key. Two settings must match that:
+
+1. Dashboard → **Authentication → Sign In / Providers**: turn **off** "Allow new
+   users to sign up", and turn off the **Email** provider. Authentication →
+   Users should be empty.
+2. SQL Editor: run `supabase/migrations/0021_lock_down_client_roles.sql`. It
+   drops the old `auth.uid()` policies and revokes every table from `anon` and
+   `authenticated`, except `categories` (read by the keepalive workflow).
+
+Why both: with sign-up on, anyone holding the (public) anon key could mint an
+`authenticated` session, and 0004's `for all using (id = auth.uid())` policies
+let that session insert its own `doctors` row already marked `verified`.
+
+**Verify** (expect `401` for `doctors`/`users`, `200` for `categories`):
+
+```bash
+for t in doctors users bookings categories; do
+  curl -s -o /dev/null -w "$t %{http_code}\n" "$SUPABASE_URL/rest/v1/$t?select=id&limit=1" \
+    -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY"
+done
+```
+
+The verify queries at the bottom of 0021 also list any doctor marked verified
+without an ops approval in `audit_log`.
+
+---
+
 ## 1. SMS OTP — MSG91
 
 ```
@@ -301,7 +331,11 @@ export the production values first). It prints instructions for the one-time
 QR-code enrollment step done at `/admin/login` itself.
 
 ```
-ALLOWED_ORIGINS=https://admin.charak.care    # default '*' — tighten before launch
+ALLOWED_ORIGINS=https://charak.care          # the admin is served at charak.care/admin; default '*'
+TRUSTED_PROXY_HOPS=1                       # X-Forwarded-For entries our proxies append; 2 behind an HTTPS LB
+OTP_ALLOWED_COUNTRY_CODES=+91              # SMS only to these; stops SMS-pumping to premium ranges
+PROCEDURE_REVIEW_THRESHOLD_MAX=5000        # bills above this always get senior review
+ENABLE_API_DOCS=                           # leave unset in production (/docs, /openapi.json stay 404)
 PLATFORM_COMMISSION_PCT=15                 # Charak's cut; per-doctor override in doctors.commission_pct
 PAYMENT_HOLD_MINUTES=10                    # how long a slot is held for payment
 ADMIN_TOKEN_TTL_HOURS=12                   # default — admin sessions are short-lived by design

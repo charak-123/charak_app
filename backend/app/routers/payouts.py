@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from ..db import supabase
 from ..deps import require_doctor, require_ops
 from ..errors import AppError
-from ..services import notifications, payouts as engine
+from ..services import audit, notifications, payouts as engine
 
 router = APIRouter()
 
@@ -174,7 +174,9 @@ def run_payout(body: PayoutRunRequest, user: dict = Depends(require_ops)):
     start = body.period_start or (_now() - timedelta(days=30)).isoformat()
     if start >= end:
         raise AppError("period_start must be before period_end", 400)
-    return engine.create_payout(body.doctor_id, start, end)
+    payout = engine.create_payout(body.doctor_id, start, end)
+    audit.record(user, "payouts", (payout or {}).get("id"), "payout_run")
+    return payout
 
 
 class PayoutStatusUpdate(BaseModel):
@@ -201,6 +203,7 @@ def update_payout(
         raise AppError("reference (bank UTR) is required to mark a payout paid", 400)
 
     payout = engine.mark_payout(payout_id, body.status, body.reference, body.failure_reason)
+    audit.record(user, "payouts", payout_id, f"payout_{body.status}")
 
     if body.status == "paid":
         notifications.payout_paid(payout["doctor_id"], payout, background)
@@ -286,7 +289,7 @@ def create_adjustment(body: AdjustmentRequest, user: dict = Depends(require_ops)
         raise AppError("amount must be positive", 400)
 
     gross, _, _ = engine.split(body.amount, 0)
-    return supabase.table("doctor_ledger_entries").insert({
+    entry = supabase.table("doctor_ledger_entries").insert({
         "doctor_id": body.doctor_id,
         "booking_id": None,
         "source": "adjustment",
@@ -297,3 +300,5 @@ def create_adjustment(body: AdjustmentRequest, user: dict = Depends(require_ops)
         "status": "payable",
         "note": body.note,
     }).execute().data[0]
+    audit.record(user, "doctor_ledger_entries", entry.get("id"), "ledger_adjustment")
+    return entry

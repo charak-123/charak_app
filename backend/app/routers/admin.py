@@ -3,16 +3,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
-from jose import jwt
+import jwt
 from pydantic import BaseModel, Field
 
 from ..config import ADMIN_TOKEN_TTL_HOURS, JWT_SECRET
 from ..db import supabase
 from ..deps import require_ops
 from ..errors import AppError
-from ..services import admin_auth, erasure, notifications, payouts
+from ..services import admin_auth, audit, erasure, notifications, payouts
 from ..services.admin_auth import AdminAuthError
-from ..services.rate_limit import rate_limiter
+from ..services.rate_limit import enforce as enforce_rate_limit, rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -67,21 +67,26 @@ VALID_COMPLAINT_STATUSES = {"open", "in_review", "resolved", "closed"}
 def admin_login(body: AdminLoginRequest):
     """
     Per-admin account + mandatory TOTP. See services/admin_auth.py for the
-    two-call protocol (password, then password+code). Rate-limited to 5
-    attempts per 15 minutes per IP — on top of bcrypt's own cost per guess,
-    this is enough to make an online brute force impractical.
+    two-call protocol (password, then password+code).
+
+    Rate-limited twice: 5 attempts per 15 minutes per IP, and 10 per 15
+    minutes per account. The per-account cap is what stops a distributed guess
+    — many addresses, one target — which a per-IP limit alone never sees.
     """
     email = body.email.strip().lower()
+    enforce_rate_limit("admin-login-account", email, 10, 900)
     try:
         admin = admin_auth.authenticate(email, body.password, body.totp_code)
     except AdminAuthError as exc:
         raise AppError(exc.message, exc.status_code, **exc.extra) from exc
 
+    now = datetime.now(timezone.utc)
     payload = {
         "sub": admin["id"],
         "email": admin["email"],
         "role": "ops",
-        "exp": datetime.now(timezone.utc) + timedelta(hours=ADMIN_TOKEN_TTL_HOURS),
+        "iat": now,
+        "exp": now + timedelta(hours=ADMIN_TOKEN_TTL_HOURS),
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
     return {"token": token}
@@ -346,6 +351,7 @@ def update_complaint_status(
 
     result = supabase.table("complaints").update({"status": body.status}) \
         .eq("id", complaint_id).execute()
+    _audit(user, "complaints", complaint_id, f"status_{body.status}")
     return result.data[0]
 
 
@@ -481,20 +487,8 @@ def read_audit_log(limit: int = 100, user: dict = Depends(require_ops)):
 
 
 def _audit(user: dict, entity: str, entity_id: Optional[str], action: str) -> None:
-    """
-    Record an ops action. Best-effort: an audit write must never be the reason a
-    verification fails, but every ops mutation should leave a trace.
-    """
-    try:
-        supabase.table("audit_log").insert({
-            "actor_id": user.get("sub"),   # the admin_users.id of whoever is logged in
-            "actor_role": user.get("role", "ops"),
-            "entity": entity,
-            "entity_id": entity_id,
-            "action": action,
-        }).execute()
-    except Exception as exc:  # pragma: no cover
-        logger.error("failed to record %s on %s/%s: %s", action, entity, entity_id, exc)
+    """Record an ops action. See services/audit.py."""
+    audit.record(user, entity, entity_id, action)
 
 
 # ── Doctor account-deletion requests (ops fulfils) ───────────────────────────
@@ -545,4 +539,5 @@ def fulfill_doctor_deletion(doctor_id: str, user: dict = Depends(require_ops)):
         )
 
     erasure.purge_doctor(doctor_id)
+    _audit(user, "doctors", doctor_id, "deletion_fulfilled")
     return {"ok": True, "doctor_id": doctor_id, "status": "fulfilled"}
