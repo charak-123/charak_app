@@ -14,6 +14,7 @@ const DirectoryOversight = lazy(() => import('@/pages/DirectoryOversight'))
 const SeniorReviewQueue = lazy(() => import('@/pages/SeniorReviewQueue'))
 const DeletionRequests  = lazy(() => import('@/pages/DeletionRequests'))
 const Refunds           = lazy(() => import('@/pages/Refunds'))
+const Visits            = lazy(() => import('@/pages/Visits'))
 
 function Guard({ children }: { children: React.ReactNode }) {
   return isAuthed() ? <>{children}</> : <Navigate to="/login" replace />
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="verification" element={<VerificationQueue />} />
             <Route path="bookings"      element={<BookingsMonitor />} />
             <Route path="complaints"    element={<ComplaintInbox />} />
+            <Route path="visits"        element={<Visits />} />
             <Route path="refunds"       element={<Refunds />} />
             <Route path="directory"     element={<DirectoryOversight />} />
             <Route path="senior-review" element={<SeniorReviewQueue />} />

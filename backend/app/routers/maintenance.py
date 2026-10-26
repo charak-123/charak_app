@@ -7,6 +7,7 @@ external pinger), not a person. When CRON_SECRET is unset these are ops-only, so
 a missing secret in development is inconvenient rather than dangerous.
 """
 import hmac
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header
@@ -16,6 +17,11 @@ from ..config import CRON_SECRET
 from ..db import supabase
 from ..errors import AppError
 from ..services import app_config, erasure, jobs, notifications, otp_store, refunds
+# Imported for their job handlers: a tick must be able to run every kind
+# that can be queued, whichever routes this instance has served.
+from ..services import prescriptions, visits  # noqa: F401
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -91,7 +97,13 @@ def tick(_: bool = Depends(require_cron)):
     """
     outbox = notifications.sweep_outbox()
     queue = jobs.run_due(budget_seconds=40.0)
-    return {"notifications": outbox, "jobs": queue}
+    # Backstop for the 72-hour completion: anything a lost job left waiting.
+    try:
+        completed = visits.complete_overdue()
+    except Exception as exc:                       # noqa: BLE001 — never fail the tick
+        logger.error("completion backstop failed: %r", exc)
+        completed = None
+    return {"notifications": outbox, "jobs": queue, "completed_overdue": completed}
 
 
 @router.post("/retry-refunds")

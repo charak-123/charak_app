@@ -48,20 +48,21 @@ class ActiveVisitScreen extends ConsumerStatefulWidget {
 
 class _State extends ConsumerState<ActiveVisitScreen> {
   List<_ProcedureEntry> _procedures = [];
-  bool _completing = false;
+  bool _acting = false;
+  bool _billing = false;
+  bool _billed = false;
   bool _notifyingLate = false;
 
-  /// Counts from the moment this screen is opened — the doctor opens it when
-  /// they arrive, so it measures the visit rather than the whole booking. It is
-  /// a reference for the doctor, not a billing input.
+  /// Time since the consultation started (the server's `started_at`). A
+  /// reference for the doctor, not a billing input.
   Timer? _tick;
-  Duration _elapsed = Duration.zero;
+  DateTime _now = DateTime.now();
 
   @override
   void initState() {
     super.initState();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsed += const Duration(seconds: 1));
+      if (mounted) setState(() => _now = DateTime.now());
     });
   }
 
@@ -71,12 +72,14 @@ class _State extends ConsumerState<ActiveVisitScreen> {
     super.dispose();
   }
 
-  String get _clock {
-    final h = _elapsed.inHours;
-    final m = _elapsed.inMinutes % 60;
-    final sec = _elapsed.inSeconds % 60;
-    final mm = m.toString().padLeft(2, '0');
-    final ss = sec.toString().padLeft(2, '0');
+  void _refresh() => ref.invalidate(_activeVisitProvider(widget.bookingId));
+
+  String _clock(DateTime since) {
+    final e = _now.difference(since);
+    final elapsed = e.isNegative ? Duration.zero : e;
+    final h = elapsed.inHours;
+    final mm = (elapsed.inMinutes % 60).toString().padLeft(2, '0');
+    final ss = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
     return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
   }
 
@@ -102,44 +105,72 @@ class _State extends ConsumerState<ActiveVisitScreen> {
       .map((p) => {'name': p.name, 'price': p.unitPrice})
       .toList();
 
-  Future<void> _markComplete(Map<String, dynamic> booking) async {
-    final confirmed = await showCharakConfirm(
-      context,
-      title: 'Mark visit complete?',
-      message: _selectedItems.isEmpty
-          ? 'No procedures selected. The consult fee is already paid, so nothing more is billed.'
-          : '${_selectedItems.length} procedure(s) totalling ${CharakFormat.rupees(_total)} will be billed.',
-      confirmLabel: 'Complete',
-    );
-    if (!confirmed || !mounted) return;
-
-    setState(() => _completing = true);
+  /// Runs one server action, then reloads the visit. A failure leaves the
+  /// screen as it was and says why: nothing shows as done until the server
+  /// says it is.
+  Future<void> _act(Future<void> Function() action, {String? done}) async {
+    setState(() => _acting = true);
     try {
-      await ApiClient.instance.patch('/bookings/${widget.bookingId}/complete', {});
-      if (_selectedItems.isNotEmpty) {
-        await ApiClient.instance.post(
-          '/bookings/${widget.bookingId}/procedure-bill',
-          {'items': _selectedItems},
-        );
-      }
+      await action();
+      if (mounted && done != null) showCharakToast(context, message: done);
+      _refresh();
+    } on ApiException catch (e) {
+      if (mounted) showCharakToast(context, message: e.message, isError: true);
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
+  }
+
+  Future<void> _startJourney() async {
+    final ok = await showCharakConfirm(
+      context,
+      title: 'Start journey?',
+      message: 'Tap this as you leave for the patient. They are told you are on the way. '
+          'From now, if they cancel, the fee is not refunded.',
+      confirmLabel: 'Start journey',
+    );
+    if (!ok || !mounted) return;
+    await _act(() => ApiClient.instance.post('/bookings/${widget.bookingId}/journey/start', {}),
+        done: 'Journey started. The patient has been told.');
+  }
+
+  Future<void> _startConsultation() async {
+    final ok = await showCharakConfirm(
+      context,
+      title: 'Start the consultation?',
+      message: "Tap this when you're with the patient. The booking can't be cancelled after this.",
+      confirmLabel: 'Start',
+    );
+    if (!ok || !mounted) return;
+    await _act(() => ApiClient.instance.post('/bookings/${widget.bookingId}/consultation/start', {}));
+  }
+
+  Future<void> _openPrescription() async {
+    await context.push('/visit/${widget.bookingId}/prescription');
+    _refresh();
+  }
+
+  Future<void> _billProcedures() async {
+    final items = _selectedItems;
+    final ok = await showCharakConfirm(
+      context,
+      title: 'Bill ${items.length} procedure${items.length == 1 ? '' : 's'}?',
+      message: '${CharakFormat.rupees(_total)} is billed to the patient. '
+          'Bills above your review threshold go to a senior doctor first.',
+      confirmLabel: 'Send bill',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _billing = true);
+    try {
+      await ApiClient.instance.post('/bookings/${widget.bookingId}/procedure-bill', {'items': items});
       if (mounted) {
-        // The consult fee was paid before the visit (completion requires it).
-        // Only a procedure bill can still be outstanding, and it may go to
-        // senior review before the patient sees it.
-        showCharakToast(
-          context,
-          message: _selectedItems.isEmpty
-              ? 'Visit completed'
-              : 'Visit completed — procedure bill created',
-        );
-        context.go('/home');
+        setState(() => _billed = true);
+        showCharakToast(context, message: 'Procedure bill sent');
       }
     } on ApiException catch (e) {
-      if (mounted) {
-        showCharakToast(context, message: e.message, isError: true);
-      }
+      if (mounted) showCharakToast(context, message: e.message, isError: true);
     } finally {
-      if (mounted) setState(() => _completing = false);
+      if (mounted) setState(() => _billing = false);
     }
   }
 
@@ -173,13 +204,13 @@ class _State extends ConsumerState<ActiveVisitScreen> {
   /// Tells the patient the doctor is delayed. A nudge only — the booking does
   /// not change state, so this stays available however many times it is needed.
   Future<void> _runningLate(Map<String, dynamic> booking) async {
-    final minutes = await showModalBottomSheet<int>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => CharakSheet(
-        title: 'Let the patient know',
-        child: Column(
+    final minutes = await showCharakSheet<int>(
+      context,
+      title: 'Let the patient know',
+      child: Builder(
+        builder: (ctx) => Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -193,7 +224,7 @@ class _State extends ConsumerState<ActiveVisitScreen> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: CharakButton(
                   label: '$m minutes late',
-                  outlined: true,
+                  variant: CharakButtonVariant.outline,
                   onPressed: () => Navigator.pop(ctx, m),
                 ),
               ),
@@ -219,124 +250,214 @@ class _State extends ConsumerState<ActiveVisitScreen> {
     }
   }
 
+  /// The one thing to do next, for the CTA bar, and why it may not be open yet.
+  ({String label, IconData icon, VoidCallback? onPressed, String? hint}) _next(
+      Map<String, dynamic> booking) {
+    final status = booking['status'] as String? ?? '';
+    final isHome = booking['channel'] == 'home_visit';
+    final start = DateTime.tryParse(booking['scheduled_start'] as String? ?? '')?.toLocal();
+    final journeyAt = DateTime.tryParse(booking['journey_started_at'] as String? ?? '')?.toLocal();
+    final opens = start?.subtract(Duration(minutes: isHome ? 120 : 15));
+    final early = opens != null && _now.isBefore(opens);
+    final opensLine = opens == null ? null : 'Opens at ${DateFormat('h:mm a').format(opens)}';
+
+    switch (status) {
+      case 'paid' when isHome && journeyAt == null:
+        return (
+          label: 'Start journey',
+          icon: LucideIcons.navigation,
+          onPressed: early ? null : _startJourney,
+          hint: early ? '$opensLine, 2 hours before the visit' : 'Tap as you leave',
+        );
+      case 'paid' when isHome:
+        return (
+          label: 'Start consultation',
+          icon: LucideIcons.stethoscope,
+          onPressed: early ? null : _startConsultation,
+          hint: early ? opensLine : null,
+        );
+      case 'paid':
+        return (
+          label: 'Join call',
+          icon: LucideIcons.video,
+          onPressed: early ? null : () => context.push('/consult/${widget.bookingId}'),
+          hint: early ? '$opensLine, 15 minutes before' : 'Joining starts the consultation',
+        );
+      case 'in_progress':
+        return (
+          label: 'Write prescription',
+          icon: LucideIcons.notebookPen,
+          onPressed: _openPrescription,
+          hint: null,
+        );
+      case 'consulted' || 'completed':
+        return (
+          label: 'View prescription',
+          icon: LucideIcons.fileText,
+          onPressed: _openPrescription,
+          hint: null,
+        );
+      default:
+        return (
+          label: 'Waiting for payment',
+          icon: LucideIcons.hourglass,
+          onPressed: null,
+          hint: 'The visit opens once the patient pays',
+        );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_activeVisitProvider(widget.bookingId));
     return CharakScreen(
-      title: 'Active visit',
+      title: 'Visit',
       body: async.when(
-        // `.skel` blocks matching the real body — `.act-doctor-card`, the
-        // visit-lines card, the procedure checklist and the two actions.
         loading: () => ListView(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
           children: const [
-            CharakSkeleton(height: 78, radius: 14),
+            CharakSkeleton(height: 78, radius: 26),
             SizedBox(height: 12),
-            CharakSkeleton(height: 104, radius: 14),
+            CharakSkeleton(height: 104, radius: 26),
             SizedBox(height: 14),
-            CharakSkeleton(height: 210, radius: 14),
-            SizedBox(height: 14),
-            CharakSkeleton(height: 50, radius: 12),
-            SizedBox(height: 10),
-            CharakSkeleton(height: 50, radius: 12),
+            CharakSkeleton(height: 210, radius: 26),
           ],
         ),
-        error: (e, _) => Center(
-          child: Text('Failed to load visit',
-              style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
-        ),
+        error: (e, _) => CharakErrorState(error: e, onRetry: _refresh),
         data: (data) {
           final booking = data['booking'] as Map<String, dynamic>;
           final procs   = data['procedures'] as List;
           _initProcedures(procs);
+          final status = booking['status'] as String? ?? '';
           final isHome = booking['channel'] == 'home_visit';
-          final isPaid = booking['status'] == 'paid';
           final price  = booking['price_confirmed'] as num?;
+          final journeyAt = DateTime.tryParse(booking['journey_started_at'] as String? ?? '')?.toLocal();
+          final startedAt = DateTime.tryParse(booking['started_at'] as String? ?? '')?.toLocal();
+          final before = status == 'accepted' || status == 'paid';
+          final during = status == 'in_progress' || status == 'consulted';
+          final next = _next(booking);
 
           final threshold = (booking['doctors'] as Map<String, dynamic>?)?['procedure_review_threshold'];
           final needsReview = threshold != null && _total > (threshold as num);
 
           return Column(children: [
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
-                children: [
-                  // `.pulse` — the status block flashes when the booking's
-                  // status moves (accepted → paid → completed).
-                  CharakStatusPulse(
-                    trigger: booking['status'],
-                    child: _PatientInfoCard(booking: booking),
-                  ),
-                  const SizedBox(height: 10),
-                  _VisitTimer(clock: _clock),
-                  const SizedBox(height: 12),
-                  if (isPaid) ...[
-                    CharakNoteBanner(
-                      icon: LucideIcons.banknote,
-                      leadLabel: 'Payment received',
-                      message: '— ${CharakFormat.rupees(price)} confirmed. Visit proceeds.',
-                      tone: CharakStatusTone.success,
+              child: RefreshIndicator(
+                onRefresh: () async => _refresh(),
+                color: CharakColors.primary,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+                  children: [
+                    CharakStatusPulse(
+                      trigger: status,
+                      child: _PatientInfoCard(booking: booking),
                     ),
                     const SizedBox(height: 12),
-                  ],
-                  _VisitLinesCard(booking: booking),
-                  const SizedBox(height: 14),
-                  if (isHome) ...[
-                    // The bill crossing the senior-review threshold is a
-                    // status change too — pulse the card that reports it.
-                    CharakStatusPulse(
-                      trigger: needsReview,
-                      child: _ProcedureChecklist(
-                        procedures: _procedures,
-                        total: _total,
-                        threshold: threshold != null ? (threshold as num).toDouble() : null,
-                        needsReview: needsReview,
-                        onToggle: (i) =>
-                            setState(() => _procedures[i].selected = !_procedures[i].selected),
+                    if (status == 'in_progress' && startedAt != null) ...[
+                      _VisitTimer(clock: _clock(startedAt)),
+                      const SizedBox(height: 12),
+                    ],
+                    if (journeyAt != null && before) ...[
+                      CharakNoteBanner(
+                        icon: LucideIcons.navigation,
+                        leadLabel: 'Journey started',
+                        message: ' at ${DateFormat('h:mm a').format(journeyAt)}. The patient knows you are on the way.',
+                        tone: CharakStatusTone.active,
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                    ] else if (status == 'paid') ...[
+                      CharakNoteBanner(
+                        icon: LucideIcons.banknote,
+                        leadLabel: 'Paid',
+                        message: ' ${CharakFormat.rupees(price)} confirmed. The visit goes ahead.',
+                        tone: CharakStatusTone.confirmed,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (status == 'consulted') ...[
+                      const CharakNoteBanner(
+                        icon: LucideIcons.send,
+                        leadLabel: 'Prescription sent.',
+                        message: ' The visit completes when the patient opens it, or 72 hours after you sent it.',
+                        tone: CharakStatusTone.active,
+                      ),
+                      const SizedBox(height: 12),
+                    ] else if (status == 'completed') ...[
+                      const CharakNoteBanner(
+                        icon: LucideIcons.circleCheck,
+                        leadLabel: 'Visit complete.',
+                        message: ' The fee shows in Earnings and can be withdrawn once its hold ends.',
+                        tone: CharakStatusTone.confirmed,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    _VisitLinesCard(booking: booking),
                     const SizedBox(height: 14),
-                    CharakButton(
-                      label: 'Navigate to patient',
-                      icon: LucideIcons.navigation,
-                      onPressed: () => _navigateToPatient(booking),
-                    ),
-                    const SizedBox(height: 10),
-                    CharakButton(
-                      label: 'Running late',
-                      outlined: true,
-                      icon: LucideIcons.clock,
-                      isLoading: _notifyingLate,
-                      onPressed: () => _runningLate(booking),
-                    ),
-                  ] else ...[
-                    CharakButton(label: 'Start call', icon: LucideIcons.video, onPressed: () => context.push('/call/${widget.bookingId}')),
-                    const SizedBox(height: 10),
-                    CharakButton(
-                      label: 'Running late',
-                      outlined: true,
-                      icon: LucideIcons.clock,
-                      isLoading: _notifyingLate,
-                      onPressed: () => _runningLate(booking),
-                    ),
+                    if (isHome && during) ...[
+                      CharakStatusPulse(
+                        trigger: needsReview,
+                        child: _ProcedureChecklist(
+                          procedures: _procedures,
+                          total: _total,
+                          threshold: threshold != null ? (threshold as num).toDouble() : null,
+                          needsReview: needsReview,
+                          onToggle: _billed
+                              ? null
+                              : (i) => setState(() => _procedures[i].selected = !_procedures[i].selected),
+                          action: CharakButton(
+                            label: _billed ? 'Bill sent' : 'Send procedure bill',
+                            variant: CharakButtonVariant.tonal,
+                            isLoading: _billing,
+                            onPressed: _billed || _selectedItems.isEmpty ? null : _billProcedures,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    if (before && isHome) ...[
+                      CharakButton(
+                        label: 'Navigate to patient',
+                        icon: LucideIcons.mapPinned,
+                        variant: CharakButtonVariant.outline,
+                        onPressed: () => _navigateToPatient(booking),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (status == 'in_progress' && !isHome) ...[
+                      CharakButton(
+                        label: 'Rejoin call',
+                        icon: LucideIcons.video,
+                        variant: CharakButtonVariant.outline,
+                        onPressed: () => context.push('/consult/${widget.bookingId}'),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (before)
+                      CharakButton(
+                        label: 'Running late',
+                        variant: CharakButtonVariant.outline,
+                        icon: LucideIcons.clock,
+                        isLoading: _notifyingLate,
+                        onPressed: () => _runningLate(booking),
+                      ),
                   ],
-                  const SizedBox(height: 8),
-                  CharakHintLine(
-                    align: TextAlign.center,
-                    text: 'Consult fee ${CharakFormat.rupees(price)} is confirmed from the request. '
-                        'Procedures are billed separately after the visit.',
-                  ),
-                ],
+                ),
               ),
             ),
-            CharakCtaBar.single(
-              CharakButton(
-                label: 'Mark as complete',
-                icon: LucideIcons.flag,
-                isLoading: _completing,
-                onPressed: () => _markComplete(booking),
-              ),
+            CharakCtaBar(
+              header: next.hint == null
+                  ? null
+                  : Text(next.hint!, textAlign: TextAlign.center, style: charakHintStyle),
+              children: [
+                Expanded(
+                  child: CharakButton(
+                    label: next.label,
+                    icon: next.icon,
+                    isLoading: _acting,
+                    onPressed: next.onPressed,
+                  ),
+                ),
+              ],
             ),
           ]);
         },
@@ -388,10 +509,9 @@ class _PatientInfoCard extends StatelessWidget {
         // `.fade-swap` — keyed on the status so the pill lifts and
         // cross-fades whenever the booking moves on.
         CharakFadeSwap(
-          child: CharakStatusPill(
+          child: CharakStatusPill.forStatus(
+            booking['status'] as String? ?? '',
             key: ValueKey(booking['status']),
-            label: 'Accepted',
-            tone: CharakStatusTone.success,
           ),
         ),
       ]),
@@ -448,13 +568,17 @@ class _ProcedureChecklist extends StatelessWidget {
   final double total;
   final double? threshold;
   final bool needsReview;
-  final void Function(int) onToggle;
+
+  /// Null once the bill is sent: the list is then a record.
+  final void Function(int)? onToggle;
+  final Widget action;
   const _ProcedureChecklist({
     required this.procedures,
     required this.total,
     required this.threshold,
     required this.needsReview,
     required this.onToggle,
+    required this.action,
   });
 
   @override
@@ -468,8 +592,8 @@ class _ProcedureChecklist extends StatelessWidget {
       const CharakSectionTitle(label: 'Procedures performed'),
       const SizedBox(height: 2),
       Text(
-        'Tap the procedures done this visit — fixed rates apply. Patient is billed '
-        'after the visit.',
+        'Tick the procedures done this visit (your fixed rates), then send the bill. '
+        'The patient pays it separately.',
         style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
       ),
       const SizedBox(height: 10),
@@ -481,7 +605,7 @@ class _ProcedureChecklist extends StatelessWidget {
           final i = e.key;
           final p = e.value;
           return GestureDetector(
-            onTap: () => onToggle(i),
+            onTap: onToggle == null ? null : () => onToggle!(i),
             behavior: HitTestBehavior.opaque,
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 11),
@@ -507,7 +631,7 @@ class _ProcedureChecklist extends StatelessWidget {
                     side: BorderSide(color: CharakColors.border, width: 1.5),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     visualDensity: VisualDensity.compact,
-                    onChanged: (_) => onToggle(i),
+                    onChanged: onToggle == null ? null : (_) => onToggle!(i),
                   ),
                 ),
               ]),
@@ -545,6 +669,7 @@ class _ProcedureChecklist extends StatelessWidget {
           text: 'Bills above ${CharakFormat.rupees(threshold!)} are auto-sent for senior review.',
         ),
       ],
+      if (procedures.isNotEmpty) ...[const SizedBox(height: 14), action],
     ]),
   );
 }

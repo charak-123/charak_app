@@ -240,7 +240,7 @@ def test_history_includes_no_show_bookings():
     for c in _client(DOCTOR, db):
         res = c.get("/bookings/doctor/history", headers=AUTH)
     assert res.status_code == 200
-    bookings.in_.assert_any_call("status", ["completed", "declined", "cancelled", "no_show"])
+    bookings.in_.assert_any_call("status", ["consulted", "completed", "declined", "cancelled", "no_show"])
 
 
 # ── the hold sweeper ──────────────────────────────────────────────────────────

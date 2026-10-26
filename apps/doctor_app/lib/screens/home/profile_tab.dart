@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
+import 'package:image_picker/image_picker.dart';
 import 'shell_providers.dart';
 
 final _doctorProfileProvider = FutureProvider<Map<String, dynamic>>((ref) async {
@@ -125,6 +126,18 @@ class ProfileTab extends ConsumerWidget {
                   title: 'Home visit hours & radius',
                   subtitle: radius != null ? '$radius km' : null,
                   onTap: () => context.push('/setup/home-visit'),
+                ),
+                CharakListRow(
+                  icon: LucideIcons.signature,
+                  title: 'Prescription signature',
+                  subtitle: (me['signature_path'] as String?)?.isNotEmpty == true
+                      ? 'Added · printed on your prescriptions'
+                      : 'Not added',
+                  onTap: () async {
+                    if (await uploadSignature(context) && context.mounted) {
+                      ref.invalidate(_doctorProfileProvider);
+                    }
+                  },
                 ),
                 CharakListRow(
                   icon: LucideIcons.ban,
@@ -267,5 +280,37 @@ class _VerifCard extends StatelessWidget {
         ])),
       ]),
     );
+  }
+}
+
+
+/// The signature printed on this doctor's prescription PDFs: a photo of it
+/// signed on white paper. Stored privately; prescriptions already sent keep
+/// the signature they were made with. Returns whether one was saved.
+Future<bool> uploadSignature(BuildContext context) async {
+  final ok = await showCharakConfirm(
+    context,
+    title: 'Add your signature',
+    message: 'Sign on plain white paper and take a clear, close photo. '
+        'It is printed on the prescriptions you send from now on.',
+    confirmLabel: 'Take photo',
+  );
+  if (!ok) return false;
+  final photo = await ImagePicker().pickImage(
+      source: ImageSource.camera, imageQuality: 90, maxWidth: 1200);
+  if (photo == null) return false;
+  try {
+    final ext = photo.path.split('.').last.toLowerCase();
+    await ApiClient.instance.postFile(
+      '/uploads/doctor/signature',
+      bytes: await photo.readAsBytes(),
+      filename: photo.name,
+      contentType: ext == 'png' ? 'image/png' : 'image/jpeg',
+    );
+    if (context.mounted) showCharakToast(context, message: 'Signature saved');
+    return true;
+  } on ApiException catch (e) {
+    if (context.mounted) showCharakToast(context, message: e.message, isError: true);
+    return false;
   }
 }

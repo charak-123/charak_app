@@ -18,7 +18,19 @@ export API_URL=$(gcloud run services describe charak-api --region asia-south1 --
 
 ## 0. Apply the migrations (required first — nothing else works without this)
 
-> **Latest: `0024_cancellation_policy_and_consent.sql`.** Apply before deploying
+> **Latest: `0025_visit_prescriptions_followups.sql`.** Apply before deploying the
+> backend that uses it, and make sure `charak-tick` exists (§6) first: the
+> 72-hour completion, prescription and follow-up reminders and appointment
+> reminders all run from it. It adds the `in_progress` and `consulted`
+> statuses, Start Journey, prescriptions (drafts, sent versions, corrections;
+> sent ones can't be edited or deleted), completion when the patient opens the
+> prescription, follow-up recommendations, `call_joins`, and the doctor's
+> signature. Idempotent. Then create the `prescriptions` bucket (§3b). Old app
+> builds keep working: a doctor build without the prescription screen can still
+> mark a paid visit complete. Raise `min_app_version` (§6b) once the new builds
+> are in the stores, so every visit goes through a prescription.
+>
+> **Before it: `0024_cancellation_policy_and_consent.sql`** (applied 2026-10-26). Apply before deploying
 > the backend that uses it. It adds versioned cancellation policies (LD-005 for
 > home visits; online keeps a full refund until D3 is decided), the refund quote
 > the cancel uses, partial refunds, `legal_documents`, and consent records with
@@ -225,9 +237,11 @@ never called `/push/register`.
 
 ## 3b. Storage buckets (one-time)
 
-Three buckets are needed: `doctor-photos` (public), `verification-docs` and
-`intake-media` (both private). All three now exist. To recreate them on a fresh
-project:
+Four buckets are needed: `doctor-photos` (public), `verification-docs`,
+`intake-media` and `prescriptions` (all private). `prescriptions` is new with
+migration 0025: prescription PDFs, handwritten uploads and doctors' signatures.
+The call below creates any that are missing (and is how to create them on a
+fresh project):
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer <ops token>" \
@@ -357,7 +371,7 @@ unauthenticated just because a deploy forgot a variable.
 | `POST /maintenance/purge-expired-otps` | hourly | Dead OTP rows accumulate as PII |
 | `POST /maintenance/purge-deleted-accounts` | daily | A self-deleted patient's data outlives its 30-day grace window |
 | `POST /maintenance/purge-old-rate-limit-hits` | daily | `rate_limit_hits` (admin login, bookings, uploads) grows forever — nothing reads a row older than an hour |
-| `POST /maintenance/tick` | **every minute** | Notifications whose first send didn't happen (Cloud Run throttles CPU after a response) or failed for a moment are never retried; scheduled jobs (reminders, timers) never run |
+| `POST /maintenance/tick` | **every minute** | Notifications whose first send didn't happen (Cloud Run throttles CPU after a response) or failed for a moment are never retried; scheduled jobs never run: no appointment, prescription or follow-up reminders, and a prescription nobody opens never completes its visit (so the doctor's fee is never released) |
 | `POST /maintenance/retry-refunds` | every 5 min | A refund whose Razorpay call failed (timeout, outage) is never sent; a refund whose webhook was lost never shows "Refunded" |
 
 Call with the header `X-Cron-Secret: <value>`. Production uses Cloud Scheduler,
@@ -460,6 +474,40 @@ screens are in the stores, and raise `min_app_version` at the same time (§6b):
 update app_config set value = 'true' where key = 'require_legal_acceptance';           -- Terms, Privacy, Telemedicine
 update app_config set value = 'true' where key = 'require_booking_policy_acceptance';  -- the ticked cancellation policy
 ```
+
+---
+
+## 6d. The visit and prescriptions (migration 0025)
+
+- **Completion.** A visit completes when the patient opens the prescription,
+  or 72 hours after it was sent (`app_config.completion_fallback_hours`). The
+  tick also completes any visit whose timer job was lost.
+- **When the doctor's fee can be withdrawn (LD-006).** 48 hours after the
+  prescription was sent if the patient opened it within those 48 hours,
+  otherwise 72 hours after it. `GET /payouts/me/balance` shows `available_net`,
+  `waiting_net` and `next_available_at`; `/payouts/run` only takes entries
+  whose time has come.
+- **Ops queues.** Admin → Visits lists home visits with no journey near their
+  time, visits with nothing sent 2 hours after the start, and prescriptions not
+  opened after a day. Nothing there changes a booking by itself.
+- **Reading a prescription (break-glass).** Ops sees only whether a
+  prescription was sent and opened. Reading the content needs a written reason
+  in Admin → Visits → Prescription; the read is written to `audit_log`
+  (`break_glass_read`) before anything is shown, and refused if that write
+  fails. Review those rows regularly:
+
+  ```sql
+  select at, actor_id, reason, metadata from audit_log
+   where action = 'break_glass_read' order by at desc limit 50;
+  ```
+
+- **Retention.** Prescriptions are kept when a patient deletes their account,
+  like the intake transcript: a clinical record. The PDF carries the patient's
+  name. Confirm the retention period with counsel (D20).
+- **Settings** (`app_config`): `consultation_start_window_minutes` (how early
+  the doctor can start: online 15, home 120), `appointment_reminders` (minutes
+  before the start), `follow_up_reminders` (9:00 IST on the day, plus 2 days
+  before when it's at least 7 days away).
 
 ---
 

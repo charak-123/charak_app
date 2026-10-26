@@ -208,6 +208,13 @@ export async function mockRequest(path: string, method: string, body: unknown): 
   if (method === 'POST' && bare === '/admin/login') return { token: 'mock-token' }
 
   if (method === 'POST') {
+    if (match(bare, /^\/admin\/prescriptions\/([^/]+)\/access$/)) {
+      return { id: 'rx-1', version: 1, kind: 'prescription', complaints: 'Fever for 3 days',
+               diagnosis: 'Viral fever', investigations: null, advice: 'Rest and fluids',
+               items: [{ position: 1, medicine: 'Paracetamol', strength: '500 mg', dose: '1 tablet',
+                         frequency: '1-0-1', duration: '3 days', instructions: 'After food' }],
+               pdf_url: null, upload_url: null }
+    }
     const retry = match(bare, /^\/admin\/refunds\/([^/]+)\/retry$/)
     if (retry) {
       refunds = refunds.map(r => (r.id === retry[1]
@@ -245,6 +252,25 @@ export async function mockRequest(path: string, method: string, body: unknown): 
         { id: 3, event: 'pay', from_status: 'accepted', to_status: 'paid', actor_role: 'system', actor_id: null, occurred_at: at(28.9), metadata: { method: 'upi' } },
         { id: 4, event: 'cancel', from_status: 'paid', to_status: 'cancelled', actor_role: 'patient', actor_id: 'p', occurred_at: at(1), metadata: { refund_pct: 50, refund_paise: 40000, policy_version: '2026-10-26', reason_code: 'schedule_conflict' } },
       ]
+    }
+    if (bare === '/admin/visits/queues') {
+      const at = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString()
+      return {
+        journey_not_started: [
+          { id: 'b7f3c2a1-0000-4000-8000-000000000001', channel: 'home_visit', status: 'paid', scheduled_start: at(0.3),
+            journey_started_at: null, prescription_sent_at: null, patient_name: 'Riya Shah', doctor_name: 'Dr. Meera Kulkarni' },
+        ],
+        prescription_overdue: [],
+        prescription_unviewed: [
+          { id: 'b7f3c2a1-0000-4000-8000-000000000002', channel: 'online_consult', status: 'consulted', scheduled_start: at(-30),
+            journey_started_at: null, prescription_sent_at: at(-29), patient_name: 'Aarav Joshi', doctor_name: 'Dr. Sameer Deshpande' },
+        ],
+      }
+    }
+    if (match(bare, /^\/admin\/bookings\/([^/]+)\/prescriptions$/)) {
+      const at = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString()
+      return [{ id: 'rx-1', version: 1, kind: 'prescription', status: 'submitted', submitted_at: at(29),
+                first_viewed_at: null, superseded_at: null }]
     }
     if (bare === '/admin/refunds') {
       const status = query(path, 'status')

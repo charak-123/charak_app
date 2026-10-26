@@ -697,6 +697,40 @@ starts. Sizes are relative: S, M, L.
 
 ### Phase 3: The visit (L)
 
+> **Status: built 2026-10-27, not yet deployed.**
+>
+> Built:
+> - migration 0025: `in_progress` and `consulted`; Start Journey (2 h window, once,
+>   server time, locked against a racing cancel); prescriptions with medicines, versions
+>   and corrections (sent ones can't be edited or deleted); atomic draft saves, and a send
+>   that refuses if the draft changed after its PDF was rendered; completion when the
+>   patient opens it, with a 72 h fallback plus a backstop sweep; follow-ups; `call_joins`;
+>   the doctor's signature. Every function locks the booking before the prescription
+>   (no deadlocks).
+> - the TPG-format PDF (reportlab, DejaVu Sans), stored privately with its SHA-256
+> - appointment reminders when paid, a 24 h reminder for an unopened prescription,
+>   follow-up reminders (D17 default), all on the job queue
+> - fee release (LD-006): 48 h after the send if opened within 48 h, else 72 h;
+>   `available_net`, `waiting_net` and `next_available_at` in the doctor's balance
+> - the doctor joining a paid online consult starts it; both sides' joins recorded.
+>   Also fixed: the doctor app's "Start call" on a paid consult used the clarification
+>   endpoint, which refuses paid bookings, so doctors couldn't join scheduled consults.
+> - doctor app: the visit screen walks Start journey → Start consultation (or Join call)
+>   → Write prescription; prescription composer (medicines sheet, handwritten upload,
+>   follow-up, TPG confirmation), review, send, view and correct; signature in Profile;
+>   schedule rows open the visit (there was no way back to an accepted visit before)
+> - patient app: journey line, in-consultation state, prescription screen (opening it
+>   records the view), PDF download, follow-ups on Home with Book and Dismiss
+> - shared: `CharakPrescription` model and `CharakPrescriptionView` (in the gallery)
+> - admin: Visits page (three queues) and break-glass reading with a recorded reason
+>
+> Tests: 700 unit, 107 integration (22 new for the visit, including the cancel-vs-journey
+> race and "an unauthorized read can't complete a booking"), a unit test that no visit
+> push carries medical text; Flutter suites and the admin build pass.
+>
+> To deploy: create `charak-tick` first, apply 0025, deploy the backend, create the
+> `prescriptions` bucket (runbook §0, §3b, §6d).
+
 - **Build:**
   - Start Journey (eligible window, idempotent, notifies the patient, safe when racing a cancel)
   - `in_progress` and `consulted`

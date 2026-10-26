@@ -10,7 +10,9 @@ from ..config import ADMIN_TOKEN_TTL_HOURS, JWT_SECRET
 from ..db import supabase
 from ..deps import require_ops
 from ..errors import AppError
-from ..services import admin_auth, audit, booking_state, erasure, notifications, payouts, refunds
+from ..services import (
+    admin_auth, audit, booking_state, erasure, notifications, payouts, prescriptions, refunds, visits,
+)
 from ..services.admin_auth import AdminAuthError
 from ..services.rate_limit import enforce as enforce_rate_limit, rate_limiter
 
@@ -23,6 +25,9 @@ router = APIRouter()
 # dashboard numbers would look plausible and just be wrong. Page through in
 # fixed-size chunks instead so metrics stay correct as the tables grow.
 _PAGE_SIZE = 1000
+
+# Bookings the patient has paid for, at any stage after payment.
+PAID_STATUSES = ("paid", "in_progress", "consulted", "completed")
 
 
 def _fetch_all(build_query) -> list[dict]:
@@ -314,6 +319,62 @@ def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_o
     return {"phone": (row[0].get("users") or {}).get("phone")}
 
 
+# ── Visits: exception queues and prescription access ─────────────────────────
+
+@router.get("/visits/queues")
+def visit_queues(user: dict = Depends(require_ops)):
+    """Home visits with no journey near their time, consultations with nothing
+    sent to the patient, and prescriptions not opened after a day. Flags for a
+    person to look at, not verdicts (nothing here is marked a no-show)."""
+    queues = visits.ops_queues()
+    for rows in queues.values():
+        for row in rows:
+            row["patient_name"] = (row.pop("users", None) or {}).get("name")
+            row["doctor_name"] = (row.pop("doctors", None) or {}).get("name")
+            row.pop("patient_id", None)
+    return queues
+
+
+@router.get("/bookings/{booking_id}/prescriptions")
+def booking_prescriptions(booking_id: str, user: dict = Depends(require_ops)):
+    """Every version's status and timestamps, without its clinical content.
+    Enough to answer "was it sent, when, and did the patient open it"."""
+    return (
+        supabase.table("prescriptions")
+        .select("id, version, kind, status, submitted_at, first_viewed_at, superseded_at, "
+                "created_at")
+        .eq("booking_id", booking_id).order("version").execute().data or []
+    )
+
+
+class BreakGlassRequest(BaseModel):
+    # Why ops needs to read a patient's prescription: a complaint, a pharmacy
+    # query, a legal request. Recorded with the access.
+    reason: str = Field(min_length=10, max_length=500)
+
+
+@router.post("/prescriptions/{prescription_id}/access",
+             dependencies=[rate_limiter("admin-rx-access", 20, 3600)])
+def break_glass_prescription(prescription_id: str, body: BreakGlassRequest,
+                             user: dict = Depends(require_ops)):
+    """
+    Ops reads one prescription's content (spec §9.3: admin access restricted to
+    operational need). Every read is recorded with its reason first; if that
+    record can't be written, nothing is shown. Reading it never counts as the
+    patient's view.
+    """
+    rx = prescriptions.get(prescription_id)
+    if not rx or rx["status"] == "draft":
+        raise AppError("Prescription not found", 404)
+    try:
+        audit.record_or_refuse(user, "prescription", prescription_id, "break_glass_read",
+                               reason=body.reason.strip(),
+                               metadata={"booking_id": rx["booking_id"], "version": rx["version"]})
+    except Exception:
+        raise AppError("Access can't be recorded right now, so it isn't allowed. Try again.", 503)
+    return {**prescriptions.public(rx), **prescriptions.files(rx)}
+
+
 # ── 5. Procedure bills under review ──────────────────────────────────────────
 
 @router.get("/procedure-bills/review")
@@ -427,7 +488,7 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
     def count(rows, field, value):
         return len([r for r in rows if r.get(field) == value])
 
-    paid_bookings = [b for b in bookings if b.get("status") in ("paid", "completed")]
+    paid_bookings = [b for b in bookings if b.get("status") in PAID_STATUSES]
 
     return {
         "doctors": {
@@ -442,6 +503,8 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
             "requested": count(bookings, "status", "requested"),
             "accepted": count(bookings, "status", "accepted"),
             "paid": count(bookings, "status", "paid"),
+            "in_progress": count(bookings, "status", "in_progress"),
+            "consulted": count(bookings, "status", "consulted"),
             "completed": count(bookings, "status", "completed"),
             "cancelled": count(bookings, "status", "cancelled"),
             "declined": count(bookings, "status", "declined"),
@@ -512,7 +575,7 @@ def dashboard_timeseries(days: int = 30, user: dict = Depends(require_ops)):
         if bucket is None:
             continue
         bucket["bookings"] += 1
-        if r.get("status") in ("paid", "completed"):
+        if r.get("status") in PAID_STATUSES:
             bucket["completed"] += 1
             bucket["revenue"] += float(r.get("price_confirmed") or 0)
 
@@ -579,7 +642,7 @@ def fulfill_doctor_deletion(doctor_id: str, user: dict = Depends(require_ops)):
 
     active = (
         supabase.table("bookings").select("id")
-        .eq("doctor_id", doctor_id).in_("status", ["accepted", "paid"])
+        .eq("doctor_id", doctor_id).in_("status", ["accepted", "paid", "in_progress", "consulted"])
         .execute().data or []
     )
     if active:

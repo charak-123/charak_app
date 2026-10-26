@@ -330,10 +330,12 @@ def test_tick_drains_the_outbox_and_runs_jobs():
          patch("app.routers.maintenance.notifications.sweep_outbox",
                return_value={"considered": 2, "sent": 2}) as sweep, \
          patch("app.routers.maintenance.jobs.run_due",
-               return_value={"done": 1, "retrying": 0, "dead": 0}) as run:
+               return_value={"done": 1, "retrying": 0, "dead": 0}) as run, \
+         patch("app.routers.maintenance.visits.complete_overdue", return_value=1):
         res = TestClient(app).post("/maintenance/tick", headers={"X-Cron-Secret": "s"})
     assert res.json() == {"notifications": {"considered": 2, "sent": 2},
-                          "jobs": {"done": 1, "retrying": 0, "dead": 0}}
+                          "jobs": {"done": 1, "retrying": 0, "dead": 0},
+                          "completed_overdue": 1}
     sweep.assert_called_once()
     run.assert_called_once()
 

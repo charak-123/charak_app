@@ -32,6 +32,10 @@ const EVENT_LABEL: Record<string, string> = {
   cancel: 'Cancelled',
   complete: 'Completed',
   no_show: 'Marked no-show',
+  start_journey: 'Doctor started journey',
+  start_consultation: 'Consultation started',
+  end_consultation: 'Consultation ended',
+  prescription_sent: 'Prescription sent',
   hold_expire: 'Payment window closed',
   request_expire: 'Request expired',
   status_changed_outside_state_machine: 'Changed outside the app',
@@ -52,6 +56,9 @@ function details(m: Record<string, unknown>): string[] {
   if (typeof m.reason_code === 'string') out.push(`reason: ${m.reason_code.replace(/_/g, ' ')}`)
   if (typeof m.method === 'string') out.push(`paid by ${m.method}`)
   if (typeof m.db_user === 'string') out.push(`as ${m.db_user}`)
+  if (typeof m.version === 'number') out.push(`version ${m.version}${m.corrects ? ' (correction)' : ''}`)
+  if (m.kind === 'notes') out.push('consultation notes')
+  if (typeof m.completion_source === 'string') out.push(m.completion_source.replace(/_/g, ' '))
   return out
 }
 

@@ -171,6 +171,7 @@ class TransitionRecorder:
         "accept": "accepted", "decline": "declined", "cancel": "cancelled",
         "pay": "paid", "complete": "completed", "no_show": "no_show",
         "hold_expire": "cancelled", "request_expire": "cancelled",
+        "start_consultation": "in_progress", "end_consultation": "consulted",
     }
 
     def __init__(self):
@@ -237,6 +238,24 @@ def _platform_services_are_sinks(request):
          patch("app.services.app_config.supabase", config_db):
         yield
     app_config.clear_cache()
+
+
+@pytest.fixture(autouse=True)
+def _visit_services_are_sinks(request):
+    """
+    services/visits.py and services/prescriptions.py (migration 0025) bind
+    their own ``supabase``: call joins, reminders and the completion backstop
+    write nowhere and find nothing. tests/test_visit.py patches them itself.
+    """
+    if _integration(request):
+        yield
+        return
+    db = MagicMock()
+    db.table.return_value = make_chain(list_data=[])
+    db.rpc.return_value.execute.return_value = MagicMock(data={})
+    with patch("app.services.visits.supabase", db), \
+         patch("app.services.prescriptions.supabase", db):
+        yield
 
 
 DEFAULT_POLICY = {

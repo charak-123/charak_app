@@ -240,7 +240,7 @@ def pending_summary(user: dict = Depends(require_ops)):
     entries = (
         supabase.table("doctor_ledger_entries")
         .select("doctor_id, source, net_amount, gross_amount, commission_amount, "
-                "bookings(status, cancelled_at), doctors(name, phone)")
+                f"bookings({engine.BOOKING_RELEASE_COLUMNS}), doctors(name, phone)")
         .eq("status", "payable")
         .execute()
         .data

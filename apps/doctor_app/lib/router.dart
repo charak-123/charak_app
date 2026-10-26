@@ -21,6 +21,7 @@ import 'push_routes.dart';
 import 'screens/requests/request_detail_screen.dart';
 import 'screens/requests/clarification_call_screen.dart';
 import 'screens/requests/active_visit_screen.dart';
+import 'screens/requests/prescription_screen.dart';
 
 /// Wraps a screen in the wireframe's 280ms horizontal push
 /// (`.scr.entering` / `.scr.leaving`).
@@ -118,8 +119,17 @@ final routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (_, state) => _rise(ClarificationCallScreen(bookingId: state.pathParameters['bookingId']!)),
       ),
       GoRoute(
+        path: '/consult/:bookingId',
+        pageBuilder: (_, state) => _rise(ClarificationCallScreen(
+            bookingId: state.pathParameters['bookingId']!, consultation: true)),
+      ),
+      GoRoute(
         path: '/visit/:bookingId',
         pageBuilder: (_, state) => _card(state, ActiveVisitScreen(bookingId: state.pathParameters['bookingId']!)),
+      ),
+      GoRoute(
+        path: '/visit/:bookingId/prescription',
+        pageBuilder: (_, state) => _push(PrescriptionScreen(bookingId: state.pathParameters['bookingId']!)),
       ),
     ],
   );

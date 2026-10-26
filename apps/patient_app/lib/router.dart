@@ -22,6 +22,7 @@ import 'screens/booking/booking_status_screen.dart';
 import 'screens/booking/payment_screen.dart';
 import 'screens/booking/booking_confirmed_screen.dart';
 import 'screens/booking/active_booking_screen.dart';
+import 'screens/booking/prescription_screen.dart';
 import 'screens/booking/video_call_screen.dart';
 import 'screens/booking/visit_complete_screen.dart';
 import 'screens/booking/procedure_bill_screen.dart';
@@ -172,6 +173,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           pageBuilder: (_, s) => _push(ProcedureBillScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/rate',
           pageBuilder: (_, s) => _push(RateScreen(bookingId: s.pathParameters['id']!))),
+      GoRoute(path: '/prescription/:id',
+          pageBuilder: (_, s) => _push(PrescriptionScreen(prescriptionId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/history-detail',
           pageBuilder: (_, s) => _card(s, HistoryDetailScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/complaint',

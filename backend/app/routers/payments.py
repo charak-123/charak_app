@@ -40,7 +40,7 @@ from ..config import (
 from ..db import fetch_one, supabase
 from ..deps import get_current_user
 from ..errors import AppError
-from ..services import booking_state, notifications, payouts, refunds, webhook_inbox
+from ..services import booking_state, notifications, payouts, refunds, visits, webhook_inbox
 from ..services.razorpay_gateway import TIMEOUT_SECONDS
 from ..services.razorpay_gateway import client as razorpay_client
 from ..services.razorpay_gateway import live_mode
@@ -453,6 +453,7 @@ def _confirm_payment(
                 patch={"hold_expires_at": None, "payment_failed_at": None},
                 metadata={"payment_id": payment["id"], "method": method},
             )
+            visits.schedule_reminders(booking)
         except booking_state.TransitionRefused as refused:
             if refused.current_status in ("cancelled", "declined", "no_show"):
                 # Lost the race to a cancel: same outcome as arriving after it.

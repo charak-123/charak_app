@@ -128,6 +128,18 @@ class _StatusBody extends ConsumerWidget {
         "You're set with $doctor${when.isNotEmpty ? ' on $when' : ''} "
             '($channelLabel).',
       ),
+      'in_progress' => (
+        CharakOutcomeTone.success,
+        LucideIcons.stethoscope,
+        'Consultation under way',
+        "You're with $doctor now. The prescription arrives here when it ends.",
+      ),
+      'consulted' => (
+        CharakOutcomeTone.success,
+        LucideIcons.fileText,
+        'Your prescription is ready',
+        '$doctor has sent it. Open it to complete your visit.',
+      ),
       'completed' => (
         CharakOutcomeTone.success,
         null,
@@ -228,10 +240,10 @@ class _StatusBody extends ConsumerWidget {
               onPressed: () => context.go('/directory'),
             ),
           )
-        else if (status == 'paid')
+        else if (status == 'paid' || status == 'in_progress' || status == 'consulted')
           Expanded(
             child: CharakButton(
-              label: 'View booking',
+              label: status == 'consulted' ? 'Open prescription' : 'View booking',
               onPressed: () => context.go('/booking/$bookingId/active'),
             ),
           )

@@ -171,7 +171,8 @@ def balance(doctor_id: str) -> dict:
     """What a doctor is owed, has been paid, and has in flight."""
     entries = (
         supabase.table("doctor_ledger_entries")
-        .select("gross_amount, commission_amount, net_amount, status, source")
+        .select(f"gross_amount, commission_amount, net_amount, status, source, "
+                f"bookings({BOOKING_RELEASE_COLUMNS})")
         .eq("doctor_id", doctor_id)
         .execute()
         .data
@@ -183,8 +184,26 @@ def balance(doctor_id: str) -> dict:
             _paise(e[field]) for e in entries if e["status"] in statuses
         ))
 
+    now = datetime.now(timezone.utc)
+    available, waiting, upcoming = [], [], []
+    for e in entries:
+        if e["status"] != "payable":
+            continue
+        when = available_at(e)
+        if when is not None and when <= now:
+            available.append(e)
+        else:
+            waiting.append(e)
+            if when is not None:
+                upcoming.append(when)
+
     return {
         "payable_net": total("net_amount", "payable"),
+        # Of that, what can be withdrawn now, and what is waiting for its visit
+        # to complete or its 48/72-hour hold (LD-006) to pass.
+        "available_net": float(sum(_paise(e["net_amount"]) for e in available)),
+        "waiting_net": float(sum(_paise(e["net_amount"]) for e in waiting)),
+        "next_available_at": min(upcoming).isoformat() if upcoming else None,
         "paid_net": total("net_amount", "paid"),
         "lifetime_gross": total("gross_amount", "payable", "paid"),
         "lifetime_commission": total("commission_amount", "payable", "paid"),
@@ -195,43 +214,88 @@ def balance(doctor_id: str) -> dict:
 def ledger(doctor_id: str, status: Optional[str] = None) -> list[dict]:
     query = (
         supabase.table("doctor_ledger_entries")
-        .select("*, bookings(scheduled_start, channel)")
+        .select(f"*, bookings(scheduled_start, channel, {BOOKING_RELEASE_COLUMNS})")
         .eq("doctor_id", doctor_id)
         .order("created_at", desc=True)
     )
     if status:
         query = query.eq("status", status)
-    return query.execute().data or []
+    rows = query.execute().data or []
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        if row.get("status") == "payable":
+            # available_at: when it can be withdrawn (null if that depends on a
+            # visit that hasn't completed, or if there was never a wait).
+            when = available_at(row)
+            row["available"] = when is not None and when <= now
+            row["available_at"] = when.isoformat() if when and when.year > 1 else None
+    return rows
 
 
 # ── Payout runs ──────────────────────────────────────────────────────────────
 
 # What a doctor keeps from a late cancellation (LD-005) can be paid out this
-# long after the cancellation (LD-006, proposed), the same wait a completed
-# visit gets.
+# long after the cancellation (LD-006), the same wait a visit gets.
 CANCELLATION_HOLD = timedelta(hours=48)
+
+# A visit's fee (LD-006, decided 2026-10-26): withdrawable 48 hours after the
+# prescription was sent if the patient opened it by then, otherwise 72 hours
+# after it, when the unopened booking completes on its own. "Between 48 and
+# 72 hours you can cash out."
+VIEWED_RELEASE = timedelta(hours=48)
+UNVIEWED_RELEASE = timedelta(hours=72)
+
+BOOKING_RELEASE_COLUMNS = ("status, cancelled_at, completed_at, prescription_sent_at, "
+                           "prescription_viewed_at")
+
+
+def _ts(value) -> Optional[datetime]:
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def available_at(entry: dict) -> Optional[datetime]:
+    """
+    When a payable entry can go into a payout. None while that isn't known yet
+    (the visit hasn't completed). A datetime in the past means now.
+
+    A consult fee is credited when the patient pays, before the visit happens,
+    and paying it out then would hand the doctor money for a visit that can
+    still be cancelled and refunded. So it waits for the visit:
+
+    * prescription sent and the booking completed: 48 h after the send if the
+      patient opened it within 48 h, else 72 h after the send
+    * completed without a prescription (doctor app builds from before
+      migration 0025): 48 h after completion
+    * completed before migration 0025 (no completion time recorded): now
+    * cancelled, for the part the policy leaves the doctor: 48 h after the cancel
+
+    Adjustments and reversals have no visit to wait for.
+    """
+    if entry.get("source") in ("adjustment", "reversal"):
+        return datetime.min.replace(tzinfo=timezone.utc)
+    booking = entry.get("bookings") or {}
+    status = booking.get("status")
+    if status == "completed":
+        sent = _ts(booking.get("prescription_sent_at"))
+        if sent is not None:
+            viewed = _ts(booking.get("prescription_viewed_at"))
+            if viewed is not None and viewed <= sent + VIEWED_RELEASE:
+                return sent + VIEWED_RELEASE
+            return sent + UNVIEWED_RELEASE
+        completed = _ts(booking.get("completed_at"))
+        return completed + CANCELLATION_HOLD if completed else datetime.min.replace(tzinfo=timezone.utc)
+    if status == "cancelled":
+        cancelled = _ts(booking.get("cancelled_at"))
+        return cancelled + CANCELLATION_HOLD if cancelled else None
+    return None
 
 
 def is_payout_eligible(entry: dict, now: Optional[datetime] = None) -> bool:
-    """
-    Whether a payable entry may go into a payout yet.
-
-    A consult fee is credited when the patient pays, which is before the visit
-    happens. Paying it out then would hand the doctor money for a visit that can
-    still be cancelled and refunded. So a fee waits until its booking is
-    completed, or, for the part a late cancellation leaves the doctor, until 48
-    hours after the cancellation. Adjustments and reversals have no visit to
-    wait for.
-    """
-    if entry.get("source") in ("adjustment", "reversal"):
-        return True
-    booking = entry.get("bookings") or {}
-    if booking.get("status") == "completed":
-        return True
-    if booking.get("status") == "cancelled" and booking.get("cancelled_at"):
-        cancelled = datetime.fromisoformat(str(booking["cancelled_at"]).replace("Z", "+00:00"))
-        return (now or datetime.now(timezone.utc)) - cancelled >= CANCELLATION_HOLD
-    return False
+    """Whether a payable entry may go into a payout yet (see available_at)."""
+    when = available_at(entry)
+    return when is not None and when <= (now or datetime.now(timezone.utc))
 
 
 def create_payout(doctor_id: str, period_start: str, period_end: str) -> dict:
@@ -244,7 +308,7 @@ def create_payout(doctor_id: str, period_start: str, period_end: str) -> dict:
     """
     candidates = (
         supabase.table("doctor_ledger_entries")
-        .select("*, bookings(status, cancelled_at)")
+        .select(f"*, bookings({BOOKING_RELEASE_COLUMNS})")
         .eq("doctor_id", doctor_id)
         .eq("status", "payable")
         .gte("created_at", period_start)

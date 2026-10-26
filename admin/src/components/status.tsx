@@ -22,6 +22,8 @@ const STATUS_MAP: Record<string, { label: string; tone: Tone }> = {
   requested: { label: 'Requested', tone: 'warning' },
   accepted:  { label: 'Accepted',  tone: 'neutral' },
   paid:      { label: 'Paid',      tone: 'good' },
+  in_progress: { label: 'In consultation', tone: 'neutral' },
+  consulted: { label: 'Prescription sent', tone: 'neutral' },
   completed: { label: 'Completed', tone: 'good' },
   cancelled: { label: 'Cancelled', tone: 'critical' },
   declined:  { label: 'Declined',  tone: 'critical' },
@@ -43,6 +45,10 @@ const STATUS_MAP: Record<string, { label: string; tone: Tone }> = {
   processing: { label: 'With Razorpay', tone: 'neutral' },
   processed:  { label: 'Refunded',      tone: 'good' },
   failed:     { label: 'Failed',        tone: 'critical' },
+  // prescriptions
+  sent:       { label: 'Sent',          tone: 'good' },
+  superseded: { label: 'Replaced',      tone: 'neutral' },
+  draft:      { label: 'Draft',         tone: 'neutral' },
 }
 
 export function statusLabel(status: string) {

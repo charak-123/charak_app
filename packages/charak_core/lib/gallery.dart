@@ -115,7 +115,7 @@ class _CharakGalleryState extends State<CharakGallery> {
           ]),
           const SizedBox(height: 12),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final s in ['requested', 'accepted', 'paid', 'in_progress', 'review', 'declined'])
+            for (final s in ['requested', 'accepted', 'paid', 'in_progress', 'consulted', 'review', 'declined'])
               CharakStatusPill.forStatus(s),
             for (final r in CharakRefundState.values) CharakStatusPill.forRefund(r),
           ]),
@@ -130,6 +130,25 @@ class _CharakGalleryState extends State<CharakGallery> {
           ),
           CharakCheckRow(value: true, onChanged: (_) {}, label: "I've read the cancellation policy"),
           const SizedBox(height: 24),
+          CharakPrescriptionView(
+            prescription: CharakPrescription(
+              id: 'rx', bookingId: 'bk', status: 'submitted',
+              complaints: 'Fever and sore throat for 3 days',
+              diagnosis: 'Viral pharyngitis',
+              advice: 'Warm fluids, rest. Return if the fever lasts beyond 5 days.',
+              items: const [
+                CharakMedicine(medicine: 'Paracetamol', strength: '500 mg', form: 'Tablet',
+                    route: 'Oral', dose: '1 tablet', frequency: '1-1-1', duration: '3 days',
+                    instructions: 'After food'),
+                CharakMedicine(medicine: 'Chlorhexidine gargle', dose: '10 ml', frequency: 'Twice a day',
+                    duration: '5 days'),
+              ],
+              followUp: CharakFollowUp(date: DateTime(2026, 11, 5), channel: 'either',
+                  note: 'Sooner if breathing becomes difficult.'),
+            ),
+            followUpAction: const CharakButton(label: 'Book follow-up', onPressed: _noop),
+          ),
+          const SizedBox(height: 12),
           CharakGroupedList(
             label: 'Consultation',
             children: [

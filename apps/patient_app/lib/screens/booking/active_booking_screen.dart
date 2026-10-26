@@ -4,10 +4,17 @@ import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
 
+/// The booking, plus (once the doctor has sent one) the id and timestamps of
+/// the prescription. Its content is fetched only when the patient opens it,
+/// because opening it is what completes the visit.
 final _activeBookingProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
-  final res = await ApiClient.instance.get('/bookings/$id');
-  return res as Map<String, dynamic>;
+  final res = await ApiClient.instance.get('/bookings/$id') as Map<String, dynamic>;
+  if (res['prescription_sent_at'] != null) {
+    final rx = await ApiClient.instance.get('/bookings/$id/prescription') as Map<String, dynamic>;
+    res['prescription'] = rx['prescription'];
+  }
+  return res;
 });
 
 class ActiveBookingScreen extends ConsumerWidget {
@@ -104,7 +111,11 @@ class _Body extends StatelessWidget {
         ? '${two(remaining.inMinutes)}:${two(remaining.inSeconds % 60)}'
         : null;
 
-    final canJoin = status == 'paid' && isOnline;
+    final canJoin = (status == 'paid' || status == 'in_progress') && isOnline;
+    final cancellable = status == 'requested' || status == 'accepted' || status == 'paid';
+    final journeyAt = DateTime.tryParse(booking['journey_started_at'] as String? ?? '')?.toLocal();
+    final rx = booking['prescription'] as Map<String, dynamic>?;
+    void openRx() => context.push('/prescription/${rx!['id']}');
 
     return Column(children: [
       Expanded(child: ListView(
@@ -133,9 +144,18 @@ class _Body extends StatelessWidget {
                 value: countdown ?? (startDt != null ? CharakFormat.dayTime(startDt) : '—'),
                 tabularValue: countdown != null,
               )
+            else if (journeyAt != null && status == 'paid')
+              // No arrival time is promised: there's no live ETA (spec §7.2).
+              CharakInfoStrip(
+                icon: LucideIcons.navigation,
+                label: 'Your doctor is on the way',
+                value: 'Left ${DateFormat('h:mm a').format(journeyAt)}',
+                tone: CharakStatusTone.active,
+                tabularValue: true,
+              )
             else
               CharakInfoStrip(
-                label: 'Doctor arrives',
+                label: 'Visit time',
                 value: startDt != null ? CharakFormat.dayTime(startDt) : '—',
               ),
           ])),
@@ -183,6 +203,40 @@ class _Body extends StatelessWidget {
                 style: charakHintStyle, textAlign: TextAlign.center),
           ],
 
+          if (status == 'in_progress') ...[
+            const SizedBox(height: 12),
+            const CharakNoteBanner(
+              icon: LucideIcons.stethoscope,
+              tone: CharakStatusTone.active,
+              message: 'Your consultation is under way. Your doctor sends the prescription here when it ends.',
+            ),
+          ],
+
+          if (rx != null) ...[
+            const SizedBox(height: 12),
+            CharakCard(
+              tone: status == 'consulted' ? CharakCardTone.tint : CharakCardTone.plain,
+              onTap: openRx,
+              child: Row(children: [
+                Icon(LucideIcons.fileText, size: 22, color: CharakColors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(rx['kind'] == 'notes' ? 'Consultation notes' : 'Prescription',
+                        style: CharakText.body.weight(600).copyWith(color: CharakColors.ink)),
+                    Text(
+                      rx['first_viewed_at'] == null
+                          ? 'Ready. Open it to complete your visit'
+                          : 'From ${docName.replaceFirst('Dr. ', 'Dr ')}',
+                      style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+                    ),
+                  ]),
+                ),
+                Icon(LucideIcons.chevronRight, size: 18, color: CharakColors.inkMuted),
+              ]),
+            ),
+          ],
+
           if (status == 'completed') ...[
             const SizedBox(height: 12),
             const CharakNoteBanner(
@@ -192,7 +246,7 @@ class _Body extends StatelessWidget {
             ),
           ],
 
-          if (status != 'completed' && freeUntilLine(booking) != null) ...[
+          if (cancellable && freeUntilLine(booking) != null) ...[
             const SizedBox(height: 14),
             Text(freeUntilLine(booking)!, style: charakHintStyle, textAlign: TextAlign.center),
           ],
@@ -200,6 +254,13 @@ class _Body extends StatelessWidget {
       )),
 
       // ── `.cta-bar` ─────────────────────────────────────────────────
+      if (status == 'consulted' && rx != null)
+        CharakCtaBar.single(CharakButton(
+          label: 'Open prescription',
+          icon: LucideIcons.fileText,
+          onPressed: openRx,
+        ))
+      else if (status == 'completed' || cancellable)
       CharakCtaBar(children: [
         if (status == 'completed') ...[
           Expanded(

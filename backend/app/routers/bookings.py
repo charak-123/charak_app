@@ -20,8 +20,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 VALID_STATUSES = (
-    "requested", "accepted", "declined", "paid", "completed", "cancelled", "no_show",
+    "requested", "accepted", "declined", "paid", "in_progress", "consulted", "completed",
+    "cancelled", "no_show",
 )
+
+# Statuses a patient or doctor can still cancel from. Once the consultation has
+# started there is nothing left to cancel (cancel_booking() agrees).
+CANCELLABLE_STATUSES = ("requested", "accepted", "paid")
 
 # Statuses that occupy a slot — a new booking cannot take a time already held by
 # one of these. Derived from the availability service's list so the grid and the
@@ -220,12 +225,12 @@ def _with_issue(row: dict) -> dict:
 
 @router.get("/doctor/active")
 def list_active(user: dict = Depends(require_doctor)):
-    """Accepted/paid bookings — current queue."""
+    """The current queue: accepted, paid, and consultations under way."""
     rows = (
         supabase.table("bookings")
         .select("*, users(name)")
         .eq("doctor_id", user["sub"])
-        .in_("status", ["accepted", "paid"])
+        .in_("status", ["accepted", "paid", "in_progress"])
         .order("scheduled_start")
         .execute()
         .data
@@ -236,12 +241,13 @@ def list_active(user: dict = Depends(require_doctor)):
 
 @router.get("/doctor/history")
 def list_history(user: dict = Depends(require_doctor)):
-    """Terminal bookings — everything no longer actionable."""
+    """Everything past: finished, declined, cancelled, and consultations whose
+    prescription is with the patient ('consulted', waiting for them to open it)."""
     rows = (
         supabase.table("bookings")
         .select("*, users(name)")
         .eq("doctor_id", user["sub"])
-        .in_("status", ["completed", "declined", "cancelled", "no_show"])
+        .in_("status", ["consulted", "completed", "declined", "cancelled", "no_show"])
         .order("scheduled_start", desc=True)
         .execute()
         .data
@@ -394,9 +400,11 @@ def complete_booking(
             409,
         )
 
+    # Doctor app builds from before migration 0025. Newer builds send the
+    # prescription instead, and the booking completes when the patient opens it.
     updated = booking_state.transition(
         booking_id, "complete", actor_role="doctor", actor_id=user["sub"],
-        expected="paid", patch={"hold_expires_at": None},
+        expected="paid", patch={"hold_expires_at": None, "completion_source": "doctor"},
     )
     notifications.visit_completed({**b, **updated}, background)
     return updated
@@ -476,7 +484,7 @@ def cancellation_quote(booking_id: str, user: dict = Depends(get_current_user)):
     policy = cancellation.policy_by_id(b.get("cancellation_policy_id"))
     return {
         **_quote_view(cancellation.quote(booking_id, by)),
-        "cancellable": b["status"] in ("requested", "accepted", "paid"),
+        "cancellable": b["status"] in CANCELLABLE_STATUSES,
         "reason_codes": list(cancellation.REASON_CODES[by]),
         "policy": cancellation.public_policy(policy) if policy else None,
     }
@@ -507,7 +515,7 @@ def cancel_booking(
         raise AppError("Booking not found", 404)
     if b["patient_id"] != user["sub"] and b["doctor_id"] != user["sub"]:
         raise AppError("Forbidden", 403)
-    if b["status"] in ("completed", "cancelled", "declined", "no_show"):
+    if b["status"] not in CANCELLABLE_STATUSES:
         raise AppError(f"Cannot cancel a booking with status '{b['status']}'", 400)
 
     by = "patient" if b["patient_id"] == user["sub"] else "doctor"

@@ -2,7 +2,7 @@
 Procedure bills router.
 
 Flow:
-  booking completed → POST /bookings/:id/procedure-bill (doctor submits line items)
+  consultation under way or done → POST /bookings/:id/procedure-bill (doctor submits line items)
   if total > effective threshold → status = under_review
   else                           → status = approved (ready for patient payment)
   (effective threshold = the doctor's own, capped at PROCEDURE_REVIEW_THRESHOLD_MAX;
@@ -174,8 +174,11 @@ def _get_completed_booking(booking_id: str, doctor_id: str) -> dict:
         raise AppError("Booking not found", 404)
     if b["doctor_id"] != doctor_id:
         raise AppError("Forbidden", 403)
-    if b["status"] != "completed":
-        raise AppError("Booking must be completed before submitting a procedure bill", 400)
+    # The procedures happen during the visit, so the bill can follow as soon as
+    # the consultation has started; it doesn't wait for the patient to open the
+    # prescription.
+    if b["status"] not in ("in_progress", "consulted", "completed"):
+        raise AppError("A procedure bill can be raised once the consultation has started", 400)
     return b
 
 

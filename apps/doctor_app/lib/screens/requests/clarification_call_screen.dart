@@ -3,9 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 
+/// The doctor's side of a call. Two kinds: a clarification call before the
+/// doctor decides on a request (it rings the patient), and, with
+/// [consultation], the scheduled video consultation itself, which both sides
+/// simply join (POST /bookings/{id}/call). The doctor joining a paid consult
+/// starts the consultation on the server.
 class ClarificationCallScreen extends ConsumerStatefulWidget {
   final String bookingId;
-  const ClarificationCallScreen({super.key, required this.bookingId});
+  final bool consultation;
+  const ClarificationCallScreen({super.key, required this.bookingId, this.consultation = false});
   @override
   ConsumerState<ClarificationCallScreen> createState() => _State();
 }
@@ -46,10 +52,13 @@ class _State extends ConsumerState<ClarificationCallScreen> {
     setState(() => _loading = true);
     try {
       final res = await ApiClient.instance.post(
-        '/bookings/${widget.bookingId}/clarification-call', {},
+        widget.consultation
+            ? '/bookings/${widget.bookingId}/call'
+            : '/bookings/${widget.bookingId}/clarification-call',
+        {},
       ) as Map<String, dynamic>;
       setState(() {
-        _callId     = res['id'] as String?;
+        _callId     = widget.consultation ? null : res['id'] as String?;
         _peerName   = res['patient_name'] as String? ?? _peerName;
         _callActive = true;
       });
@@ -66,6 +75,13 @@ class _State extends ConsumerState<ClarificationCallScreen> {
   }
 
   Future<void> _endCall({bool missed = false}) async {
+    if (widget.consultation) {
+      // Leaving the consultation call ends nothing on the server: the doctor
+      // can rejoin, and the consultation ends when the prescription is sent.
+      await _call.leave();
+      if (mounted) context.pop();
+      return;
+    }
     if (_callId == null) return;
     setState(() => _loading = true);
     await _call.leave();
@@ -102,13 +118,13 @@ class _State extends ConsumerState<ClarificationCallScreen> {
     }
     switch (_call.stage) {
       case CharakCallStage.connected:
-        return 'Clarification call · connected';
+        return widget.consultation ? 'Consultation · connected' : 'Clarification call · connected';
       case CharakCallStage.waitingForPeer:
-        return 'Ringing the patient…';
+        return widget.consultation ? 'Waiting for the patient to join…' : 'Ringing the patient…';
       case CharakCallStage.ended:
         return 'Call ended';
       default:
-        return 'Clarification call · before you decide';
+        return widget.consultation ? 'Video consultation' : 'Clarification call · before you decide';
     }
   }
 
@@ -173,8 +189,9 @@ class _State extends ConsumerState<ClarificationCallScreen> {
           ],
         ),
         // Ops escape hatch: close the call out as unanswered. Sits clear of
-        // the centred `.call-top` strip.
-        Positioned(
+        // the centred `.call-top` strip. Not for the consultation, which
+        // nobody rings.
+        if (!widget.consultation) Positioned(
           right: 6,
           top: 0,
           child: SafeArea(

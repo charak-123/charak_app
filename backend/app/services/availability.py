@@ -31,9 +31,10 @@ def to_ist(ts) -> datetime:
 # Statuses that occupy a slot. A `requested` booking holds its time while the
 # doctor decides, so it has to disappear from the grid too — otherwise a second
 # patient is shown the slot as free, fills in their whole intake, and is turned
-# away with "Slot already booked" at the last step. `completed` is here so a
-# past visit does not reopen its own slot.
-SLOT_OCCUPYING_STATUSES = ["requested", "accepted", "paid", "completed"]
+# away with "Slot already booked" at the last step. `in_progress`, `consulted`
+# and `completed` are here so a visit under way or past does not reopen its own
+# slot.
+SLOT_OCCUPYING_STATUSES = ["requested", "accepted", "paid", "in_progress", "consulted", "completed"]
 
 
 def get_available_slots(doctor_id: str, from_date: date, days: int = 14,

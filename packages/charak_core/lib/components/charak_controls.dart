@@ -343,6 +343,9 @@ class CharakStatusPill extends StatelessWidget {
   'paid'        => (CharakStatusTone.confirmed, 'Paid · Confirmed'),
   'confirmed'   => (CharakStatusTone.confirmed, 'Confirmed'),
   'in_progress' => (CharakStatusTone.active, 'Active visit'),
+  // The prescription is with the patient; the visit completes when they open
+  // it (or 72 hours after it was sent).
+  'consulted'   => (CharakStatusTone.active, 'Prescription sent'),
   'active'      => (CharakStatusTone.active, 'Active visit'),
   'completed'   => (CharakStatusTone.confirmed, 'Completed'),
   'review'      => (CharakStatusTone.review, 'Needs review'),

@@ -721,3 +721,126 @@ def refund_needs_attention(refund: dict, background=None):
         {"refund_id": refund["id"], "booking_id": refund.get("booking_id") or ""},
         refund.get("booking_id"), background,
     )
+
+
+# ── The visit (migration 0025) ───────────────────────────────────────────────
+# Lock-screen text never carries medical detail: no medicine, diagnosis or
+# advice, only that something is waiting in the app (spec §9.3, §16.2).
+# tests/test_visit.py checks it.
+
+def _when_ist(ts) -> str:
+    dt = _parse(ts)
+    if dt is None:
+        return ""
+    local = dt.astimezone(timezone(timedelta(hours=5, minutes=30)))
+    return local.strftime("%-d %b, %-I:%M %p")
+
+
+def journey_started(booking: dict, background=None):
+    return notify(
+        booking["patient_id"], "patient", "visit.journey_started",
+        "Your doctor is on the way",
+        "Your doctor has started travelling for your home visit.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=_once("visit.journey_started", booking, booking["patient_id"]),
+    )
+
+
+def appointment_reminder(booking: dict, recipient_role: str, minutes: int):
+    """Sent by the job queue ``minutes`` before the start."""
+    online = booking.get("channel") == "online_consult"
+    if minutes >= 1440:
+        lead = f"tomorrow at {_when_ist(booking['scheduled_start']).split(', ')[-1]}"
+    elif minutes >= 60:
+        hours = minutes // 60
+        lead = f"in {hours} hour{'s' if hours != 1 else ''}"
+    else:
+        lead = f"in {minutes} minutes"
+    if recipient_role == "patient":
+        recipient_id = booking["patient_id"]
+        title = "Upcoming consultation" if online else "Upcoming home visit"
+        body = (f"Your video consultation starts {lead}. Join from the app." if online
+                else f"Your doctor's home visit is {lead}.")
+    else:
+        recipient_id = booking["doctor_id"]
+        title = "Upcoming consultation" if online else "Upcoming home visit"
+        body = (f"Your video consultation starts {lead}." if online
+                else f"Your home visit is {lead}. Tap Start journey when you leave.")
+    return notify(
+        recipient_id, recipient_role, "booking.reminder", title, body,
+        {"booking_id": booking["id"], "minutes": minutes}, booking["id"],
+        dedupe_key=f"booking.reminder:{booking['id']}:{recipient_id}:{minutes}",
+    )
+
+
+def prescription_ready(booking: dict, prescription_id: str, background=None):
+    return notify(
+        booking["patient_id"], "patient", "prescription.ready",
+        "Your prescription is ready",
+        "Your prescription is available in CHARAK.",
+        {"booking_id": booking["id"], "prescription_id": prescription_id},
+        booking["id"], background,
+        dedupe_key=f"prescription.ready:{prescription_id}",
+    )
+
+
+def prescription_updated(booking: dict, prescription_id: str, background=None):
+    return notify(
+        booking["patient_id"], "patient", "prescription.updated",
+        "Prescription updated",
+        "Your doctor sent a corrected prescription. Open CHARAK to see it.",
+        {"booking_id": booking["id"], "prescription_id": prescription_id},
+        booking["id"], background,
+        dedupe_key=f"prescription.updated:{prescription_id}",
+    )
+
+
+def prescription_reminder(booking: dict, prescription_id: str, background=None):
+    return notify(
+        booking["patient_id"], "patient", "prescription.reminder",
+        "Your prescription is waiting",
+        "Your doctor's prescription is available in CHARAK.",
+        {"booking_id": booking["id"], "prescription_id": prescription_id},
+        booking["id"], background,
+        dedupe_key=f"prescription.reminder:{prescription_id}",
+    )
+
+
+def visit_complete_to_doctor(booking: dict, source: str, available_at, background=None):
+    """The booking completed: the patient opened the prescription, or the
+    72-hour fallback ran. Says when the fee can be withdrawn (LD-006)."""
+    when = _parse(available_at)
+    if when is not None and when > _now():
+        tail = f" The fee can be withdrawn from {_when_ist(when)}."
+    else:
+        tail = " The fee can be withdrawn now."
+    first = ("Your patient opened the prescription. This visit is complete."
+             if source == "patient_viewed" else "This visit is now complete.")
+    return notify(
+        booking["doctor_id"], "doctor", "visit.completed",
+        "Visit complete", first + tail,
+        {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=_once("visit.completed", booking, booking["doctor_id"]),
+    )
+
+
+def follow_up_reminder(recommendation: dict, kind: str = "on_day"):
+    """``kind`` is 'on_day' or 'advance' (D17)."""
+    if kind == "advance":
+        try:
+            day = datetime.fromisoformat(str(recommendation["recommended_date"])).strftime("%-d %b")
+        except ValueError:
+            day = str(recommendation["recommended_date"])
+        title, body = ("Follow-up coming up",
+                       f"Your doctor recommended a follow-up around {day}. "
+                       "Review it and book if you need to.")
+    else:
+        title, body = ("Follow-up due",
+                       "Your doctor recommended a follow-up. Review the "
+                       "recommendation and book if you need to.")
+    return notify(
+        recommendation["patient_id"], "patient", "follow_up.reminder", title, body,
+        {"booking_id": recommendation["booking_id"], "follow_up_id": recommendation["id"]},
+        recommendation["booking_id"],
+        dedupe_key=f"follow_up.reminder:{recommendation['id']}:{kind}",
+    )
