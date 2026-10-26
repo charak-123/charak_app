@@ -8,7 +8,7 @@ from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
 from ..phone import normalize_e164
-from ..services import erasure, geo, pricing, storage
+from ..services import erasure, geo, pricing, reviews, storage
 from .procedure_bills import effective_review_threshold
 
 router = APIRouter()
@@ -205,6 +205,25 @@ class PriceMatrix(BaseModel):
     follow_up_validity_days: Optional[int] = None
 
 
+@router.get("/me/reviews")
+def my_reviews(user: dict = Depends(require_doctor)):
+    """The doctor's rating, how it's worked out, and every published review
+    about them, without who wrote it."""
+    return reviews.doctor_view(user["sub"])
+
+
+class ReviewReport(BaseModel):
+    reason: str                      # abusive | irrelevant | privacy | other
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.post("/me/reviews/{review_id}/report", status_code=201)
+def report_review(review_id: str, body: ReviewReport, user: dict = Depends(require_doctor)):
+    """Flag a review that is abusive, off-topic or reveals private details.
+    It stays up until ops decides; being negative is not a reason."""
+    return reviews.report(review_id, user, body.reason, body.note)
+
+
 @router.get("/me/prices")
 def my_prices(user: dict = Depends(require_doctor)):
     """The doctor's current price list: first-visit and follow-up prices for
@@ -285,6 +304,7 @@ _PUBLIC_DOCTOR_FIELDS = (
     "category_id",
     "categories",
     "rating_avg",
+    "rating_count",
     "offers_online_consult",
     "offers_home_visit",
     "online_consult_mode",
@@ -301,6 +321,10 @@ _PUBLIC_DOCTOR_FIELDS = (
 def _public_doctor(doctor: dict) -> dict:
     """Keep only the public keys of a doctor row, adding a small photo thumbnail."""
     out = {k: doctor[k] for k in _PUBLIC_DOCTOR_FIELDS if k in doctor}
+    # A handful of reviews says little: below the minimum the doctor is "New"
+    # and no average is shown (D15). Older app builds hide a zero rating.
+    if "rating_avg" in out and int(doctor.get("rating_count") or 0) < reviews.MIN_REVIEWS_SHOWN:
+        out["rating_avg"] = None
     # What patients are told: bills above this amount go to senior review.
     out["procedure_review_threshold"] = effective_review_threshold(
         doctor.get("procedure_review_threshold")
@@ -528,6 +552,19 @@ def check_service_area(
         "service_radius_km": doctor.get("service_radius_km"),
         "reason": reason,
     }
+
+
+@router.get("/{doctor_id}/reviews")
+def get_reviews(doctor_id: str, limit: int = 10):
+    """The doctor's rating (or "New" below 5 reviews), its count, the
+    sub-rating averages, and recent comments. Reviewers aren't named."""
+    if not 1 <= limit <= 50:
+        raise AppError("limit must be between 1 and 50", 400)
+    exists = fetch_one(supabase.table("doctors").select("id").eq("id", doctor_id)
+                       .eq("verification_status", "verified").eq("suspended", False))
+    if not exists:
+        raise AppError("Doctor not found or not verified", 404)
+    return reviews.public_reviews(doctor_id, limit)
 
 
 @router.get("/{doctor_id}/prices")

@@ -163,6 +163,21 @@ class ProfileTab extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
             CharakGroupedList(
+              label: 'Patients',
+              children: [
+                CharakListRow(
+                  icon: LucideIcons.star,
+                  title: 'Ratings & reviews',
+                  subtitle: (me['rating_count'] as num? ?? 0) >= 5
+                      ? '${(me['rating_avg'] as num).toStringAsFixed(1)} · ${me['rating_count']} reviews'
+                      : 'New · ${me['rating_count'] ?? 0} reviews',
+                  last: true,
+                  onTap: () => context.push('/reviews'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            CharakGroupedList(
               label: 'Payouts',
               children: [
                 CharakListRow(

@@ -856,3 +856,15 @@ def follow_up_reminder(recommendation: dict, kind: str = "on_day"):
         recommendation["booking_id"],
         dedupe_key=f"follow_up.reminder:{recommendation['id']}:{kind}",
     )
+
+
+def review_prompt(booking: dict, deliver_after: Optional[datetime] = None):
+    """Asked once, a while after the visit completes (never nagged)."""
+    return notify(
+        booking["patient_id"], "patient", "review.prompt",
+        "How was your visit?",
+        "A quick rating helps other patients choose. It takes a few seconds.",
+        {"booking_id": booking["id"]}, booking["id"],
+        dedupe_key=_once("review.prompt", booking, booking["patient_id"]),
+        deliver_after=deliver_after,
+    )

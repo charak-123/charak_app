@@ -18,7 +18,13 @@ export API_URL=$(gcloud run services describe charak-api --region asia-south1 --
 
 ## 0. Apply the migrations (required first — nothing else works without this)
 
-> **Latest: `0026_pricing_matrix.sql`.** Apply before deploying the backend that
+> **Latest: `0027_reviews.sql`.** Apply before deploying the backend that uses
+> it. It adds `reviews` (overall + three optional sub-ratings + comment, one per
+> completed booking, 14-day window, 48-hour edits, never deleted) and
+> `review_reports`, keeps each doctor's average, count and sub-rating averages,
+> and copies the old one-star `ratings` into reviews. Idempotent (§6f).
+>
+> **Before it: `0026_pricing_matrix.sql`** (applied 2026-10-27). Apply before deploying the backend that
 > uses it. It adds `doctor_price_rules` (each price by channel, first visit or
 > follow-up, and length; never edited, so it is the price history), the
 > doctor's follow-up window, the price and length snapshot on bookings, and a
@@ -550,6 +556,23 @@ update app_config set value = 'true' where key = 'require_booking_policy_accepta
   select channel, visit_category, duration_min, price_paise, effective_from, effective_until
     from doctor_price_rules where doctor_id = '<uuid>' order by effective_from desc;
   ```
+
+---
+
+## 6f. Reviews (migration 0027)
+
+- **Who and when.** The patient of a completed visit, once, within 14 days of
+  completion (D16). They can change it for 48 hours; the previous text is kept
+  in `audit_log` (`review_edited`). A review is never deleted.
+- **The rating.** The mean overall rating of the last 200 published reviews,
+  shown once a doctor has 5 (D15). Below that, apps show "New" and no average.
+  The count and three sub-rating averages (courtesy, explanation, punctuality)
+  are kept on `doctors`. Reviewers are never named to doctors or other patients.
+- **Moderation.** Admin → Reviews. A doctor's report doesn't hide anything.
+  Hide a review only for abuse, content unrelated to the visit, or someone's
+  private details, never for being negative, and always with a reason. Hidden
+  reviews can be restored. Every action is in `audit_log` (`review_hide`,
+  `review_restore`, `review_dismiss`).
 
 ---
 

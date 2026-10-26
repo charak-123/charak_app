@@ -202,6 +202,9 @@ def after_completion(booking: dict, source: str) -> None:
         return
     when = payouts.available_at({"source": "consult_fee", "bookings": full})
     notifications.visit_complete_to_doctor(full, source, when)
+    # Two hours on, once: time to have left the visit behind, not to forget it.
+    if full.get("patient_id"):
+        notifications.review_prompt(full, deliver_after=_now() + timedelta(hours=2))
 
 
 # ── Ops queues ───────────────────────────────────────────────────────────────

@@ -130,6 +130,20 @@ class _CharakGalleryState extends State<CharakGallery> {
           ),
           CharakCheckRow(value: true, onChanged: (_) {}, label: "I've read the cancellation policy"),
           const SizedBox(height: 24),
+          CharakRatingSummaryCard(
+            summary: CharakRatingSummary(
+              count: 23, overall: 4.6, isNew: false,
+              dimensions: const {'professionalism': 4.8, 'communication': 4.5, 'punctuality': 4.1},
+              explanation: 'The average of up to the last 200 reviews from patients who completed a visit.',
+              reviews: [CharakReview(id: 'r', overall: 5, comment: 'Explained everything clearly.',
+                  createdAt: DateTime(2026, 10, 20))],
+            ),
+          ),
+          const SizedBox(height: 8),
+          CharakReviewTile(review: CharakReview(id: 'r', overall: 5, comment: 'Explained everything clearly.',
+              createdAt: DateTime(2026, 10, 20)), last: true),
+          CharakDimensionPicker(label: 'On time', value: 4, onChanged: (_) {}),
+          const SizedBox(height: 12),
           CharakPrescriptionView(
             prescription: CharakPrescription(
               id: 'rx', bookingId: 'bk', status: 'submitted',

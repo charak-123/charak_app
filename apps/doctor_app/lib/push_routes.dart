@@ -58,7 +58,7 @@ DoctorPushDestination? doctorPushDestination(CharakPushMessage message) {
       return const DoctorPushDestination('/');
 
     case 'rating.received':
-      return const DoctorPushDestination('/home', tabIndex: kProfileTab);
+      return const DoctorPushDestination('/reviews');
 
     // The visit itself: reminders before it, and its completion after.
     case 'booking.reminder':

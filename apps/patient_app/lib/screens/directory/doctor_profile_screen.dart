@@ -11,6 +11,12 @@ final _doctorProvider =
   return res as Map<String, dynamic>;
 });
 
+/// The doctor's rating ("New" below 5 reviews) and recent comments.
+final _reviewsProvider = FutureProvider.autoDispose.family<CharakRatingSummary, String>((ref, id) async {
+  return CharakRatingSummary.fromJson(
+      await ApiClient.instance.get('/doctors/$id/reviews?limit=5') as Map<String, dynamic>);
+});
+
 /// The doctor's first-visit prices by channel and length.
 final _pricesProvider = FutureProvider.autoDispose.family<CharakPriceList, String>((ref, id) async {
   return CharakPriceList.fromJson(await ApiClient.instance.get('/doctors/$id/prices') as Map<String, dynamic>);
@@ -29,7 +35,11 @@ class DoctorProfileScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),
         error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_doctorProvider(doctorId))),
-        data: (doc) => _Body(doctor: doc, prices: ref.watch(_pricesProvider(doctorId)).valueOrNull),
+        data: (doc) => _Body(
+          doctor: doc,
+          prices: ref.watch(_pricesProvider(doctorId)).valueOrNull,
+          reviews: ref.watch(_reviewsProvider(doctorId)).valueOrNull,
+        ),
       ),
     );
   }
@@ -40,7 +50,8 @@ class DoctorProfileScreen extends ConsumerWidget {
 class _Body extends StatelessWidget {
   final Map<String, dynamic> doctor;
   final CharakPriceList? prices;
-  const _Body({required this.doctor, required this.prices});
+  final CharakRatingSummary? reviews;
+  const _Body({required this.doctor, required this.prices, required this.reviews});
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +59,7 @@ class _Body extends StatelessWidget {
     final photoUrl   = doctor['photo_url'] as String?;
     final bio        = doctor['bio'] as String?;
     final rating     = (doctor['rating_avg'] as num?)?.toDouble() ?? 0;
-    final reviews    = (doctor['rating_count'] as num?)?.toInt() ?? 0;
+    final reviewCount = (doctor['rating_count'] as num?)?.toInt() ?? 0;
     final category   = (doctor['categories'] as Map?)?['name'] as String? ?? '';
     final creds      = doctor['qualifications'] as String? ?? category;
     final procedures = List<Map<String,dynamic>>.from(doctor['doctor_procedures'] as List? ?? []);
@@ -105,7 +116,7 @@ class _Body extends StatelessWidget {
                 Text(
                   [
                     if (creds.isNotEmpty) creds,
-                    if (reviews > 0) '$reviews ratings',
+                    if (reviewCount > 0) '$reviewCount review${reviewCount == 1 ? '' : 's'}',
                     if (home.isNotEmpty && radius != null) 'Home visits within $radius km',
                   ].join(' · '),
                   style: CharakText.body.copyWith(color: CharakColors.inkMuted),
@@ -139,6 +150,23 @@ class _Body extends StatelessWidget {
                 ),
               ]),
             ),
+
+            // ── Reviews ──────────────────────────────────────────────────
+            if (reviews != null && reviews!.count > 0)
+              _Section(
+                title: 'Reviews',
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  CharakRatingSummaryCard(summary: reviews!, showExplanation: false),
+                  for (final (i, r) in reviews!.reviews.take(3).indexed)
+                    CharakReviewTile(review: r, last: i == reviews!.reviews.take(3).length - 1),
+                  const SizedBox(height: 6),
+                  Text(
+                    'From patients who completed a visit with this doctor. '
+                    '${reviews!.isNew ? 'An average is shown from ${reviews!.minReviewsShown} reviews.' : reviews!.explanation}',
+                    style: charakHintStyle,
+                  ),
+                ]),
+              ),
 
             // ── Procedure prices ─────────────────────────────────────────
             if (procedures.isNotEmpty)

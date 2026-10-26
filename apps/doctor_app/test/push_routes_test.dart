@@ -68,10 +68,10 @@ void main() {
       }
     });
 
-    test('a new rating opens the profile tab', () {
+    test('a new rating opens ratings and reviews', () {
       expect(
         doctorPushDestination(_msg('rating.received')),
-        const DoctorPushDestination('/home', tabIndex: kProfileTab),
+        const DoctorPushDestination('/reviews'),
       );
     });
 

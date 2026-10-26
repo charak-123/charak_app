@@ -176,6 +176,22 @@ MockClient patientBackend({bool newPatient = false}) => MockClient((req) async {
       if (p == '/doctors/search') {
         return _json({'total': doctors.length, 'items': doctors, 'has_more': false, 'located': true, 'sort': 'rating'});
       }
+      final docReviews = RegExp(r'^/doctors/([^/]+)/reviews$').firstMatch(p);
+      if (docReviews != null) {
+        return _json({
+          'count': 23, 'overall': 4.6, 'is_new': false, 'min_reviews_shown': 5,
+          'dimensions': {'professionalism': 4.8, 'communication': 4.5, 'punctuality': 4.1},
+          'explanation': 'The average of up to the last 200 reviews from patients who completed a visit.',
+          'reviews': [
+            {'id': 'rv1', 'overall': 5, 'comment': 'Explained my daughter\'s fever patiently and followed up the next day.', 'created_at': _iso(_at(-5, 10)), 'edited': false},
+            {'id': 'rv2', 'overall': 4, 'comment': 'Arrived about 15 minutes late but was thorough.', 'created_at': _iso(_at(-12, 10)), 'edited': true},
+          ],
+        });
+      }
+      final myReview = RegExp(r'^/bookings/([^/]+)/review$').firstMatch(p);
+      if (myReview != null) {
+        return _json({'review': null, 'can_review': true, 'review_until': _iso(_at(13, 10))});
+      }
       final prices = RegExp(r'^/doctors/([^/]+)/prices$').firstMatch(p);
       if (prices != null) {
         final d = doctors.firstWhere((x) => x['id'] == prices.group(1), orElse: () => doctors.first);

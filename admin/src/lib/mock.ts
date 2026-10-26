@@ -208,6 +208,7 @@ export async function mockRequest(path: string, method: string, body: unknown): 
   if (method === 'POST' && bare === '/admin/login') return { token: 'mock-token' }
 
   if (method === 'POST') {
+    if (match(bare, /^\/admin\/reviews\/([^/]+)\/moderate$/)) return { ok: true }
     if (match(bare, /^\/admin\/prescriptions\/([^/]+)\/access$/)) {
       return { id: 'rx-1', version: 1, kind: 'prescription', complaints: 'Fever for 3 days',
                diagnosis: 'Viral fever', investigations: null, advice: 'Rest and fluids',
@@ -266,6 +267,15 @@ export async function mockRequest(path: string, method: string, body: unknown): 
           { id: 'r1', channel: 'online_consult', visit_category: 'initial', duration_min: 15, price_paise: 60000, effective_from: at(20), effective_until: at(2) },
         ],
       }
+    }
+    if (bare === '/admin/reviews') {
+      const at = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString()
+      return query(path, 'status') === 'hidden' ? [] : [{
+        id: 'rev-1', overall: 1, professionalism: 1, communication: null, punctuality: null,
+        comment: 'Rude and kept me waiting. Call him on 98xxxxxx12 and see.', status: 'published',
+        hidden_reason: null, hidden_at: null, created_at: at(2), doctors: { name: 'Dr. Arjun Nair' },
+        reports: [{ id: 'rep-1', reason: 'privacy', note: 'Contains my personal number', reporter_role: 'doctor', created_at: at(1) }],
+      }]
     }
     if (bare === '/admin/visits/queues') {
       const at = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString()

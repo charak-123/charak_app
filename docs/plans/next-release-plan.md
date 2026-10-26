@@ -803,6 +803,18 @@ starts. Sizes are relative: S, M, L.
 
 ### Phase 6: Trust (L)
 
+> **Status: 6a (reviews) built 2026-10-27, not yet deployed. 6b (issues, incidents,
+> reliability, remedies, reschedules, case IDs) next.**
+>
+> 6a built: migration 0027 (`reviews`, `review_reports`, doctor aggregates, old ratings
+> copied over); reviews service and endpoints (the old `/rate` writes reviews); a single
+> review prompt 2 hours after completion; patient review screen with three optional
+> sub-ratings and edit-within-48h; reviews on the doctor's profile; the doctor's Ratings &
+> reviews screen with reporting; admin Reviews moderation; shared `CharakRatingSummaryCard`,
+> `CharakReviewTile` and `CharakDimensionPicker` (in the gallery). Decisions at their
+> recommended defaults: D15 (overall entered, 3 optional sub-ratings, last 200, shown from
+> 5), D16 (14-day window, 48-hour edits).
+
 - **Build:**
   - reviews v2 with aggregates and moderation
   - the report-issue flows

@@ -266,6 +266,26 @@ class _FollowBookingsDb:
         return getattr(bookings.supabase, name)
 
 
+class _FollowRatingsDb:
+    """Forwards to whatever ``app.routers.ratings.supabase`` is right now."""
+
+    def __getattr__(self, name):
+        import app.routers.ratings as ratings
+        return getattr(ratings.supabase, name)
+
+
+@pytest.fixture(autouse=True)
+def _reviews_read_the_ratings_db(request):
+    """services/reviews.py (migration 0027) binds its own ``supabase``; review
+    tests mock the ratings router's, and the service reads the same mock.
+    Its audit writes go nowhere."""
+    if _integration(request):
+        yield
+        return
+    with patch("app.services.reviews.supabase", _FollowRatingsDb()):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _pricing_reads_the_bookings_db(request):
     """

@@ -12,7 +12,7 @@ from ..deps import require_ops
 from ..errors import AppError
 from ..services import (
     admin_auth, audit, booking_state, erasure, notifications, payouts, prescriptions, pricing,
-    refunds, visits,
+    refunds, reviews, visits,
 )
 from ..services.admin_auth import AdminAuthError
 from ..services.rate_limit import enforce as enforce_rate_limit, rate_limiter
@@ -318,6 +318,29 @@ def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_o
 
     _audit(user, "booking", booking_id, "revealed_patient_phone")
     return {"phone": (row[0].get("users") or {}).get("phone")}
+
+
+# ── Review moderation ────────────────────────────────────────────────────────
+
+@router.get("/reviews")
+def review_queue(status: str = "reported", user: dict = Depends(require_ops)):
+    """'reported': published reviews with an open report, oldest first.
+    'hidden': reviews ops has hidden, newest first."""
+    if status not in ("reported", "hidden"):
+        raise AppError("status must be reported or hidden", 400)
+    return reviews.moderation_queue(status)
+
+
+class ModerationRequest(BaseModel):
+    action: str        # hide | restore | dismiss
+    reason: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/reviews/{review_id}/moderate")
+def moderate_review(review_id: str, body: ModerationRequest, user: dict = Depends(require_ops)):
+    """Hide (abusive, irrelevant or private details; never for being
+    negative), restore, or dismiss the reports and leave it up."""
+    return reviews.moderate(review_id, body.action, body.reason, user)
 
 
 # ── Pricing history ──────────────────────────────────────────────────────────
