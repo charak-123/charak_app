@@ -171,8 +171,14 @@ class ProfileTab extends ConsumerWidget {
                   subtitle: (me['rating_count'] as num? ?? 0) >= 5
                       ? '${(me['rating_avg'] as num).toStringAsFixed(1)} · ${me['rating_count']} reviews'
                       : 'New · ${me['rating_count'] ?? 0} reviews',
-                  last: true,
                   onTap: () => context.push('/reviews'),
+                ),
+                CharakListRow(
+                  icon: LucideIcons.shieldCheck,
+                  title: 'Reliability',
+                  subtitle: 'Visits kept, and any cases about you',
+                  last: true,
+                  onTap: () => context.push('/reliability'),
                 ),
               ],
             ),

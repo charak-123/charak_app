@@ -868,3 +868,81 @@ def review_prompt(booking: dict, deliver_after: Optional[datetime] = None):
         dedupe_key=_once("review.prompt", booking, booking["patient_id"]),
         deliver_after=deliver_after,
     )
+
+
+
+# ── When a visit goes wrong (migration 0028) ─────────────────────────────────
+# Neutral wording: a report is not a verdict, and nothing medical is said.
+
+def incident_reported_to_doctor(incident: dict, background=None):
+    return notify(
+        incident["doctor_id"], "doctor", "incident.reported",
+        "A patient reported a problem",
+        f"Case {incident['case_ref']}: tell us what happened. Nothing counts against you "
+        "unless our team confirms it.",
+        {"booking_id": incident["booking_id"], "incident_id": incident["id"]},
+        incident["booking_id"], background,
+        dedupe_key=f"incident.reported:{incident['id']}",
+    )
+
+
+def incident_decided(incident: dict, background=None):
+    """Both sides hear the outcome; the doctor also how to appeal."""
+    ref = incident["case_ref"]
+    notify(
+        incident["doctor_id"], "doctor", "incident.decided",
+        f"Case {ref} reviewed",
+        "Open CHARAK to see the outcome. If it counts against you, you can appeal within 7 days.",
+        {"booking_id": incident["booking_id"], "incident_id": incident["id"]},
+        incident["booking_id"], background,
+        dedupe_key=f"incident.decided:{incident['id']}:{incident.get('status')}:{incident.get('appeal_status')}",
+    )
+    if incident.get("reported_by_role") == "patient":
+        notify(
+            incident["patient_id"], "patient", "incident.decided",
+            f"Case {ref} reviewed",
+            "Our team has looked into the problem you reported. Open CHARAK to see the outcome.",
+            {"booking_id": incident["booking_id"], "incident_id": incident["id"]},
+            incident["booking_id"], background,
+            dedupe_key=f"incident.decided.patient:{incident['id']}:{incident.get('status')}",
+        )
+
+
+def replacement_confirmed(booking: dict, doctor_name: str = "Your new doctor", background=None):
+    return notify(
+        booking["patient_id"], "patient", "booking.confirmed",
+        "New doctor confirmed",
+        f"{doctor_name} accepted. It's paid from your earlier booking; anything left over is refunded.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=_once("booking.confirmed", booking, booking["patient_id"]),
+    )
+
+
+def remedy_reopened(incident: dict, background=None):
+    return notify(
+        incident["patient_id"], "patient", "remedy.reopened",
+        "Choose another doctor or a refund",
+        "The doctor you picked couldn't take the booking. Your money is safe: choose another "
+        "doctor, or a full refund.",
+        {"booking_id": incident["booking_id"], "incident_id": incident["id"]},
+        incident["booking_id"], background,
+    )
+
+
+def reschedule_proposed(booking: dict, background=None):
+    return notify(
+        booking["patient_id"], "patient", "reschedule.proposed",
+        "Your doctor asked to move your visit",
+        "Pick one of the new times, or get a full refund.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+    )
+
+
+def reschedule_answered(booking: dict, accepted: bool, background=None):
+    return notify(
+        booking["doctor_id"], "doctor", "reschedule.answered",
+        "New time confirmed" if accepted else "Patient chose a refund",
+        "The patient picked one of your new times." if accepted
+        else "None of your new times worked for the patient, so they were refunded.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+    )

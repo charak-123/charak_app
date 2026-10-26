@@ -11,8 +11,8 @@ from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor, require_patient
 from ..errors import AppError
 from ..services import (
-    app_config, availability, booking_state, cancellation, geo, legal, notifications, pricing,
-    refunds, visits,
+    app_config, availability, booking_state, cancellation, geo, incidents, legal, notifications,
+    pricing, refunds, remedies, reschedules, visits,
 )
 from ..services.rate_limit import client_ip, rate_limiter
 
@@ -74,6 +74,10 @@ class BookingCreate(BaseModel):
     expected_price_paise: Optional[int] = Field(default=None, ge=0)
     # The consultation this follow-up continues, for the follow-up price.
     follow_up_of: Optional[str] = Field(default=None, max_length=40)
+    # A doctor didn't attend and the patient chose another doctor instead of a
+    # refund (services/remedies.py): the case it remedies. Nothing is paid;
+    # the earlier payment covers it when the new doctor accepts.
+    replaces_incident_id: Optional[str] = Field(default=None, max_length=40)
 
 
 @router.post("/", status_code=201, dependencies=[rate_limiter("booking-create", 10, 600)])
@@ -152,6 +156,9 @@ def create_booking(
         )
     # A legacy request (no length chosen) was offered times on the legacy grid.
     legacy_grid = body.price_rule_id is None and body.duration_min is None
+
+    if body.replaces_incident_id:
+        return _create_replacement(body, doc, rule, start, policy, user, background)
 
     existing = (
         supabase.table("bookings")
@@ -396,6 +403,11 @@ def accept_booking(
     doctor = supabase.table("doctors").select("name").eq("id", user["sub"]).execute().data or []
     doctor_name = (doctor[0].get("name") if doctor else None) or "Your doctor"
 
+    if b.get("prepaid_from_payment_id"):
+        # A replacement for a doctor who didn't attend: paid from the earlier
+        # booking's payment, with anything left over refunded.
+        return remedies.settle({**b, **updated}, doctor_name, background)
+
     if b.get("price_paise") == 0:
         # A free follow-up (the doctor priced it at ₹0): nothing to pay, so
         # accepting confirms it. Same transition a captured payment makes.
@@ -630,6 +642,16 @@ def cancel_booking(
     quote = result.get("quote") or {}
     notifications.booking_cancelled(booking, by, background,
                                     kept_paise=int(quote.get("kept_paise") or 0))
+    # Times the doctor had proposed no longer apply.
+    supabase.table("reschedule_requests").update({"status": "withdrawn"}) \
+        .eq("booking_id", booking_id).eq("status", "proposed").execute()
+    # A doctor cancelling a paid visit close to its time is recorded (they
+    # can appeal it, for an emergency say).
+    if by == "doctor" and b["status"] == "paid":
+        try:
+            incidents.record_late_cancel(booking, background)
+        except Exception as exc:                  # noqa: BLE001 — the cancel stands
+            logger.error("could not record late cancel for %s: %r", booking_id, exc)
     return {
         **updated,
         "quote": _quote_view(quote),
@@ -642,6 +664,33 @@ def cancel_booking(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _create_replacement(body: "BookingCreate", doc: dict, rule: dict, start: datetime,
+                        policy: dict, user: dict, background) -> dict:
+    """The patient's replacement for a doctor who didn't attend: priced like
+    any booking, checked against the slot grid, and created in one
+    transaction with cancelling the original (services/remedies.py)."""
+    if body.follow_up_of:
+        raise AppError("A replacement is a new consultation, not a follow-up", 400)
+    inc = incidents.get(body.replaces_incident_id)
+    if not inc or inc["patient_id"] != user["sub"]:
+        raise AppError("Case not found", 404)
+    if inc["doctor_id"] == body.doctor_id:
+        raise AppError("Choose a different doctor", 400)
+    _assert_bookable(body.doctor_id, start, rule["duration_min"])
+    fields = {
+        "doctor_id": body.doctor_id, "channel": body.channel, "scheduled_start": start.isoformat(),
+        "duration_min": rule["duration_min"], "price_paise": rule["price_paise"],
+        "price_rule_id": rule["id"], "category_id": body.category_id,
+        "cancellation_policy_id": policy["id"],
+        **_resolve_home_visit_address(body, doc, user["sub"]),
+    }
+    row = remedies.start_replacement(body.replaces_incident_id, user["sub"], fields)
+    patient = supabase.table("users").select("name").eq("id", user["sub"]).execute().data or []
+    notifications.booking_requested(row, (patient[0].get("name") if patient else None) or "A patient",
+                                    background)
+    return {**row, "cancellation_policy": cancellation.public_policy(policy)}
+
 
 def _assert_bookable(doctor_id: str, start: datetime, duration_min: Optional[int] = None) -> None:
     """

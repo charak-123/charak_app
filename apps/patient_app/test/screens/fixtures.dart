@@ -176,6 +176,28 @@ MockClient patientBackend({bool newPatient = false}) => MockClient((req) async {
       if (p == '/doctors/search') {
         return _json({'total': doctors.length, 'items': doctors, 'has_more': false, 'located': true, 'sort': 'rating'});
       }
+      final help = RegExp(r'^/bookings/([^/]+)/help$').firstMatch(p);
+      if (help != null) {
+        return _json({
+          'help_opens_at': _iso(DateTime.now().subtract(const Duration(minutes: 5))),
+          'grace_minutes': 10,
+          'can_report': ['call_failed', 'other'],
+          'incident': {
+            'id': 'inc-1', 'case_ref': 'CHK-7F3K2', 'booking_id': help.group(1), 'type': 'doctor_no_show',
+            'reported_as': 'doctor_not_joined', 'status': 'reported', 'remedy_eligible': true,
+            'remedy': 'pending',
+            'remedies': {'available': true, 'refund_paise': 65000, 'replacement_budget_paise': 65000,
+                         'channel': 'online_consult', 'exclude_doctor_id': 'doc-1',
+                         'default_refund_at': _iso(DateTime.now().add(const Duration(hours: 23)))},
+          },
+          'reschedule_request': help.group(1) == 'bk-paid' ? null : {
+            'id': 'rr-1', 'booking_id': help.group(1), 'cause': 'doctor_device',
+            'note': 'My connection dropped, sorry.',
+            'options': [_iso(_at(1, 10)), _iso(_at(1, 17, 30))],
+            'status': 'proposed', 'expires_at': _iso(DateTime.now().add(const Duration(hours: 22))),
+          },
+        });
+      }
       final docReviews = RegExp(r'^/doctors/([^/]+)/reviews$').firstMatch(p);
       if (docReviews != null) {
         return _json({

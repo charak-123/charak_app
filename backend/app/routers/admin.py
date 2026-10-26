@@ -11,8 +11,8 @@ from ..db import supabase
 from ..deps import require_ops
 from ..errors import AppError
 from ..services import (
-    admin_auth, audit, booking_state, erasure, notifications, payouts, prescriptions, pricing,
-    refunds, reviews, visits,
+    admin_auth, audit, booking_state, erasure, incidents, notifications, payouts, prescriptions,
+    pricing, refunds, remedies, reviews, visits,
 )
 from ..services.admin_auth import AdminAuthError
 from ..services.rate_limit import enforce as enforce_rate_limit, rate_limiter
@@ -318,6 +318,56 @@ def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_o
 
     _audit(user, "booking", booking_id, "revealed_patient_phone")
     return {"phone": (row[0].get("users") or {}).get("phone")}
+
+
+# ── Incidents ────────────────────────────────────────────────────────────────
+
+@router.get("/incidents")
+def incident_queue(view: str = "open", user: dict = Depends(require_ops)):
+    """'open': reported or under review, oldest first. 'appealed': appeals
+    waiting. 'all': everything recent. Each with its full event history."""
+    if view not in ("open", "appealed", "all"):
+        raise AppError("view must be open, appealed or all", 400)
+    return incidents.ops_queue(view)
+
+
+class IncidentDecision(BaseModel):
+    status: str                    # confirmed | dismissed | undetermined
+    cause: str                     # doctor | patient | platform | mutual | undetermined
+    reason: str = Field(min_length=5, max_length=1000)
+    # Let the patient choose a refund or another doctor now.
+    offer_remedy: bool = False
+
+
+@router.post("/incidents/{incident_id}/decide")
+def decide_incident(incident_id: str, body: IncidentDecision, background: BackgroundTasks,
+                    user: dict = Depends(require_ops)):
+    row = incidents.decide(incident_id, user, body.status, body.cause, body.reason,
+                           body.offer_remedy, background)
+    audit.record(user, "incident", incident_id, f"incident_{body.status}", reason=body.reason,
+                 metadata={"cause": body.cause, "offer_remedy": body.offer_remedy})
+    return row
+
+
+class AppealDecision(BaseModel):
+    outcome: str                   # upheld | reversed
+    reason: str = Field(min_length=5, max_length=1000)
+
+
+@router.post("/incidents/{incident_id}/appeal-decision")
+def decide_incident_appeal(incident_id: str, body: AppealDecision, background: BackgroundTasks,
+                           user: dict = Depends(require_ops)):
+    row = incidents.decide_appeal(incident_id, user, body.outcome, body.reason, background)
+    audit.record(user, "incident", incident_id, f"appeal_{body.outcome}", reason=body.reason)
+    return row
+
+
+@router.post("/incidents/{incident_id}/refund")
+def refund_incident(incident_id: str, background: BackgroundTasks, user: dict = Depends(require_ops)):
+    """Refund the patient now (the case must be open to a remedy)."""
+    out = remedies.refund(incident_id, "ops", user.get("sub"), background)
+    audit.record(user, "incident", incident_id, "remedy_refund_by_ops")
+    return out
 
 
 # ── Review moderation ────────────────────────────────────────────────────────

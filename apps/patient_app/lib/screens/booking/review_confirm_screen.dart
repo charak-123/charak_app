@@ -107,6 +107,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
           if (b['duration_min'] != null) 'duration_min': b['duration_min'],
           if (b['price_paise'] != null) 'expected_price_paise': b['price_paise'],
           if (b['follow_up_of'] != null) 'follow_up_of': b['follow_up_of'],
+          if (b['replaces_incident_id'] != null) 'replaces_incident_id': b['replaces_incident_id'],
         }) as Map<String, dynamic>;
     try {
       return await post();
@@ -192,6 +193,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
     final price    = paise != null ? paise / 100 : (p?['price'] as num?)?.toDouble() ?? 0;
     final mins     = (b['duration_min'] as num?)?.toInt() ?? (p?['base_duration_min'] as num?)?.toInt() ?? 15;
     final followUp = b['visit_category'] == 'follow_up';
+    final replacing = b['replaces_incident_id'] != null;
 
     final intakeLabel = text.isNotEmpty
         ? 'Text'
@@ -243,7 +245,9 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
               const CharakSummaryDivider(),
               CharakSummaryRow(
                 label: 'Payment',
-                value: price <= 0
+                value: replacing
+                    ? 'Covered by your earlier payment'
+                    : price <= 0
                     ? 'Nothing to pay'
                     : isHome
                         ? 'Consult fee now · procedures billed after visit'
@@ -360,7 +364,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
           children: [
             Expanded(
               child: CharakButton(
-                label: price > 0 ? 'Send request · ${CharakFormat.rupees(price)}' : 'Send request',
+                label: price > 0 && !replacing ? 'Send request · ${CharakFormat.rupees(price)}' : 'Send request',
                 isLoading: _sending,
                 onPressed: ready && !_sending
                     ? () => _send(policy: policy, telemedicine: telemedicine)

@@ -144,8 +144,11 @@ def schedule_reminders(booking: dict, now: Optional[datetime] = None) -> int:
         if when <= now:
             continue
         try:
-            jobs.enqueue("booking.reminder", {"booking_id": booking["id"], "minutes": int(minutes)},
-                         run_at=when, dedupe_key=f"booking-reminder:{booking['id']}:{minutes}")
+            # Keyed to the start time: a booking moved to a new time gets its
+            # own reminders, and the old ones find it has moved and skip.
+            jobs.enqueue("booking.reminder",
+                         {"booking_id": booking["id"], "minutes": int(minutes), "start": start.isoformat()},
+                         run_at=when, dedupe_key=f"booking-reminder:{booking['id']}:{start.isoformat()}:{minutes}")
             queued += 1
         except Exception as exc:                   # noqa: BLE001 — the payment has succeeded
             logger.error("could not queue reminder for %s: %r", booking["id"], exc)
@@ -164,6 +167,8 @@ def _send_reminder(payload: dict) -> None:
     minutes = int(payload.get("minutes") or 0)
     if _ts(booking["scheduled_start"]) <= _now():
         return
+    if payload.get("start") and _ts(payload["start"]) != _ts(booking["scheduled_start"]):
+        return                                     # rescheduled since
     notifications.appointment_reminder(booking, "patient", minutes)
     notifications.appointment_reminder(booking, "doctor", minutes)
 

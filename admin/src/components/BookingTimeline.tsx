@@ -36,6 +36,7 @@ const EVENT_LABEL: Record<string, string> = {
   start_consultation: 'Consultation started',
   end_consultation: 'Consultation ended',
   prescription_sent: 'Prescription sent',
+  rescheduled: 'Moved to a new time',
   hold_expire: 'Payment window closed',
   request_expire: 'Request expired',
   status_changed_outside_state_machine: 'Changed outside the app',
@@ -58,6 +59,11 @@ function details(m: Record<string, unknown>): string[] {
   if (typeof m.db_user === 'string') out.push(`as ${m.db_user}`)
   if (typeof m.version === 'number') out.push(`version ${m.version}${m.corrects ? ' (correction)' : ''}`)
   if (m.kind === 'notes') out.push('consultation notes')
+  if (typeof m.from === 'string' && typeof m.to === 'string') {
+    out.push(`${format(new Date(m.from), 'd MMM h:mm a')} → ${format(new Date(m.to), 'd MMM h:mm a')}`)
+  }
+  if (m.remedy === 'replacement') out.push('replaced by another doctor')
+  if (typeof m.paid_from_payment_id === 'string') out.push('paid from an earlier booking')
   if (typeof m.completion_source === 'string') out.push(m.completion_source.replace(/_/g, ' '))
   return out
 }

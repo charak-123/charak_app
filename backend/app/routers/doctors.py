@@ -8,7 +8,7 @@ from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
 from ..phone import normalize_e164
-from ..services import erasure, geo, pricing, reviews, storage
+from ..services import erasure, geo, incidents, pricing, reviews, storage
 from .procedure_bills import effective_review_threshold
 
 router = APIRouter()
@@ -203,6 +203,13 @@ class PriceMatrix(BaseModel):
     # Days after a consultation that a follow-up can be booked at the
     # follow-up price. Required when any follow-up price is set.
     follow_up_validity_days: Optional[int] = None
+
+
+@router.get("/me/reliability")
+def my_reliability(user: dict = Depends(require_doctor)):
+    """Visits kept over the last 90 days, how it's worked out, and every case
+    about the doctor, with what they can do about each (respond, appeal)."""
+    return {**incidents.reliability(user["sub"]), "cases": incidents.doctor_cases(user["sub"])}
 
 
 @router.get("/me/reviews")

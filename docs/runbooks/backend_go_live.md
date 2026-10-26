@@ -18,7 +18,15 @@ export API_URL=$(gcloud run services describe charak-api --region asia-south1 --
 
 ## 0. Apply the migrations (required first — nothing else works without this)
 
-> **Latest: `0027_reviews.sql`.** Apply before deploying the backend that uses
+> **Latest: `0028_incidents_remedies_reschedules.sql`.** Apply before deploying
+> the backend that uses it. It adds incidents (with CHK- case references, also
+> on complaints), the remedy functions (refund, or another doctor paid from the
+> same payment), reschedule requests, and makes refunds aware of a payment
+> moved to a replacement booking (`cancel_booking()` and the refund guard are
+> recreated). Idempotent. The tick (§6) runs the default refunds and the
+> automatic confirmations, so `charak-tick` must be running (§6g).
+>
+> **Before it: `0027_reviews.sql`** (applied with 6a). Apply before deploying the backend that uses
 > it. It adds `reviews` (overall + three optional sub-ratings + comment, one per
 > completed booking, 14-day window, 48-hour edits, never deleted) and
 > `review_reports`, keeps each doctor's average, count and sub-rating averages,
@@ -573,6 +581,45 @@ update app_config set value = 'true' where key = 'require_booking_policy_accepta
   private details, never for being negative, and always with a reason. Hidden
   reviews can be restored. Every action is in `audit_log` (`review_hide`,
   `review_restore`, `review_dismiss`).
+
+---
+
+## 6g. When a visit goes wrong (migration 0028)
+
+- **Reporting.** After the grace period (`app_config.no_show_grace_minutes`:
+  home 30, online 10 minutes past the start; D5, D6) the patient can report
+  "Doctor hasn't arrived/joined". Call problems and anything else can be
+  reported any time during the visit. Each report gets a case reference
+  (CHK-XXXXX) and the evidence at that moment: the slot, any journey start,
+  who joined the call.
+- **Remedies.** When the evidence already supports it (no journey on a home
+  visit; the doctor never joined online) the patient can choose at once:
+  - a full refund, or
+  - another doctor, paid from the same payment, up to what it covers. The
+    original booking is cancelled and its doctor's credit reversed. When the
+    new doctor accepts, the payment is re-pointed and anything left over is
+    refunded. If the new doctor declines, the patient chooses again.
+
+  With no choice within 24 hours, the patient is refunded. Conflicting
+  evidence goes to ops first: Admin → Incidents, "Offer the patient a refund
+  or another doctor".
+- **Deciding.** Admin → Incidents. Confirm (with a cause), dismiss, or mark
+  undetermined, always with a reason the doctor sees.
+  - An online no-show with clear evidence confirms itself after 48 hours
+    unless the doctor responds (D7).
+  - A doctor cancelling a paid visit within 2 hours is recorded as a confirmed
+    late cancellation.
+  - A doctor-proposed reschedule is recorded with the doctor's stated cause.
+- **Reliability** (doctor app → Reliability): visits that went ahead in the
+  last 90 days against those plus the incidents that count. Only incidents
+  that are confirmed, caused by the doctor and not reversed on appeal count.
+  Reports, undetermined cases and anything outside the doctor's control never
+  do. It is separate from the review rating (D8).
+- **Appeals.** Once, within 7 days of the decision (D10). Admin → Incidents →
+  Appeals: uphold or reverse, with a reason.
+- **Reschedules.** The doctor offers up to 3 open times. The patient picks one
+  (same booking, same price, reminders re-queued) or takes a full refund. With
+  no answer within 24 hours, they're refunded.
 
 ---
 

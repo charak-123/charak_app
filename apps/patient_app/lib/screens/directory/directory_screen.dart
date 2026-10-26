@@ -36,7 +36,13 @@ const _channelFilters = [
 
 class DirectoryScreen extends ConsumerStatefulWidget {
   final String? initialQuery;
-  const DirectoryScreen({super.key, this.initialQuery});
+
+  /// Set when the patient is choosing another doctor after one didn't attend
+  /// (help_screen.dart): {replaces_incident_id, budget_paise, exclude_doctor_id,
+  /// channel}. Only doctors whose shortest visit fits the budget are listed,
+  /// and the choice carries through to booking.
+  final Map<String, dynamic>? replacement;
+  const DirectoryScreen({super.key, this.initialQuery, this.replacement});
   @override
   ConsumerState<DirectoryScreen> createState() => _State();
 }
@@ -51,6 +57,12 @@ class _State extends ConsumerState<DirectoryScreen> {
     super.initState();
     // A channel value looks like "online_consult"/"home_visit"; anything else
     // is treated as a specialty category name (or empty = all doctors).
+    final r = widget.replacement;
+    if (r != null) {
+      _channel = r['channel'] as String? ?? '';
+      _category = '';
+      return;
+    }
     if (widget.initialQuery == 'home_visit' || widget.initialQuery == 'online_consult') {
       _channel = widget.initialQuery!;
       _category = '';
@@ -65,7 +77,7 @@ class _State extends ConsumerState<DirectoryScreen> {
   Widget build(BuildContext context) {
     final async = ref.watch(_directoryProvider(_params));
     return CharakScreen(
-      title: _category.isNotEmpty ? _category : 'All doctors',
+      title: widget.replacement != null ? 'Choose another doctor' : (_category.isNotEmpty ? _category : 'All doctors'),
       body: async.when(
         // `.skel` — doctor cards are avatar rows with a price footer, so the
         // list preset mirrors them directly under the real top bar.
@@ -76,6 +88,13 @@ class _State extends ConsumerState<DirectoryScreen> {
         error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_directoryProvider(_params))),
         data: (data) {
           var items = List<Map<String, dynamic>>.from(data['items'] as List);
+          final r = widget.replacement;
+          final budget = (r?['budget_paise'] as num?)?.toInt();
+          if (r != null) {
+            items = items
+                .where((d) => d['id'] != r['exclude_doctor_id'] && _cheapestPrice(d) * 100 <= (budget ?? 0))
+                .toList();
+          }
           if (_sortByPrice) {
             items = [...items]..sort((a, b) => _cheapestPrice(a).compareTo(_cheapestPrice(b)));
           }
@@ -94,6 +113,15 @@ class _State extends ConsumerState<DirectoryScreen> {
                 ]),
               ),
 
+              if (r != null) ...[
+                CharakNoteBanner(
+                  icon: LucideIcons.wallet,
+                  leadLabel: 'Covered by your earlier payment',
+                  message: ' up to ${CharakFormat.rupees((budget ?? 0) / 100)}. Anything left over is refunded.',
+                  tone: CharakStatusTone.primary,
+                ),
+                const SizedBox(height: 12),
+              ],
               // Filters left, sort pushed hard right.
               Row(children: [
                 Expanded(
@@ -134,7 +162,7 @@ class _State extends ConsumerState<DirectoryScreen> {
               else
                 ...items.map((d) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: _DoctorCard(doctor: d),
+                  child: _DoctorCard(doctor: d, replacement: widget.replacement),
                 )),
             ],
           );
@@ -157,7 +185,8 @@ class _State extends ConsumerState<DirectoryScreen> {
 /// then the channels and the fee in narrow tabular figures.
 class _DoctorCard extends StatelessWidget {
   final Map<String, dynamic> doctor;
-  const _DoctorCard({required this.doctor});
+  final Map<String, dynamic>? replacement;
+  const _DoctorCard({required this.doctor, this.replacement});
 
   @override
   Widget build(BuildContext context) {
@@ -175,7 +204,7 @@ class _DoctorCard extends StatelessWidget {
     final anyPrice = onlinePrice ?? pricing.firstOrNull;
 
     return CharakCard(
-      onTap: () => context.push('/doctor/${doctor['id']}'),
+      onTap: () => context.push('/doctor/${doctor['id']}', extra: replacement),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           CharakAvatar(name: name, imageUrl: photoUrl, radius: 26, tone: 2),

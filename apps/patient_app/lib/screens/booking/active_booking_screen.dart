@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
 
+import 'help_screen.dart';
+
 /// The booking, plus (once the doctor has sent one) the id and timestamps of
 /// the prescription. Its content is fetched only when the patient opens it,
 /// because opening it is what completes the visit.
@@ -31,7 +33,11 @@ class ActiveBookingScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),
         error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_activeBookingProvider(bookingId))),
-        data: (booking) => _Body(booking: booking, bookingId: bookingId),
+        data: (booking) => _Body(
+          booking: booking,
+          bookingId: bookingId,
+          help: ref.watch(bookingHelpProvider(bookingId)).valueOrNull,
+        ),
       ),
     );
   }
@@ -40,7 +46,10 @@ class ActiveBookingScreen extends ConsumerWidget {
 class _Body extends StatelessWidget {
   final Map<String, dynamic> booking;
   final String bookingId;
-  const _Body({required this.booking, required this.bookingId});
+
+  /// GET /bookings/{id}/help: an open case, new times proposed, what can be reported.
+  final Map<String, dynamic>? help;
+  const _Body({required this.booking, required this.bookingId, this.help});
 
   /// Fetch what cancelling now would refund, say exactly that, and cancel
   /// against that amount. If the outcome moved in between (the doctor just
@@ -191,6 +200,14 @@ class _Body extends StatelessWidget {
             ],
           ])),
 
+          if (_attention(help) case final String message) ...[
+            const SizedBox(height: 12),
+            CharakPressable(
+              onTap: () => context.push('/booking/$bookingId/help'),
+              child: CharakNoteBanner(icon: LucideIcons.lifeBuoy, message: message, tone: CharakStatusTone.review),
+            ),
+          ],
+
           if (canJoin) ...[
             const SizedBox(height: 6),
             CharakButton(
@@ -243,6 +260,15 @@ class _Body extends StatelessWidget {
               icon: LucideIcons.circleCheck,
               tone: CharakStatusTone.success,
               message: 'Visit completed. Your receipt is in History.',
+            ),
+          ],
+
+          if (const {'paid', 'in_progress', 'consulted', 'completed', 'cancelled'}.contains(status)) ...[
+            const SizedBox(height: 14),
+            CharakGhostButton(
+              label: _helpLabel(help, booking),
+              icon: LucideIcons.lifeBuoy,
+              onPressed: () => context.push('/booking/$bookingId/help'),
             ),
           ],
 
@@ -386,4 +412,30 @@ String? freeUntilLine(Map<String, dynamic> booking, {DateTime? now}) {
   final until = start.subtract(Duration(minutes: minutes));
   if (until.isBefore(now ?? DateTime.now())) return null;
   return 'Free cancellation until ${CharakFormat.dayTime(until)}.';
+}
+
+
+/// A line that needs the patient now: new times to answer, or a remedy to
+/// choose. Null when there's nothing waiting on them.
+String? _attention(Map<String, dynamic>? help) {
+  if (help == null) return null;
+  if (help['reschedule_request'] != null) {
+    return 'Your doctor asked to move this visit. Pick a new time or get a refund.';
+  }
+  final inc = help['incident'] as Map<String, dynamic>?;
+  if (inc != null && (inc['remedies'] as Map?)?['available'] == true) {
+    return 'Case ${inc['case_ref']}: choose a full refund or another doctor.';
+  }
+  if (inc != null && (inc['status'] == 'reported' || inc['status'] == 'under_review')) {
+    return 'Case ${inc['case_ref']}: we\'re looking into the problem you reported.';
+  }
+  return null;
+}
+
+/// After the grace period, the help link says exactly what it's for.
+String _helpLabel(Map<String, dynamic>? help, Map<String, dynamic> booking) {
+  final can = List<String>.from(help?['can_report'] as List? ?? const []);
+  if (can.contains('doctor_not_arrived')) return "Doctor hasn't arrived?";
+  if (can.contains('doctor_not_joined')) return "Doctor hasn't joined?";
+  return 'Get help with this visit';
 }

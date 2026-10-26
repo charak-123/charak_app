@@ -23,6 +23,7 @@ import 'screens/requests/clarification_call_screen.dart';
 import 'screens/requests/active_visit_screen.dart';
 import 'screens/requests/prescription_screen.dart';
 import 'screens/profile/reviews_screen.dart';
+import 'screens/profile/reliability_screen.dart';
 
 /// Wraps a screen in the wireframe's 280ms horizontal push
 /// (`.scr.entering` / `.scr.leaving`).
@@ -109,6 +110,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/setup/pricing',         pageBuilder: (_, __) => _push(const PricingSetupScreen())),
       GoRoute(path: '/setup/payout',          pageBuilder: (_, __) => _push(const PayoutDetailsScreen())),
       GoRoute(path: '/reviews',               pageBuilder: (_, __) => _push(const ReviewsScreen())),
+      GoRoute(path: '/reliability',           pageBuilder: (_, __) => _push(const ReliabilityScreen())),
       GoRoute(path: '/home',                  pageBuilder: (_, __) => _rise(const HomeShell())),
 
       // ── Phase 2: Requests & Fulfillment ───────────────────────────────────

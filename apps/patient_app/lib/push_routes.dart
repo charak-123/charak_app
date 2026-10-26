@@ -44,6 +44,12 @@ String? patientPushRoute(CharakPushMessage message) {
     case 'booking.no_show':
       return '/booking/$bookingId/complete';
 
+    // When a visit goes wrong: the case, the choice, the new times.
+    case 'incident.decided':
+    case 'remedy.reopened':
+    case 'reschedule.proposed':
+      return '/booking/$bookingId/help';
+
     case 'review.prompt':
       return '/booking/$bookingId/rate';
 

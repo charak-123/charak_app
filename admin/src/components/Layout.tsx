@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import {
-  LayoutDashboard, ShieldCheck, BookOpen, MessageSquare, Users, ClipboardList, LogOut, UserX, Menu, X, Undo2, Stethoscope, Star } from 'lucide-react'
+  LayoutDashboard, ShieldCheck, BookOpen, MessageSquare, Users, ClipboardList, LogOut, UserX, Menu, X, Undo2, Stethoscope, Star, ShieldAlert } from 'lucide-react'
 
 const NAV = [
   { to: '/',              icon: LayoutDashboard, label: 'Overview' },
@@ -13,6 +13,7 @@ const NAV = [
   { to: '/bookings',      icon: BookOpen,      label: 'Bookings' },
   { to: '/complaints',    icon: MessageSquare, label: 'Complaints' },
   { to: '/visits',        icon: Stethoscope,   label: 'Visits' },
+  { to: '/incidents',     icon: ShieldAlert,   label: 'Incidents' },
   { to: '/reviews',       icon: Star,          label: 'Reviews' },
   { to: '/refunds',       icon: Undo2,         label: 'Refunds' },
   { to: '/directory',     icon: Users,         label: 'Directory' },

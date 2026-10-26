@@ -209,6 +209,7 @@ export async function mockRequest(path: string, method: string, body: unknown): 
 
   if (method === 'POST') {
     if (match(bare, /^\/admin\/reviews\/([^/]+)\/moderate$/)) return { ok: true }
+    if (match(bare, /^\/admin\/incidents\/([^/]+)\/(decide|appeal-decision|refund)$/)) return { ok: true }
     if (match(bare, /^\/admin\/prescriptions\/([^/]+)\/access$/)) {
       return { id: 'rx-1', version: 1, kind: 'prescription', complaints: 'Fever for 3 days',
                diagnosis: 'Viral fever', investigations: null, advice: 'Rest and fluids',
@@ -267,6 +268,21 @@ export async function mockRequest(path: string, method: string, body: unknown): 
           { id: 'r1', channel: 'online_consult', visit_category: 'initial', duration_min: 15, price_paise: 60000, effective_from: at(20), effective_until: at(2) },
         ],
       }
+    }
+    if (bare === '/admin/incidents') {
+      const at = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString()
+      return query(path, 'view') === 'appealed' ? [] : [{
+        id: 'inc-1', case_ref: 'CHK-7F3K2', booking_id: 'bk-1', type: 'doctor_no_show',
+        reported_as: 'doctor_not_arrived', reported_by_role: 'patient', cause: 'undetermined', status: 'under_review',
+        evidence: { scheduled_start: at(2), journey_started_at: at(2.5), channel: 'home_visit' },
+        patient_note: 'Waited 45 minutes, phone switched off.', doctor_response: 'Stuck in traffic at Vashi, called twice.',
+        decision_reason: null, appeal_status: 'none', appeal_note: null, remedy_eligible: false, remedy: 'none',
+        auto_confirm_at: null, created_at: at(1),
+        bookings: { channel: 'home_visit', scheduled_start: at(2), status: 'paid' },
+        doctors: { name: 'Dr. Arjun Nair' }, users: { name: 'Riya Shah' },
+        events: [{ event: 'reported', actor_role: 'patient', note: null, occurred_at: at(1) },
+                 { event: 'doctor_responded', actor_role: 'doctor', note: null, occurred_at: at(0.5) }],
+      }]
     }
     if (bare === '/admin/reviews') {
       const at = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString()

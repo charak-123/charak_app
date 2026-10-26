@@ -16,7 +16,7 @@ from .errors import AppError, app_error_handler, db_error_handler
 from .routers import (
     account, addresses, admin, app_config, auth, bookings, calls, categories, complaints, consents, doctors,
     earnings, intake, legal, maintenance, notifications, payments, payouts,
-    procedure_bills, push, ratings, schedules, slot_blocks, uploads, users, visit,
+    procedure_bills, push, ratings, schedules, slot_blocks, trust, uploads, users, visit,
 )
 from .services.idempotency import IdempotencyMiddleware
 from .services.notifications import push_enabled
@@ -108,6 +108,9 @@ app.include_router(account.router,          prefix="/me",               tags=["a
 app.include_router(visit.router,            prefix="/bookings",         tags=["visit"])
 app.include_router(visit.rx_router,         prefix="/prescriptions",    tags=["visit"])
 app.include_router(visit.me_router,         prefix="/me",               tags=["visit"])
+app.include_router(trust.router,            prefix="/bookings",         tags=["trust"])
+app.include_router(trust.incidents_router,  prefix="/incidents",        tags=["trust"])
+app.include_router(trust.reschedule_router, prefix="/reschedule-requests", tags=["trust"])
 
 
 @app.get("/healthz", tags=["meta"])

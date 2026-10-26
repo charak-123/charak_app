@@ -803,8 +803,24 @@ starts. Sizes are relative: S, M, L.
 
 ### Phase 6: Trust (L)
 
-> **Status: 6a (reviews) built 2026-10-27, not yet deployed. 6b (issues, incidents,
-> reliability, remedies, reschedules, case IDs) next.**
+> **Status: built 2026-10-27, not yet deployed (6a reviews, 6b incidents and remedies).**
+>
+> 6b built: migration 0028 (incidents with case refs and an append-only event log, CHK- refs
+> on complaints, `apply_remedy_refund()`, `start_replacement()`/`settle_replacement()` moving
+> the original payment to the replacement booking with the difference refunded, refunds
+> aware of moved payments, reschedule requests and `accept_reschedule()`); report-issue
+> with evidence and grace periods; remedies (refund, or another doctor within what was
+> paid; default refund after 24 h; reopen if the new doctor declines); doctor responses,
+> 48 h auto-confirmation for clear online no-shows, ops decisions, appeals; recorded late
+> cancellations; reliability (confirmed, doctor-caused, not reversed; last 90 days);
+> doctor-proposed reschedules with stated cause; reminders keyed to the start time so a
+> moved visit never gets the old reminder. Apps: patient Get help screen and "Choose
+> another doctor" flow; doctor Reliability screen (respond, appeal) and "Propose new
+> times". Admin: Incidents. Decisions at recommended defaults: D5 30 min, D6 10 min, D7,
+> D8 (separate measure), D9 (unknown cause never counts), D10 (7 days, once), D11 (no
+> wallet: the payment is re-pointed), D12 (a replacement can't cost more than what was
+> paid; the patient can refund and book anyone; default refund after 24 h). Route-based
+> transfers replace the re-pointing once Phase 5 is live.
 >
 > 6a built: migration 0027 (`reviews`, `review_reports`, doctor aggregates, old ratings
 > copied over); reviews service and endpoints (the old `/rate` writes reviews); a single

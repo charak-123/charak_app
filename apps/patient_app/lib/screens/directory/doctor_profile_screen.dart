@@ -26,7 +26,10 @@ final _pricesProvider = FutureProvider.autoDispose.family<CharakPriceList, Strin
 
 class DoctorProfileScreen extends ConsumerWidget {
   final String doctorId;
-  const DoctorProfileScreen({super.key, required this.doctorId});
+
+  /// Choosing another doctor after one didn't attend (directory_screen.dart).
+  final Map<String, dynamic>? replacement;
+  const DoctorProfileScreen({super.key, required this.doctorId, this.replacement});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -36,6 +39,7 @@ class DoctorProfileScreen extends ConsumerWidget {
         loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),
         error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_doctorProvider(doctorId))),
         data: (doc) => _Body(
+          replacement: replacement,
           doctor: doc,
           prices: ref.watch(_pricesProvider(doctorId)).valueOrNull,
           reviews: ref.watch(_reviewsProvider(doctorId)).valueOrNull,
@@ -51,7 +55,8 @@ class _Body extends StatelessWidget {
   final Map<String, dynamic> doctor;
   final CharakPriceList? prices;
   final CharakRatingSummary? reviews;
-  const _Body({required this.doctor, required this.prices, required this.reviews});
+  final Map<String, dynamic>? replacement;
+  const _Body({required this.doctor, required this.prices, required this.reviews, this.replacement});
 
   @override
   Widget build(BuildContext context) {
@@ -207,8 +212,8 @@ class _Body extends StatelessWidget {
 
       CharakCtaBar.single(
         CharakButton(
-          label: 'Book a consultation',
-          onPressed: () => context.push('/book/${doctor['id']}/channel'),
+          label: replacement != null ? 'Book with your earlier payment' : 'Book a consultation',
+          onPressed: () => context.push('/book/${doctor['id']}/channel', extra: replacement),
         ),
       ),
     ]);

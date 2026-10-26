@@ -51,6 +51,12 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
   String? _addressId;
 
   String? get _followUpOf => widget.extra['follow_up_of'] as String?;
+
+  /// Choosing another doctor after one didn't attend: only prices the earlier
+  /// payment covers are offered.
+  int? get _budget => widget.extra['replaces_incident_id'] == null
+      ? null
+      : (widget.extra['budget_paise'] as num?)?.toInt();
   bool get _isHome => _channel == 'home_visit';
 
   void _pick(String channel, CharakPriceOption option) => setState(() {
@@ -101,14 +107,18 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
                 error: e,
                 onRetry: () => ref.invalidate(_optionsProvider((widget.doctorId, _followUpOf)))),
         data: (list) {
+          List<CharakPriceOption> offered(String c) => [
+                for (final o in list.optionsFor(c))
+                  if (_budget == null || o.pricePaise <= _budget!) o,
+              ];
           final channels = [
             for (final c in ['online_consult', 'home_visit'])
-              if (list.optionsFor(c).isNotEmpty) c,
+              if (offered(c).isNotEmpty) c,
           ];
           // One choice to make? Make it.
-          if (_channel == null && channels.length == 1 && list.optionsFor(channels.first).length == 1) {
+          if (_channel == null && channels.length == 1 && offered(channels.first).length == 1) {
             _channel = channels.first;
-            _option = list.optionsFor(channels.first).first;
+            _option = offered(channels.first).first;
           }
           if (channels.isEmpty) {
             return Center(
@@ -127,6 +137,16 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
                 children: [
+                  if (_budget != null) ...[
+                    CharakNoteBanner(
+                      icon: LucideIcons.wallet,
+                      leadLabel: 'Covered by your earlier payment',
+                      message: ' (up to ${CharakFormat.rupees(_budget! / 100)}). Nothing to pay; '
+                          'anything left over is refunded.',
+                      tone: CharakStatusTone.primary,
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   if (list.isFollowUp && list.followUpUntil != null) ...[
                     CharakNoteBanner(
                       icon: LucideIcons.calendarClock,
@@ -140,7 +160,7 @@ class _State extends ConsumerState<ChannelConfirmScreen> {
                   for (final c in channels) ...[
                     _ChannelCard(
                       channel: c,
-                      options: list.optionsFor(c),
+                      options: offered(c),
                       selectedChannel: _channel,
                       selected: _channel == c ? _option : null,
                       radius: radius,

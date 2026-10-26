@@ -254,7 +254,10 @@ def _visit_services_are_sinks(request):
     db.table.return_value = make_chain(list_data=[])
     db.rpc.return_value.execute.return_value = MagicMock(data={})
     with patch("app.services.visits.supabase", db), \
-         patch("app.services.prescriptions.supabase", db):
+         patch("app.services.prescriptions.supabase", db), \
+         patch("app.services.incidents.supabase", db), \
+         patch("app.services.remedies.supabase", db), \
+         patch("app.services.reschedules.supabase", db):
         yield
 
 

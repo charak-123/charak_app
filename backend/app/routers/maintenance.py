@@ -19,7 +19,7 @@ from ..errors import AppError
 from ..services import app_config, erasure, jobs, notifications, otp_store, refunds
 # Imported for their job handlers: a tick must be able to run every kind
 # that can be queued, whichever routes this instance has served.
-from ..services import prescriptions, visits  # noqa: F401
+from ..services import prescriptions, remedies, reschedules, visits  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,14 @@ def tick(_: bool = Depends(require_cron)):
     except Exception as exc:                       # noqa: BLE001 — never fail the tick
         logger.error("completion backstop failed: %r", exc)
         completed = None
-    return {"notifications": outbox, "jobs": queue, "completed_overdue": completed}
+    # Remedies left unchosen, replacements that fell through, reschedules
+    # nobody answered, and online no-shows due for confirmation.
+    try:
+        trust = {**remedies.sweep(), "reschedules_lapsed": reschedules.expire_due()}
+    except Exception as exc:                       # noqa: BLE001 — never fail the tick
+        logger.error("trust sweep failed: %r", exc)
+        trust = None
+    return {"notifications": outbox, "jobs": queue, "completed_overdue": completed, "trust": trust}
 
 
 @router.post("/retry-refunds")

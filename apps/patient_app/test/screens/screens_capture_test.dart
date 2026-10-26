@@ -72,6 +72,8 @@ final _screens = <(String, String, Object?)>[
     'text': 'Knee pain after a fall yesterday.',
   }),
   ('21_payments', '/payments', null),
+  ('22_get_help', '/booking/bk-paid/help', null),
+  ('23_get_help_reschedule', '/booking/bk-accepted/help', null),
   ('17_update_required', '/update',
       const CharakUpdateInfo(minVersion: '1.2.0', storeUrl: 'https://play.google.com/store/apps/details?id=com.charak.patient_app')),
 ];

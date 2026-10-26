@@ -16,6 +16,7 @@ const DeletionRequests  = lazy(() => import('@/pages/DeletionRequests'))
 const Refunds           = lazy(() => import('@/pages/Refunds'))
 const Visits            = lazy(() => import('@/pages/Visits'))
 const Reviews           = lazy(() => import('@/pages/Reviews'))
+const Incidents         = lazy(() => import('@/pages/Incidents'))
 
 function Guard({ children }: { children: React.ReactNode }) {
   return isAuthed() ? <>{children}</> : <Navigate to="/login" replace />
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="complaints"    element={<ComplaintInbox />} />
             <Route path="visits"        element={<Visits />} />
             <Route path="reviews"       element={<Reviews />} />
+            <Route path="incidents"     element={<Incidents />} />
             <Route path="refunds"       element={<Refunds />} />
             <Route path="directory"     element={<DirectoryOversight />} />
             <Route path="senior-review" element={<SeniorReviewQueue />} />

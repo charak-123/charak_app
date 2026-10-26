@@ -250,6 +250,32 @@ class _State extends ConsumerState<ActiveVisitScreen> {
     }
   }
 
+  /// Can't make it, or the call failed: offer the patient up to three new
+  /// times (same price). They pick one or take a full refund.
+  Future<void> _proposeTimes(Map<String, dynamic> booking) async {
+    final minutes = (booking['duration_min'] as num?)?.toInt();
+    final lengthParam = const [10, 15, 20, 30, 45, 60].contains(minutes) ? '&duration_min=$minutes' : '';
+    Map<String, dynamic> grid;
+    try {
+      grid = await ApiClient.instance.get(
+          '/doctors/${booking['doctor_id']}/slots?days=3$lengthParam') as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      if (mounted) showCharakToast(context, message: e.message, isError: true);
+      return;
+    }
+    if (!mounted) return;
+    final picked = await showCharakSheet<({String cause, List<String> times})>(
+      context,
+      title: 'Propose new times',
+      child: _ProposeTimes(grid: grid),
+    );
+    if (picked == null || !mounted) return;
+    await _act(() => ApiClient.instance.post('/bookings/${widget.bookingId}/reschedule-requests', {
+          'cause': picked.cause,
+          'options': picked.times,
+        }), done: 'Sent. The patient picks a time or takes a refund.');
+  }
+
   /// The one thing to do next, for the CTA bar, and why it may not be open yet.
   ({String label, IconData icon, VoidCallback? onPressed, String? hint}) _next(
       Map<String, dynamic> booking) {
@@ -429,6 +455,15 @@ class _State extends ConsumerState<ActiveVisitScreen> {
                         icon: LucideIcons.video,
                         variant: CharakButtonVariant.outline,
                         onPressed: () => context.push('/consult/${widget.bookingId}'),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (status == 'paid' || status == 'in_progress') ...[
+                      CharakButton(
+                        label: "Can't make it? Propose new times",
+                        icon: LucideIcons.calendarClock,
+                        variant: CharakButtonVariant.outline,
+                        onPressed: () => _proposeTimes(booking),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -708,4 +743,77 @@ class _VisitTimer extends StatelessWidget {
           ),
         ]),
       );
+}
+
+
+const _causes = <String, String>{
+  'doctor_unavailable': "I can't make it",
+  'doctor_device': 'My phone or connection failed',
+  'patient_device': "The patient's connection failed",
+  'platform': 'The app had a problem',
+  'mutual': 'We agreed to move it',
+  'other': 'Something else',
+};
+
+/// Why, then up to three open times over the next 3 days.
+class _ProposeTimes extends StatefulWidget {
+  final Map<String, dynamic> grid;
+  const _ProposeTimes({required this.grid});
+
+  @override
+  State<_ProposeTimes> createState() => _ProposeTimesState();
+}
+
+class _ProposeTimesState extends State<_ProposeTimes> {
+  String? _cause;
+  final _times = <String>[];
+
+  @override
+  Widget build(BuildContext context) {
+    final days = widget.grid.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
+      child: ListView(shrinkWrap: true, children: [
+        Text('Why does it need to move?', style: CharakText.label.copyWith(color: CharakColors.ink)),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final e in _causes.entries)
+            CharakChip(label: e.value, selected: _cause == e.key, onTap: () => setState(() => _cause = e.key)),
+        ]),
+        const SizedBox(height: 6),
+        Text('Moving a visit for your own reasons counts towards your reliability. '
+            "The patient's or the app's problems don't.", style: charakHintStyle),
+        const SizedBox(height: 16),
+        Text('Offer up to 3 times', style: CharakText.label.copyWith(color: CharakColors.ink)),
+        for (final day in days)
+          if ((day.value as List).isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(DateFormat('EEE d MMM').format(DateTime.parse(day.key)),
+                style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+            const SizedBox(height: 6),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final slot in (day.value as List).take(12))
+                Builder(builder: (_) {
+                  final iso = '${day.key}T${slot['start']}:00+05:30';
+                  final on = _times.contains(iso);
+                  return CharakChip(
+                    label: slot['start'] as String,
+                    numeric: true,
+                    selected: on,
+                    disabled: !on && _times.length >= 3,
+                    onTap: () => setState(() => on ? _times.remove(iso) : _times.add(iso)),
+                  );
+                }),
+            ]),
+          ],
+        const SizedBox(height: 18),
+        CharakButton(
+          label: 'Send to the patient',
+          onPressed: _cause == null || _times.isEmpty
+              ? null
+              : () => Navigator.pop(context, (cause: _cause!, times: List<String>.of(_times))),
+        ),
+      ]),
+    );
+  }
 }
