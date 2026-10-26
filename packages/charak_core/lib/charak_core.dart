@@ -12,6 +12,7 @@ export 'package:lucide_icons_flutter/lucide_icons.dart' show LucideIcons;
 export 'format/charak_format.dart';
 export 'models/charak_refund.dart';
 export 'models/charak_prescription.dart';
+export 'models/charak_price.dart';
 export 'legal.dart';
 export 'app_gate.dart';
 export 'location/charak_location.dart';

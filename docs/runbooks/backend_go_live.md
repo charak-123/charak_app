@@ -18,7 +18,19 @@ export API_URL=$(gcloud run services describe charak-api --region asia-south1 --
 
 ## 0. Apply the migrations (required first — nothing else works without this)
 
-> **Latest: `0025_visit_prescriptions_followups.sql`.** Apply before deploying the
+> **Latest: `0026_pricing_matrix.sql`.** Apply before deploying the backend that
+> uses it. It adds `doctor_price_rules` (each price by channel, first visit or
+> follow-up, and length; never edited, so it is the price history), the
+> doctor's follow-up window, the price and length snapshot on bookings, and a
+> constraint that refuses two live bookings for one doctor whose times overlap.
+> Existing prices are copied into rules; existing bookings get their length and
+> end time. Needs the `btree_gist` extension, which the migration enables. If it
+> stops with "Two live bookings for one doctor start at the same time", run the
+> query in the message and resolve those by hand first. Idempotent. App builds
+> from before it keep working: they book at the doctor's shortest first-visit
+> price, which `doctor_pricing` keeps showing (§6e).
+>
+> **Before it: `0025_visit_prescriptions_followups.sql`** (applied 2026-10-27). Apply before deploying the
 > backend that uses it, and make sure `charak-tick` exists (§6) first: the
 > 72-hour completion, prescription and follow-up reminders and appointment
 > reminders all run from it. It adds the `in_progress` and `consulted`
@@ -508,6 +520,36 @@ update app_config set value = 'true' where key = 'require_booking_policy_accepta
   the doctor can start: online 15, home 120), `appointment_reminders` (minutes
   before the start), `follow_up_reminders` (9:00 IST on the day, plus 2 days
   before when it's at least 7 days away).
+
+---
+
+## 6e. Prices (migration 0026)
+
+- **The matrix.** Doctors set a price per channel and length (10, 15, 20, 30,
+  45 or 60 min, up to 4 each) for a first visit, and optionally a follow-up
+  price, with how many days after a visit it applies (1–60). A follow-up can be
+  free; a first visit can't. The patient picks the length first and is shown
+  times that fit it.
+- **Extra-time rates are gone.** The old screens advertised "+₹X per extra N
+  min", but nothing ever charged it. Lengths are priced individually instead.
+  Doctors who priced one length should check their prices in the new app.
+- **What a booking costs never changes.** Each booking keeps `price_paise`,
+  `duration_min` and the `price_rule_id` it was charged by. A trigger refuses
+  changes. If the doctor changes a price while a patient is booking, the
+  booking is refused with the new price, never charged at it.
+- **Follow-ups.** A follow-up price applies only to a booking that names a
+  consultation of the patient's own with the same doctor, after its
+  prescription was sent, starting within the doctor's window (or up to 3 days
+  after the follow-up date the doctor recommended, if that is later). One per
+  consultation. A free follow-up is confirmed when the doctor accepts it, with
+  no payment.
+- **Support.** Admin → Directory → Prices shows every price a doctor has had and
+  when each applied. Or:
+
+  ```sql
+  select channel, visit_category, duration_min, price_paise, effective_from, effective_until
+    from doctor_price_rules where doctor_id = '<uuid>' order by effective_from desc;
+  ```
 
 ---
 

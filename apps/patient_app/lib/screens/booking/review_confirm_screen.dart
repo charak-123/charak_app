@@ -78,6 +78,13 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
         setState(() => _policyTicked = false);
       }
       showCharakToast(context, message: e.message, isError: true);
+      if (e.statusCode == 409 && e.body?['code'] == 'price_changed') {
+        // The doctor changed their price: back to the first step, where the
+        // new prices are shown. Nothing was booked.
+        final b = widget.booking;
+        context.go('/book/${b['doctor_id']}/channel',
+            extra: {if (b['follow_up_of'] != null) 'follow_up_of': b['follow_up_of']});
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -94,6 +101,12 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
           // coordinates to check the doctor's service radius.
           if (b['address_id'] != null) 'address_id': b['address_id'] as String,
           'accepted_policy_version': policyVersion,
+          // The price option picked and the price shown. The server charges its
+          // own price, and refuses (409 price_changed) if it isn't this one.
+          if (b['price_rule_id'] != null) 'price_rule_id': b['price_rule_id'],
+          if (b['duration_min'] != null) 'duration_min': b['duration_min'],
+          if (b['price_paise'] != null) 'expected_price_paise': b['price_paise'],
+          if (b['follow_up_of'] != null) 'follow_up_of': b['follow_up_of'],
         }) as Map<String, dynamic>;
     try {
       return await post();
@@ -172,11 +185,13 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
       data: (d) => d['procedure_review_threshold'],
       orElse: () => null,
     );
+    // The option picked in the first step. (A draft without one comes from a
+    // flow that predates the matrix; show the doctor's listed price.)
     final p        = pricing.where((p) => p['channel'] == channel).firstOrNull;
-    final price    = (p?['price'] as num?)?.toDouble() ?? 0;
-    final extra    = (p?['extra_rate_per_15min'] as num?)?.toDouble() ?? 0;
-    final mins     = (p?['base_duration_min'] as num?)?.toInt() ?? 15;
-    final extraMins = (p?['extra_duration_min'] as num?)?.toInt() ?? 15;
+    final paise    = (b['price_paise'] as num?)?.toInt();
+    final price    = paise != null ? paise / 100 : (p?['price'] as num?)?.toDouble() ?? 0;
+    final mins     = (b['duration_min'] as num?)?.toInt() ?? (p?['base_duration_min'] as num?)?.toInt() ?? 15;
+    final followUp = b['visit_category'] == 'follow_up';
 
     final intakeLabel = text.isNotEmpty
         ? 'Text'
@@ -221,23 +236,18 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
                   label: 'Channel',
                   value: CharakFormat.channel(isHome ? 'home_visit' : 'online_consult')),
               const CharakSummaryDivider(),
-              if (price > 0)
-                CharakSummaryRow(
-                    label: 'Consult fee · $mins min',
-                    value: CharakFormat.rupees(price),
-                    tabular: true),
-              if (extra > 0)
-                CharakSummaryRow(
-                    label: 'Extra $extraMins min',
-                    value: CharakFormat.rupees(extra),
-                    muted: true,
-                    tabular: true),
+              CharakSummaryRow(
+                  label: '${followUp ? 'Follow-up' : 'Consult fee'} · $mins min',
+                  value: price > 0 ? CharakFormat.rupees(price) : 'Free',
+                  tabular: true),
               const CharakSummaryDivider(),
               CharakSummaryRow(
                 label: 'Payment',
-                value: isHome
-                    ? 'Consult fee now · procedures billed after visit'
-                    : 'Paid before the call',
+                value: price <= 0
+                    ? 'Nothing to pay'
+                    : isHome
+                        ? 'Consult fee now · procedures billed after visit'
+                        : 'Paid before the call',
                 muted: true,
               ),
             ]),

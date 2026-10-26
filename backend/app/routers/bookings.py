@@ -11,7 +11,8 @@ from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor, require_patient
 from ..errors import AppError
 from ..services import (
-    app_config, availability, booking_state, cancellation, geo, legal, notifications, refunds,
+    app_config, availability, booking_state, cancellation, geo, legal, notifications, pricing,
+    refunds, visits,
 )
 from ..services.rate_limit import client_ip, rate_limiter
 
@@ -61,9 +62,18 @@ class BookingCreate(BaseModel):
     # it is no longer the current version, so nobody books on terms they
     # weren't shown.
     accepted_policy_version: Optional[str] = Field(default=None, max_length=40)
-    # Deliberately no price field. The consult fee is what the doctor published
-    # in doctor_pricing, resolved server-side by _resolve_price — a client that
-    # names its own price names what it will be charged.
+    # The price option the patient picked (GET /doctors/{id}/prices, or
+    # /bookings/{id}/follow-up-options), and the price it showed. The server
+    # resolves the price itself (services/pricing.py); expected_price_paise
+    # only stops a booking at a price the patient wasn't shown — if the doctor
+    # changed it since, nothing is booked and the new prices come back.
+    # All optional: app builds from before migration 0026 send none of them
+    # and get the first-visit price they were shown.
+    price_rule_id: Optional[str] = Field(default=None, max_length=40)
+    duration_min: Optional[int] = Field(default=None, ge=5, le=240)
+    expected_price_paise: Optional[int] = Field(default=None, ge=0)
+    # The consultation this follow-up continues, for the follow-up price.
+    follow_up_of: Optional[str] = Field(default=None, max_length=40)
 
 
 @router.post("/", status_code=201, dependencies=[rate_limiter("booking-create", 10, 600)])
@@ -127,9 +137,21 @@ def create_booking(
     # radius the doctor agreed to cover.
     address_fields = _resolve_home_visit_address(body, doc, user["sub"])
 
-    # Snapshot the published fee onto the booking. Without this the whole payment
-    # path is dead: _amount_due refuses a booking with no price_confirmed.
-    price = _resolve_price(body.doctor_id, body.channel)
+    # The price rule this booking is charged by, snapshotted onto it: a doctor
+    # changing their prices later never changes what this patient pays.
+    rule = pricing.resolve(
+        body.doctor_id, body.channel, patient_id=user["sub"], start=start,
+        rule_id=body.price_rule_id, duration_min=body.duration_min,
+        follow_up_of=body.follow_up_of,
+    )
+    if body.expected_price_paise is not None and body.expected_price_paise != rule["price_paise"]:
+        raise AppError(
+            "This doctor has just changed their price. Please check it again.", 409,
+            code="price_changed", price_paise=rule["price_paise"],
+            prices=pricing.price_list(body.doctor_id, doc),
+        )
+    # A legacy request (no length chosen) was offered times on the legacy grid.
+    legacy_grid = body.price_rule_id is None and body.duration_min is None
 
     existing = (
         supabase.table("bookings")
@@ -142,7 +164,7 @@ def create_booking(
     if existing.data:
         raise AppError("Slot already booked", 409)
 
-    _assert_bookable(body.doctor_id, start)
+    _assert_bookable(body.doctor_id, start, None if legacy_grid else rule["duration_min"])
 
     # The check above loses to a concurrent request that passed it a moment
     # earlier, so uq_booking_doctor_slot_active (migration 0010) is what actually
@@ -155,7 +177,13 @@ def create_booking(
             "channel": body.channel,
             "scheduled_start": body.scheduled_start,
             "category_id": body.category_id,
-            "price_confirmed": price,
+            "price_confirmed": rule["price_paise"] / 100,
+            "price_paise": rule["price_paise"],
+            "price_rule_id": rule["id"],
+            "duration_min": rule["duration_min"],
+            "scheduled_end": (start + timedelta(minutes=rule["duration_min"])).isoformat(),
+            "visit_category": rule["visit_category"],
+            "follow_up_of": body.follow_up_of,
             "status": "requested",
             # The version shown and accepted, not whatever is current a moment
             # later when the row lands.
@@ -163,7 +191,11 @@ def create_booking(
             **address_fields,
         }).execute().data[0]
     except APIError as exc:
-        if getattr(exc, "code", None) == "23505":
+        code = getattr(exc, "code", None)
+        if code == "23505" and "uq_bookings_one_follow_up" in str(exc):
+            raise AppError("A follow-up for that consultation is already booked", 409)
+        # 23505: same start (0010). 23P01: overlapping times (0026).
+        if code in ("23505", "23P01"):
             raise AppError("Slot already booked", 409)
         raise
 
@@ -294,6 +326,18 @@ def get_booking(booking_id: str, user: dict = Depends(get_current_user)):
     return b
 
 
+# ── Follow-up prices ──────────────────────────────────────────────────────────
+
+@router.get("/{booking_id}/follow-up-options")
+def follow_up_options(booking_id: str, user: dict = Depends(require_patient)):
+    """
+    Booking a follow-up to this consultation: the doctor's follow-up prices
+    and until when they apply. 409 saying why when it doesn't qualify (the
+    window has passed, one is already booked, the doctor offers none).
+    """
+    return pricing.follow_up_options(booking_id, user["sub"])
+
+
 # ── Timeline ──────────────────────────────────────────────────────────────────
 
 # What the patient and doctor may see of an event's metadata. Payment ids and
@@ -351,8 +395,19 @@ def accept_booking(
 
     doctor = supabase.table("doctors").select("name").eq("id", user["sub"]).execute().data or []
     doctor_name = (doctor[0].get("name") if doctor else None) or "Your doctor"
-    notifications.booking_accepted({**b, **updated}, doctor_name, background)
 
+    if b.get("price_paise") == 0:
+        # A free follow-up (the doctor priced it at ₹0): nothing to pay, so
+        # accepting confirms it. Same transition a captured payment makes.
+        updated = booking_state.transition(
+            booking_id, "pay", actor_role="system", expected="accepted",
+            patch={"hold_expires_at": None}, metadata={"free": True},
+        )
+        visits.schedule_reminders({**b, **updated})
+        notifications.free_booking_confirmed({**b, **updated}, doctor_name, background)
+        return updated
+
+    notifications.booking_accepted({**b, **updated}, doctor_name, background)
     return updated
 
 
@@ -588,7 +643,7 @@ def cancel_booking(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _assert_bookable(doctor_id: str, start: datetime) -> None:
+def _assert_bookable(doctor_id: str, start: datetime, duration_min: Optional[int] = None) -> None:
     """
     Refuse a time the patient could not have picked from the slot grid.
 
@@ -602,7 +657,8 @@ def _assert_bookable(doctor_id: str, start: datetime) -> None:
     if local <= availability.now_ist():
         raise AppError("That time has already passed. Pick another slot.", 409)
 
-    open_slots = availability.get_available_slots(doctor_id, local.date(), days=1)
+    open_slots = availability.get_available_slots(doctor_id, local.date(), days=1,
+                                                  duration_min=duration_min)
     starts = {s["start"] for s in open_slots.get(str(local.date()), [])}
     if local.second or local.microsecond or local.strftime("%H:%M") not in starts:
         raise AppError(
@@ -667,29 +723,6 @@ def _format_address(address: dict) -> str:
         address.get("pincode"),
     ]
     return ", ".join(p for p in parts if p)
-
-
-def _resolve_price(doctor_id: str, channel: str) -> float:
-    """
-    The fee for this doctor on this channel, as published in doctor_pricing.
-
-    Snapshotted onto the booking rather than looked up at payment time, so that
-    a doctor editing their pricing mid-booking cannot change what a patient was
-    quoted. doctor_pricing is unique on (doctor_id, channel), so there is exactly
-    one row to find.
-    """
-    row = fetch_one(
-        supabase.table("doctor_pricing")
-        .select("price")
-        .eq("doctor_id", doctor_id)
-        .eq("channel", channel)
-    )
-    if not row or row.get("price") is None:
-        raise AppError(
-            "This doctor has not published a price for this consultation type yet",
-            409,
-        )
-    return float(row["price"])
 
 
 def _redact_address_for_doctor(booking: dict) -> dict:

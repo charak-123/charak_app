@@ -747,6 +747,36 @@ starts. Sizes are relative: S, M, L.
 
 ### Phase 4: Pricing matrix (M, can run alongside Phase 3 once episodes exist)
 
+> **Status: built 2026-10-27, not yet deployed.**
+>
+> Built:
+> - migration 0026: `doctor_price_rules` (never edited; a change closes a row and adds one,
+>   so the table is the history), `doctors.follow_up_validity_days`, the booking snapshot
+>   (`duration_min`, `scheduled_end`, `price_paise`, `price_rule_id`, `visit_category`,
+>   `follow_up_of`) with a trigger that refuses changes, the overlap exclusion constraint
+>   (btree_gist), one follow-up per consultation, and `set_doctor_prices()` (one transaction,
+>   keeps `doctor_pricing` in step for older apps and the directory)
+> - pricing service: price list, follow-up eligibility (a consultation of the patient's own
+>   with the same doctor whose prescription was sent, within the doctor's window, extended
+>   to the recommended follow-up date + 3 days), resolving and checking a booking's price
+>   (409 `price_changed` with the new prices when the shown price is stale)
+> - slots for the chosen length, against real booked ranges
+> - free follow-ups (₹0): confirmed when the doctor accepts, no payment step
+> - doctor app: the matrix editor; profile summary. Patient app: channel and length first,
+>   then times that fit; follow-up booking at the follow-up price from the prescription and
+>   Home; review sends the shown price. Admin: pricing history per doctor.
+> - removed the advertised "per extra N min" charge, which was never billed
+>
+> Decisions taken (recommended defaults, change if the founder disagrees): lengths are
+> 10/15/20/30/45/60 min, up to 4 per list; whole rupees, ₹0–₹50,000; a first visit can't
+> be free; a follow-up can.
+>
+> Tests: 700 unit, 125 integration (18 new: matrix validation, history, snapshot, stale and
+> tampered prices, follow-up eligibility and window, the overlap constraint, slots by
+> length, free follow-up); Flutter suites and the admin build pass.
+>
+> To deploy: apply 0026, deploy the backend (runbook §0, §6e).
+
 - **Build:**
   - price rules, durations and follow-up eligibility
   - the exclusion constraint and availability for each duration

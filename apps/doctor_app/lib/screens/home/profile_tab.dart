@@ -19,16 +19,26 @@ final _payoutAccountProvider = FutureProvider<Map<String, dynamic>?>((ref) async
   }
 });
 
-/// "₹500 / 30 min · +₹150 per extra 10" for one channel's pricing row.
-String? _rateLine(Map<String, dynamic>? row) {
-  final price = row?['price'] as num?;
-  if (price == null) return null;
-  final mins = (row?['base_duration_min'] as num?)?.toInt() ?? 15;
-  final extra = row?['extra_rate_per_15min'] as num? ?? 0;
-  final extraMins = (row?['extra_duration_min'] as num?)?.toInt() ?? 15;
+/// The doctor's price list (GET /doctors/me/prices).
+final _pricesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  return await ApiClient.instance.get('/doctors/me/prices') as Map<String, dynamic>;
+});
+
+/// "₹600 / 15 min · ₹1,000 / 30 min · follow-up from ₹300" for one channel.
+String? _rateLine(List rules, String channel) {
+  final mine = rules.whereType<Map>().where((r) => r['channel'] == channel).toList()
+    ..sort((a, b) => (a['duration_min'] as num).compareTo(b['duration_min'] as num));
+  String rupees(Map r) => CharakFormat.rupees((r['price_paise'] as num) / 100);
+  final first = mine.where((r) => r['visit_category'] == 'initial').toList();
+  if (first.isEmpty) return null;
+  final follow = mine.where((r) => r['visit_category'] == 'follow_up').toList();
+  final cheapestFollow = follow.isEmpty
+      ? null
+      : follow.reduce((a, b) => (a['price_paise'] as num) <= (b['price_paise'] as num) ? a : b);
   return [
-    '${CharakFormat.rupees(price.toDouble())} / $mins min',
-    if (extra > 0) '+${CharakFormat.rupees(extra.toDouble())} per extra $extraMins',
+    for (final r in first) '${rupees(r)} / ${r['duration_min']} min',
+    if (cheapestFollow != null)
+      (cheapestFollow['price_paise'] as num) == 0 ? 'free follow-up' : 'follow-up from ${rupees(cheapestFollow)}',
   ].join(' · ');
 }
 
@@ -69,9 +79,9 @@ class ProfileTab extends ConsumerWidget {
           final radius  = me['service_radius_km'];
           final spec    = (me['categories'] as Map<String, dynamic>?)?['name'] as String?;
           final phone   = me['phone'] as String? ?? '';
-          final pricing = List<Map<String, dynamic>>.from(me['doctor_pricing'] as List? ?? []);
-          final onlineLine = _rateLine(pricing.where((p) => p['channel'] == 'online_consult').firstOrNull);
-          final homeLine   = _rateLine(pricing.where((p) => p['channel'] == 'home_visit').firstOrNull);
+          final rules = (ref.watch(_pricesProvider).valueOrNull?['rules'] as List?) ?? const [];
+          final onlineLine = _rateLine(rules, 'online_consult');
+          final homeLine   = _rateLine(rules, 'home_visit');
           final acct       = payout.valueOrNull;
           final payoutLine = acct == null
               ? (payout.isLoading ? null : 'Add UPI or bank to get paid')
@@ -119,6 +129,7 @@ class ProfileTab extends ConsumerWidget {
                   onTap: () async {
                     await context.push('/setup/pricing');
                     ref.invalidate(_doctorProfileProvider);
+                    ref.invalidate(_pricesProvider);
                   },
                 ),
                 CharakListRow(

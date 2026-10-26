@@ -420,6 +420,18 @@ def booking_accepted(booking: dict, doctor_name: str = "Your doctor", background
     )
 
 
+def free_booking_confirmed(booking: dict, doctor_name: str = "Your doctor", background=None):
+    """A ₹0 follow-up: accepting it confirms it, with nothing to pay."""
+    return notify(
+        booking["patient_id"], "patient", "booking.confirmed",
+        "Follow-up confirmed",
+        f"{doctor_name} accepted your follow-up. There's nothing to pay.",
+        {"booking_id": booking["id"]},
+        booking["id"], background,
+        dedupe_key=_once("booking.confirmed", booking, booking["patient_id"]),
+    )
+
+
 def booking_declined(booking: dict, doctor_name: str = "The doctor", background=None):
     return notify(
         booking["patient_id"], "patient", "booking.declined",

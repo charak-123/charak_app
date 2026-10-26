@@ -195,7 +195,8 @@ class HomeTab extends ConsumerWidget {
     );
     if (!context.mounted || action == null) return;
     if (action == 'book') {
-      context.push('/doctor/${f['doctor_id']}');
+      // At the follow-up price, if this consultation still qualifies.
+      context.push('/book/${f['doctor_id']}/channel', extra: {'follow_up_of': f['booking_id']});
       return;
     }
     try {

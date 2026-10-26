@@ -1,14 +1,14 @@
 from typing import Optional
 from fastapi import APIRouter, Depends
 from postgrest.exceptions import APIError
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from ..config import PROCEDURE_REVIEW_THRESHOLD_MAX
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
 from ..phone import normalize_e164
-from ..services import erasure, geo, storage
+from ..services import erasure, geo, pricing, storage
 from .procedure_bills import effective_review_threshold
 
 router = APIRouter()
@@ -167,6 +167,15 @@ def get_pricing(user: dict = Depends(require_doctor)):
 
 @router.put("/me/pricing")
 def upsert_pricing(items: list[PricingItem], user: dict = Depends(require_doctor)):
+    """
+    Doctor app builds from before migration 0026: one price per channel. Saved
+    as that channel's first-visit price for its length (the nearest length the
+    matrix allows); follow-up prices are left as they are. Extra-time rates are
+    no longer used: lengths are priced individually instead.
+    """
+    current = pricing.my_prices(user["sub"])
+    rules = [r for r in current["rules"]
+             if not (r["visit_category"] == "initial" and r["channel"] in {i.channel for i in items})]
     for item in items:
         if item.channel not in ("online_consult", "home_visit"):
             raise AppError(f"Invalid channel: {item.channel}", 400)
@@ -175,11 +184,48 @@ def upsert_pricing(items: list[PricingItem], user: dict = Depends(require_doctor
             raise AppError("Session and extra-time lengths must be 5–60 min, in steps of 5", 400)
         if item.price <= 0 or item.extra_rate_per_15min < 0:
             raise AppError("Fees must be positive", 400)
-        supabase.table("doctor_pricing").upsert(
-            {"doctor_id": user["sub"], **item.model_dump()},
-            on_conflict="doctor_id,channel",
-        ).execute()
+        duration = min(pricing.DURATIONS, key=lambda d: (abs(d - item.base_duration_min), -d))
+        rules.append({"channel": item.channel, "visit_category": "initial",
+                      "duration_min": duration, "price_paise": int(round(item.price)) * 100})
+    pricing.save(user["sub"], rules, current["follow_up_validity_days"])
     return supabase.table("doctor_pricing").select("*").eq("doctor_id", user["sub"]).execute().data
+
+
+class PriceRule(BaseModel):
+    channel: str
+    visit_category: str
+    duration_min: int
+    price_paise: int
+
+
+class PriceMatrix(BaseModel):
+    rules: list[PriceRule] = Field(max_length=16)
+    # Days after a consultation that a follow-up can be booked at the
+    # follow-up price. Required when any follow-up price is set.
+    follow_up_validity_days: Optional[int] = None
+
+
+@router.get("/me/prices")
+def my_prices(user: dict = Depends(require_doctor)):
+    """The doctor's current price list: first-visit and follow-up prices for
+    each channel and length, and the follow-up window."""
+    return pricing.my_prices(user["sub"])
+
+
+@router.put("/me/prices")
+def save_prices(body: PriceMatrix, user: dict = Depends(require_doctor)):
+    """
+    Replace the price list. Applies to bookings made from now on; bookings
+    already made keep the price they were made at. Every change is kept
+    (GET /doctors/me/prices/history).
+    """
+    return pricing.save(user["sub"], [r.model_dump() for r in body.rules],
+                        body.follow_up_validity_days)
+
+
+@router.get("/me/prices/history")
+def my_price_history(user: dict = Depends(require_doctor)):
+    return pricing.history(user["sub"])
 
 
 # ── Procedures ────────────────────────────────────────────────────────────────
@@ -484,8 +530,24 @@ def check_service_area(
     }
 
 
+@router.get("/{doctor_id}/prices")
+def get_prices(doctor_id: str):
+    """What a patient can book with this doctor: each channel's first-visit
+    lengths and prices. Follow-up prices are offered against the consultation
+    they follow (GET /bookings/{id}/follow-up-options)."""
+    doctor = fetch_one(
+        supabase.table("doctors")
+        .select("offers_online_consult, offers_home_visit, follow_up_validity_days")
+        .eq("id", doctor_id).eq("verification_status", "verified").eq("suspended", False)
+    )
+    if not doctor:
+        raise AppError("Doctor not found or not verified", 404)
+    return pricing.price_list(doctor_id, doctor)
+
+
 @router.get("/{doctor_id}/slots")
-def get_slots(doctor_id: str, from_date: str = None, days: int = 14):
+def get_slots(doctor_id: str, from_date: str = None, days: int = 14,
+              duration_min: Optional[int] = None):
     """
     Open slots for a doctor, grouped by date.
 
@@ -502,7 +564,9 @@ def get_slots(doctor_id: str, from_date: str = None, days: int = 14):
         d = date.fromisoformat(from_date) if from_date else now_ist().date()
     except ValueError:
         raise AppError("from_date must be ISO format, e.g. 2026-10-01", 400)
-    return get_available_slots(doctor_id, d, days=days)
+    if duration_min is not None and duration_min not in pricing.DURATIONS:
+        raise AppError(f"duration_min must be one of {', '.join(map(str, pricing.DURATIONS))}", 400)
+    return get_available_slots(doctor_id, d, days=days, duration_min=duration_min)
 
 
 @router.delete("/me")

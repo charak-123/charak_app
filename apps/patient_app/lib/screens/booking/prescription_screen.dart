@@ -79,7 +79,9 @@ class _BodyState extends State<_Body> {
 
   void _bookFollowUp() {
     final doctorId = widget.booking['doctor_id'] as String?;
-    if (doctorId != null) context.push('/doctor/$doctorId');
+    if (doctorId != null) {
+      context.push('/book/$doctorId/channel', extra: {'follow_up_of': widget.rx.bookingId});
+    }
   }
 
   @override

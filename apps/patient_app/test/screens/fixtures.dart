@@ -176,6 +176,40 @@ MockClient patientBackend({bool newPatient = false}) => MockClient((req) async {
       if (p == '/doctors/search') {
         return _json({'total': doctors.length, 'items': doctors, 'has_more': false, 'located': true, 'sort': 'rating'});
       }
+      final prices = RegExp(r'^/doctors/([^/]+)/prices$').firstMatch(p);
+      if (prices != null) {
+        final d = doctors.firstWhere((x) => x['id'] == prices.group(1), orElse: () => doctors.first);
+        final online = (d['doctor_pricing'] as List).first['price'] as double;
+        return _json({
+          'channels': {
+            'online_consult': [
+              {'id': 'r-on-15', 'channel': 'online_consult', 'visit_category': 'initial', 'duration_min': 15, 'price_paise': (online * 100).round()},
+              {'id': 'r-on-30', 'channel': 'online_consult', 'visit_category': 'initial', 'duration_min': 30, 'price_paise': (online * 160).round()},
+            ],
+            if (d['offers_home_visit'] == true)
+              'home_visit': [
+                {'id': 'r-hv-30', 'channel': 'home_visit', 'visit_category': 'initial', 'duration_min': 30, 'price_paise': 80000},
+                {'id': 'r-hv-45', 'channel': 'home_visit', 'visit_category': 'initial', 'duration_min': 45, 'price_paise': 110000},
+              ],
+          },
+          'follow_up_validity_days': 7,
+          'offers_follow_up_prices': true,
+        });
+      }
+      final followUp = RegExp(r'^/bookings/([^/]+)/follow-up-options$').firstMatch(p);
+      if (followUp != null) {
+        return _json({
+          'follow_up_of': followUp.group(1), 'doctor_id': 'doc-1',
+          'until': _iso(_at(6, 23, 59)),
+          'channels': {
+            'online_consult': [
+              {'id': 'r-fu-10', 'channel': 'online_consult', 'visit_category': 'follow_up', 'duration_min': 10, 'price_paise': 30000},
+              {'id': 'r-fu-15', 'channel': 'online_consult', 'visit_category': 'follow_up', 'duration_min': 15, 'price_paise': 0},
+            ],
+          },
+        });
+      }
+      if (p == '/me/follow-ups') return _json(<dynamic>[]);
       final slots = RegExp(r'^/doctors/([^/]+)/slots$').firstMatch(p);
       if (slots != null) return _json(_slots());
       final doc = RegExp(r'^/doctors/([^/]+)$').firstMatch(p);

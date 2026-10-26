@@ -3,8 +3,8 @@ from typing import Optional
 
 from ..db import supabase
 
-# Fallback slot length when a doctor has not set one. Doctors choose their own
-# consult length per channel (doctor_pricing.base_duration_min).
+# Fallback slot length when a doctor has not set one. Doctors price each
+# channel by length (doctor_price_rules, migration 0026).
 SLOT_MINUTES = 15
 
 # Doctors' schedules are wall-clock times in India, and the patient app books
@@ -38,24 +38,34 @@ SLOT_OCCUPYING_STATUSES = ["requested", "accepted", "paid", "in_progress", "cons
 
 
 def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
-                        now: Optional[datetime] = None) -> dict:
+                        now: Optional[datetime] = None,
+                        duration_min: Optional[int] = None) -> dict:
     """
     Returns {date_str: [{"start": "09:00", "end": "09:15"}, ...], ...}
 
     Algorithm:
       1. Get doctor's recurring weekly schedule
       2. Get one-off blocks in the date range
-      3. Get confirmed bookings in the date range
-      4. For each date: available = recurring − blocks − bookings
-      5. Split into slots of the doctor's consult length
+      3. Get live bookings in the date range, as [start, end) ranges
+      4. For each date, offer each start whose [start, start + duration) fits
+         the schedule and overlaps no block and no booking
 
-    The patient picks a time before choosing a channel, so the grid uses the
-    longest consult length the doctor offers — a slot then fits either channel.
+    ``duration_min`` is the length the patient picked (migration 0026). Starts
+    are every ``duration_min`` minutes for a short visit, every 15 for a
+    longer one, from the start of each schedule block. Without it (app builds
+    from before 0026, which pick the time before the channel) the grid uses
+    the longest first-visit length the doctor offers, so a slot fits either
+    channel, and steps by that length, as before.
 
     Everything is in IST. Slots starting within MIN_LEAD_MINUTES of `now` (or
     already past) are not offered.
     """
-    slot_minutes = slot_minutes_for(doctor_id)
+    if duration_min is None:
+        length = slot_minutes_for(doctor_id)
+        step = length
+    else:
+        length = duration_min
+        step = duration_min if duration_min < 15 else 15
     end_date = from_date + timedelta(days=days)
     earliest = (now or now_ist()).astimezone(IST) + timedelta(minutes=MIN_LEAD_MINUTES)
 
@@ -77,29 +87,27 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
         .data
     )
 
+    # A booking that started the evening before can still run into this range.
     bookings = (
         supabase.table("bookings")
-        .select("scheduled_start")
+        .select("scheduled_start, scheduled_end, duration_min")
         .eq("doctor_id", doctor_id)
         .in_("status", SLOT_OCCUPYING_STATUSES)
-        .gte("scheduled_start", datetime.combine(from_date, time(0), IST).isoformat())
+        .gte("scheduled_start", (datetime.combine(from_date, time(0), IST) - timedelta(hours=4)).isoformat())
         .lt("scheduled_start", datetime.combine(end_date, time(0), IST).isoformat())
         .execute()
         .data
     )
 
-    # Booked start times per IST day as minutes-since-midnight. A booking holds
-    # [start, start + slot_minutes); comparing ranges rather than exact start
-    # strings keeps an old booking blocking its time after the doctor changes
-    # their consult length and the grid shifts.
-    #
-    # Converted, not sliced: the database hands timestamptz back in UTC, so
-    # reading the hour straight off the string put a 09:00 IST booking at
-    # 03:30 — the real slot stayed on offer and an unrelated one disappeared.
-    booked: dict[str, list[int]] = {}
+    # Booked ranges in IST. Converted, not sliced: the database hands
+    # timestamptz back in UTC, so reading the hour straight off the string put
+    # a 09:00 IST booking at 03:30.
+    booked: list[tuple[datetime, datetime]] = []
     for b in bookings:
         start = to_ist(b["scheduled_start"])
-        booked.setdefault(str(start.date()), []).append(start.hour * 60 + start.minute)
+        end = (to_ist(b["scheduled_end"]) if b.get("scheduled_end")
+               else start + timedelta(minutes=b.get("duration_min") or length))
+        booked.append((start, end))
 
     result: dict = {}
     current = from_date
@@ -109,32 +117,24 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
         day_str = str(current)
 
         day_schedules = [s for s in schedules if s["day_of_week"] == dow]
-        day_blocks    = [b for b in blocks    if b["date"] == day_str]
+        day_blocks = [
+            (datetime.combine(current, _parse_time(b["start_time"]), IST),
+             datetime.combine(current, _parse_time(b["end_time"]), IST))
+            for b in blocks if b["date"] == day_str
+        ]
 
         slots = []
-        for sched in day_schedules:
-            t   = _parse_time(sched["start_time"])
-            end = _parse_time(sched["end_time"])
+        for sched in sorted(day_schedules, key=lambda s: s["start_time"]):
+            t = datetime.combine(current, _parse_time(sched["start_time"]), IST)
+            close = datetime.combine(current, _parse_time(sched["end_time"]), IST)
 
-            while _minutes(t) + slot_minutes <= _minutes(end):
-                slot_end = _add_minutes(t, slot_minutes)
-                start_m  = _minutes(t)
-
-                blocked = any(
-                    _parse_time(b["start_time"]) <= t < _parse_time(b["end_time"])
-                    for b in day_blocks
-                )
-
-                taken = any(
-                    abs(start_m - m) < slot_minutes for m in booked.get(day_str, [])
-                )
-
-                too_soon = datetime.combine(current, t, IST) < earliest
-
-                if not blocked and not taken and not too_soon:
-                    slots.append({"start": _fmt(t), "end": _fmt(slot_end)})
-
-                t = slot_end
+            while t + timedelta(minutes=length) <= close:
+                slot_end = t + timedelta(minutes=length)
+                blocked = any(s < slot_end and t < e for s, e in day_blocks)
+                taken = any(s < slot_end and t < e for s, e in booked)
+                if not blocked and not taken and t >= earliest:
+                    slots.append({"start": _fmt(t.time()), "end": _fmt(slot_end.time())})
+                t += timedelta(minutes=step)
 
         if slots:
             result[day_str] = slots
@@ -145,14 +145,23 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
 
 
 def slot_minutes_for(doctor_id: str) -> int:
-    rows = (
-        supabase.table("doctor_pricing")
-        .select("base_duration_min")
-        .eq("doctor_id", doctor_id)
+    """The legacy grid length: the longest first-visit length the doctor
+    prices, so a slot fits whichever channel is picked after it."""
+    rules = (
+        supabase.table("doctor_price_rules")
+        .select("duration_min")
+        .eq("doctor_id", doctor_id).eq("visit_category", "initial")
+        .is_("effective_until", "null")
         .execute()
         .data
     ) or []
-    lengths = [r["base_duration_min"] for r in rows if r.get("base_duration_min")]
+    lengths = [r["duration_min"] for r in rules if r.get("duration_min")]
+    if not lengths:
+        rows = (
+            supabase.table("doctor_pricing").select("base_duration_min")
+            .eq("doctor_id", doctor_id).execute().data
+        ) or []
+        lengths = [r["base_duration_min"] for r in rows if r.get("base_duration_min")]
     return max(lengths) if lengths else SLOT_MINUTES
 
 

@@ -234,7 +234,9 @@ export async function mockRequest(path: string, method: string, body: unknown): 
       return auditLog.slice(0, limit)
     }
     if (bare === '/admin/doctors/pending') return pendingDoctors
-    if (bare === '/admin/doctors' || bare === '/doctors/search') return directory
+    if (bare === '/admin/doctors') return directory
+    // The real /doctors/search pages its results.
+    if (bare === '/doctors/search') return { items: directory, total: directory.length, has_more: false }
     if (bare === '/admin/bookings') {
       const status = query(path, 'status')
       return status ? bookings.filter(b => b.status === status) : bookings
@@ -252,6 +254,18 @@ export async function mockRequest(path: string, method: string, body: unknown): 
         { id: 3, event: 'pay', from_status: 'accepted', to_status: 'paid', actor_role: 'system', actor_id: null, occurred_at: at(28.9), metadata: { method: 'upi' } },
         { id: 4, event: 'cancel', from_status: 'paid', to_status: 'cancelled', actor_role: 'patient', actor_id: 'p', occurred_at: at(1), metadata: { refund_pct: 50, refund_paise: 40000, policy_version: '2026-10-26', reason_code: 'schedule_conflict' } },
       ]
+    }
+    if (match(bare, /^\/admin\/pricing\/([^/]+)\/history$/)) {
+      const at = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString()
+      return {
+        follow_up_validity_days: 7,
+        rules: [
+          { id: 'r5', channel: 'online_consult', visit_category: 'initial', duration_min: 15, price_paise: 70000, effective_from: at(2), effective_until: null },
+          { id: 'r4', channel: 'online_consult', visit_category: 'initial', duration_min: 30, price_paise: 100000, effective_from: at(20), effective_until: null },
+          { id: 'r3', channel: 'online_consult', visit_category: 'follow_up', duration_min: 10, price_paise: 0, effective_from: at(20), effective_until: null },
+          { id: 'r1', channel: 'online_consult', visit_category: 'initial', duration_min: 15, price_paise: 60000, effective_from: at(20), effective_until: at(2) },
+        ],
+      }
     }
     if (bare === '/admin/visits/queues') {
       const at = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString()

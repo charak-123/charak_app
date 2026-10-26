@@ -123,8 +123,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           pageBuilder: (_, s) => _card(s, DoctorProfileScreen(doctorId: s.pathParameters['id']!))),
 
       // ── Booking flow ─────────────────────────────────────────────────────
-      GoRoute(path: '/book/:doctorId/slots',
-          pageBuilder: (_, s) => _push(SlotSelectionScreen(doctorId: s.pathParameters['doctorId']!))),
+      // Booking: channel and length first (so the price), then a time that
+      // fits that length. A follow-up starts with extra {'follow_up_of': id}.
+      GoRoute(path: '/book/:doctorId/channel',
+          pageBuilder: (_, s) => _push(ChannelConfirmScreen(
+            doctorId: s.pathParameters['doctorId']!,
+            extra: s.extra is Map<String, dynamic> ? s.extra as Map<String, dynamic> : const {},
+          ))),
       // These three carry a booking draft built up across the previous steps
       // (selected slot, channel, intake media the patient has already picked)
       // — state that cannot be reconstructed from a URL, unlike the string
@@ -133,10 +138,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       // restored app, a stray deep link), the draft is gone regardless of how
       // the route is written, so the honest fix is to send the patient back
       // to pick up the flow again rather than hand a bad cast to the screen.
-      GoRoute(path: '/book/:doctorId/channel',
+      GoRoute(path: '/book/:doctorId/slots',
           redirect: (_, s) => s.extra is Map<String, dynamic>
-              ? null : '/doctor/${s.pathParameters['doctorId']}',
-          pageBuilder: (_, s) => _push(ChannelConfirmScreen(
+              ? null : '/book/${s.pathParameters['doctorId']}/channel',
+          pageBuilder: (_, s) => _push(SlotSelectionScreen(
             doctorId: s.pathParameters['doctorId']!,
             extra: s.extra as Map<String, dynamic>,
           ))),

@@ -43,7 +43,12 @@ final _screens = <(String, String, Object?)>[
   ('03_home', '/home', null),
   ('04_directory', '/directory', null),
   ('05_doctor_profile', '/doctor/doc-1', null),
-  ('06_slots', '/book/doc-1/slots', null),
+  ('06_channel_and_length', '/book/doc-2/channel', null),
+  ('06b_slots', '/book/doc-1/slots', {
+    'doctor_id': 'doc-1', 'channel': 'online_consult', 'price_rule_id': 'r-on-30',
+    'duration_min': 30, 'price_paise': 104000, 'visit_category': 'initial',
+  }),
+  ('06c_follow_up_prices', '/book/doc-1/channel', {'follow_up_of': 'bk-done'}),
   ('07_booking_status_requested', '/booking/bk-requested/status', null),
   ('08_booking_status_accepted', '/booking/bk-accepted/status', null),
   ('09_payment', '/booking/bk-accepted/pay', null),
@@ -56,7 +61,8 @@ final _screens = <(String, String, Object?)>[
   ('16_history_detail_refunded', '/booking/bk-refunded/history-detail', null),
   ('18_signup_consent', '/auth/name', null),
   ('19_review_confirm_online', '/book/review', {
-    'doctor_id': 'doc-1', 'channel': 'online_consult',
+    'doctor_id': 'doc-1', 'channel': 'online_consult', 'price_rule_id': 'r-on-30',
+    'duration_min': 30, 'price_paise': 104000, 'visit_category': 'initial',
     'scheduled_start': DateTime.now().add(const Duration(days: 1, hours: 3)).toUtc().toIso8601String(),
     'text': 'Fever for two days, around 101°F, with a mild cough at night.',
   }),

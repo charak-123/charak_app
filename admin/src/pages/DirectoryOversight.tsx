@@ -16,6 +16,7 @@ import {
 import { MetaChip, StatusPill } from '@/components/status'
 import { getInitials } from '@/lib/utils'
 import CompositionBar from '@/components/charts/CompositionBar'
+import PricingHistory from '@/components/PricingHistory'
 import { SERIES } from '@/lib/chart-theme'
 
 interface Doctor {
@@ -34,6 +35,7 @@ interface Doctor {
 export default function DirectoryOversight() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [pricesFor, setPricesFor] = useState<{ id: string; name: string } | null>(null)
 
   const { data, isLoading, isError, error } = useQuery<Doctor[]>({
     queryKey: ['doctors-directory'],
@@ -207,7 +209,11 @@ export default function DirectoryOversight() {
                           <span className="text-sm text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="space-x-2 text-right">
+                        <Button variant="outline" size="sm"
+                          onClick={() => setPricesFor({ id: doctor.id, name: doctor.name ?? 'Doctor' })}>
+                          Prices
+                        </Button>
                         {doctor.verification_status === 'verified' && (
                           <Button
                             variant="outline" size="sm"
@@ -227,6 +233,7 @@ export default function DirectoryOversight() {
           )}
         </Section>
       </PageBody>
+      <PricingHistory doctor={pricesFor} onClose={() => setPricesFor(null)} />
     </div>
   )
 }

@@ -6,221 +6,261 @@ import 'package:intl/intl.dart';
 
 import 'address_picker.dart';
 
-// ── Provider for doctor pricing ───────────────────────────────────────────────
+// ── Providers ─────────────────────────────────────────────────────────────────
 
-final _pricingProvider =
+final _doctorProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, doctorId) async {
-  final res = await ApiClient.instance.get('/doctors/$doctorId');
-  return res as Map<String, dynamic>;
+  return await ApiClient.instance.get('/doctors/$doctorId') as Map<String, dynamic>;
+});
+
+/// The options to choose from: the doctor's first-visit prices, or for a
+/// follow-up the follow-up prices that apply to that consultation (the
+/// backend checks it qualifies and says why when it doesn't).
+final _optionsProvider =
+    FutureProvider.autoDispose.family<CharakPriceList, (String, String?)>((ref, key) async {
+  final (doctorId, followUpOf) = key;
+  final res = await ApiClient.instance.get(followUpOf == null
+      ? '/doctors/$doctorId/prices'
+      : '/bookings/$followUpOf/follow-up-options');
+  return CharakPriceList.fromJson(res as Map<String, dynamic>);
 });
 
 // ── ChannelConfirmScreen ──────────────────────────────────────────────────────
 
+/// The first step of booking: how the visit happens (online or at home), how
+/// long it is, and so what it costs. The time comes next, from slots that fit
+/// that length. For a home visit, where the doctor should come.
+///
+/// [extra] may carry `follow_up_of`: the patient is booking the follow-up to
+/// that consultation, at the follow-up price.
 class ChannelConfirmScreen extends ConsumerStatefulWidget {
   final String doctorId;
-  final Map<String, dynamic> extra; // {channel, scheduled_start, slot, day}
-  const ChannelConfirmScreen({super.key, required this.doctorId, required this.extra});
+  final Map<String, dynamic> extra;
+  const ChannelConfirmScreen({super.key, required this.doctorId, this.extra = const {}});
   @override
   ConsumerState<ChannelConfirmScreen> createState() => _State();
 }
 
 class _State extends ConsumerState<ChannelConfirmScreen> {
-  late String _channel = widget.extra['channel'] as String? ?? 'online_consult';
+  String? _channel;
+  CharakPriceOption? _option;
 
   /// Which saved address a home visit goes to. The backend books against this
   /// id — it needs the stored coordinates to check the doctor's service radius,
   /// which a typed-in address could never supply.
   String? _addressId;
 
+  String? get _followUpOf => widget.extra['follow_up_of'] as String?;
   bool get _isHome => _channel == 'home_visit';
 
-  void _proceed() {
-    context.push('/book/${widget.doctorId}/intake', extra: {
+  void _pick(String channel, CharakPriceOption option) => setState(() {
+        _channel = channel;
+        _option = option;
+      });
+
+  void _proceed(CharakPriceList list) {
+    final o = _option!;
+    context.push('/book/${widget.doctorId}/slots', extra: {
       ...widget.extra,
       'channel': _channel,
       if (_isHome) 'address_id': _addressId,
+      'price_rule_id': o.id,
+      'duration_min': o.durationMin,
+      'price_paise': o.pricePaise,
+      'visit_category': o.visitCategory,
+      if (list.followUpUntil != null) 'follow_up_until': list.followUpUntil!.toIso8601String(),
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final start   = widget.extra['scheduled_start'] as String;
-    final dt      = DateTime.tryParse(start.replaceAll('+05:30', ''))?.toLocal();
-    final dateStr = dt != null ? DateFormat('EEE d MMM, h:mm a').format(dt) : start;
-
-    final async = ref.watch(_pricingProvider(widget.doctorId));
-    final pricing = async.maybeWhen(
-      data: (d) => List<Map<String,dynamic>>.from(d['doctor_pricing'] as List? ?? []),
-      orElse: () => <Map<String,dynamic>>[],
-    );
-    final docName = async.maybeWhen(
-      data: (d) => CharakFormat.doctor(d['name'] as String?),
-      orElse: () => 'Doctor',
-    );
-
-    final onlineP    = pricing.where((p) => p['channel'] == 'online_consult').firstOrNull;
-    final homeP      = pricing.where((p) => p['channel'] == 'home_visit').firstOrNull;
-    final onlinePrice = (onlineP?['price'] as num?)?.toDouble() ?? 0;
-    final homePrice   = (homeP?['price'] as num?)?.toDouble() ?? 0;
-    final onlineExtra = (onlineP?['extra_rate_per_15min'] as num?)?.toDouble() ?? 150;
-    final homeExtra   = (homeP?['extra_rate_per_15min'] as num?)?.toDouble() ?? 200;
-    final onlineMins  = (onlineP?['base_duration_min'] as num?)?.toInt() ?? 15;
-    final homeMins    = (homeP?['base_duration_min'] as num?)?.toInt() ?? 15;
-    final onlineExtraMins = (onlineP?['extra_duration_min'] as num?)?.toInt() ?? 15;
-    final homeExtraMins   = (homeP?['extra_duration_min'] as num?)?.toInt() ?? 15;
-    final radius      = async.maybeWhen(
-      data: (d) => d['service_radius_km'],
-      orElse: () => null,
-    );
-
-    final confirmPrice = _isHome ? homePrice : onlinePrice;
-    final (successBg, _) = charakToneColors(CharakStatusTone.success);
+    final async = ref.watch(_optionsProvider((widget.doctorId, _followUpOf)));
+    final doctor = ref.watch(_doctorProvider(widget.doctorId)).valueOrNull;
+    final docName = CharakFormat.doctor(doctor?['name'] as String?);
+    final radius = doctor?['service_radius_km'];
 
     return CharakScreen(
-      title: 'How should the visit happen?',
-      body: Column(children: [
-        Expanded(child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          children: [
-            Text('$dateStr · $docName', style: charakScreenSubStyle),
-            const SizedBox(height: 16),
-
-            // ── `.chan-card` — Online Consult ─────────────────────────────
-            if (onlineP != null)
-              _ChannelCard(
-                selected: _channel == 'online_consult',
-                icon: LucideIcons.video,
-                iconBg: CharakColors.primarySoft,
-                iconColor: CharakColors.primaryDeep,
-                title: 'Online consult',
-                description: 'Video call on CHARAK. Price covers a $onlineMins-min '
-                    'consult, paid before the call.',
-                note: '+ ${CharakFormat.rupees(onlineExtra)} per extra $onlineExtraMins min',
-                price: onlinePrice,
-                onTap: () => setState(() => _channel = 'online_consult'),
+      title: _followUpOf != null ? 'Your follow-up' : 'How should the visit happen?',
+      subtitle: docName,
+      body: async.when(
+        loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),
+        error: (e, _) => _followUpOf != null && e is ApiException && e.statusCode == 409
+            ? Center(
+                child: CharakEmptyState(
+                  icon: LucideIcons.calendarX,
+                  title: 'Follow-up price not available',
+                  message: '${e.message} You can still book a regular consultation.',
+                  action: CharakButton(
+                    label: 'Book a regular consultation',
+                    expand: false,
+                    onPressed: () => context.pushReplacement('/book/${widget.doctorId}/channel'),
+                  ),
+                ),
+              )
+            : CharakErrorState(
+                error: e,
+                onRetry: () => ref.invalidate(_optionsProvider((widget.doctorId, _followUpOf)))),
+        data: (list) {
+          final channels = [
+            for (final c in ['online_consult', 'home_visit'])
+              if (list.optionsFor(c).isNotEmpty) c,
+          ];
+          // One choice to make? Make it.
+          if (_channel == null && channels.length == 1 && list.optionsFor(channels.first).length == 1) {
+            _channel = channels.first;
+            _option = list.optionsFor(channels.first).first;
+          }
+          if (channels.isEmpty) {
+            return Center(
+              child: CharakEmptyState(
+                icon: LucideIcons.calendarX,
+                title: list.isFollowUp ? 'No follow-up prices' : 'Not taking bookings',
+                message: list.isFollowUp
+                    ? "This doctor doesn't offer follow-up prices. You can book a regular consultation."
+                    : "This doctor hasn't published prices yet.",
               ),
-
-            if (onlineP != null && homeP != null) const SizedBox(height: 12),
-
-            // ── `.chan-card` — Home Visit ─────────────────────────────────
-            if (homeP != null)
-              _ChannelCard(
-                selected: _channel == 'home_visit',
-                icon: LucideIcons.house,
-                iconBg: successBg,
-                iconColor: CharakColors.success,
-                title: 'Home visit',
-                description: 'Doctor comes to you. Consult fee covers $homeMins min, paid upfront; '
-                    'procedures (if any) billed after at fixed rates.',
-                note: '+ ${CharakFormat.rupees(homeExtra)} per extra $homeExtraMins min'
-                    '${radius != null ? ' · within $radius km' : ''}',
-                price: homePrice,
-                onTap: () => setState(() => _channel = 'home_visit'),
+            );
+          }
+          final o = _option;
+          return Column(children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                children: [
+                  if (list.isFollowUp && list.followUpUntil != null) ...[
+                    CharakNoteBanner(
+                      icon: LucideIcons.calendarClock,
+                      leadLabel: 'Follow-up price',
+                      message: ' for your earlier consultation. Book a time up to '
+                          '${DateFormat('EEE d MMM').format(list.followUpUntil!)}.',
+                      tone: CharakStatusTone.primary,
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  for (final c in channels) ...[
+                    _ChannelCard(
+                      channel: c,
+                      options: list.optionsFor(c),
+                      selectedChannel: _channel,
+                      selected: _channel == c ? _option : null,
+                      radius: radius,
+                      onPick: (option) => _pick(c, option),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (_isHome) ...[
+                    const SizedBox(height: 6),
+                    const CharakSectionTitle(label: 'Where should the doctor come?'),
+                    const SizedBox(height: 10),
+                    AddressPickerSection(
+                      selectedId: _addressId,
+                      onSelected: (id) => setState(() => _addressId = id),
+                    ),
+                  ],
+                ],
               ),
-
-            // ── Address (home only) ───────────────────────────────────────
-            if (_isHome) ...[
-              const SizedBox(height: 18),
-              const CharakSectionTitle(label: 'Where should the doctor come?'),
-              const SizedBox(height: 10),
-              AddressPickerSection(
-                selectedId: _addressId,
-                onSelected: (id) => setState(() => _addressId = id),
-              ),
-            ],
-          ],
-        )),
-
-        CharakCtaBar.single(
-          CharakButton(
-            label: confirmPrice > 0
-                ? 'Continue · ${CharakFormat.rupees(confirmPrice)}'
-                    '${_isHome ? ' + procedures' : ''}'
-                : 'Continue',
-            onPressed: (!_isHome || _addressId != null) ? _proceed : null,
-          ),
-        ),
-      ]),
+            ),
+            CharakCtaBar(
+              header: o == null
+                  ? Text('Pick how long the visit is', textAlign: TextAlign.center, style: charakHintStyle)
+                  : (_isHome && _addressId == null
+                      ? Text('Choose the address for the visit',
+                          textAlign: TextAlign.center, style: charakHintStyle)
+                      : null),
+              children: [
+                Expanded(
+                  child: CharakButton(
+                    label: o == null
+                        ? 'Choose a time'
+                        : 'Choose a time · ${o.durationMin} min, ${o.priceLabel}',
+                    trailingIcon: LucideIcons.arrowRight,
+                    onPressed: o != null && (!_isHome || _addressId != null) ? () => _proceed(list) : null,
+                  ),
+                ),
+              ],
+            ),
+          ]);
+        },
+      ),
     );
   }
 }
 
-// ── `.chan-card` ──────────────────────────────────────────────────────────────
+// ── Channel card ──────────────────────────────────────────────────────────────
 
-/// Channel option: a 44px tinted glyph, title + explanation + extra-time note,
-/// and a right-aligned price. Selection draws the spec's doubled primary edge
-/// (`border-color` plus a 1px ring).
+/// A channel: what it is, then one chip per length with its price. The
+/// chosen chip, and the card, take the 2px blue outline.
 class _ChannelCard extends StatelessWidget {
-  final bool selected;
-  final IconData icon;
-  final Color iconBg;
-  final Color iconColor;
-  final String title;
-  final String description;
-  final String note;
-  final double price;
-  final VoidCallback onTap;
+  final String channel;
+  final List<CharakPriceOption> options;
+  final String? selectedChannel;
+  final CharakPriceOption? selected;
+  final Object? radius;
+  final ValueChanged<CharakPriceOption> onPick;
 
   const _ChannelCard({
+    required this.channel,
+    required this.options,
+    required this.selectedChannel,
     required this.selected,
-    required this.icon,
-    required this.iconBg,
-    required this.iconColor,
-    required this.title,
-    required this.description,
-    required this.note,
-    required this.price,
-    required this.onTap,
+    required this.radius,
+    required this.onPick,
   });
 
   @override
-  Widget build(BuildContext context) => CharakPressable(
-    onTap: onTap,
-    child: AnimatedContainer(
+  Widget build(BuildContext context) {
+    final home = channel == 'home_visit';
+    final active = selectedChannel == channel;
+    final (successBg, _) = charakToneColors(CharakStatusTone.success);
+    return AnimatedContainer(
       duration: CharakMotion.standard,
       curve: CharakCurves.standard,
       decoration: BoxDecoration(
         color: CharakColors.card,
         borderRadius: const BorderRadius.all(CharakRadius.card),
         // Selected: a 2px blue outline, no shadow (V2 is flat).
-        border: Border.all(color: selected ? CharakColors.primary : Colors.transparent, width: 2),
+        border: Border.all(color: active ? CharakColors.primary : Colors.transparent, width: 2),
       ),
       padding: const EdgeInsets.all(CharakSpacing.gutter - 2),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          width: 40, height: 40,
-          // Same well as CharakListRow's leading icon.
-          decoration: BoxDecoration(color: iconBg, borderRadius: const BorderRadius.all(Radius.circular(14))),
-          alignment: Alignment.center,
-          child: Icon(icon, color: iconColor, size: 20),
-        ),
-        const SizedBox(width: 13),
-
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: CharakText.h2.copyWith(fontSize: 16)),
-          const SizedBox(height: 3),
-          Text(description,
-              style: CharakText.caption.copyWith(
-                  color: CharakColors.inkMuted, height: 1.5)),
-          const SizedBox(height: 4),
-          Text(note, style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-        ])),
-
-        const SizedBox(width: 10),
-        Text.rich(
-          TextSpan(children: [
-            TextSpan(
-              text: CharakFormat.rupees(price),
-              style: CharakText.numeric.copyWith(fontSize: 18),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+              color: home ? successBg : CharakColors.primarySoft,
+              borderRadius: const BorderRadius.all(Radius.circular(14)),
             ),
-            TextSpan(
-              text: '/15m',
-              style: CharakText.caption
-                  .copyWith(color: CharakColors.inkMuted, letterSpacing: 0),
+            alignment: Alignment.center,
+            child: Icon(home ? LucideIcons.house : LucideIcons.video,
+                color: home ? CharakColors.success : CharakColors.primaryDeep, size: 20),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(home ? 'Home visit' : 'Online consult',
+                  style: CharakText.titleSmall.copyWith(fontSize: 17, color: CharakColors.ink)),
+              const SizedBox(height: 3),
+              Text(
+                home
+                    ? 'The doctor comes to you${radius != null ? ' (within $radius km)' : ''}. '
+                        'Procedures, if any, are billed after at fixed rates.'
+                    : 'Video call in CHARAK, paid before the call.',
+                style: CharakText.caption.copyWith(color: CharakColors.inkMuted, height: 1.5),
+              ),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 14),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final o in options)
+            CharakChip(
+              label: '${o.durationMin} min · ${o.priceLabel}',
+              numeric: true,
+              selected: selected == o,
+              onTap: () => onPick(o),
             ),
-          ]),
-        ),
+        ]),
       ]),
-    ),
-  );
+    );
+  }
 }

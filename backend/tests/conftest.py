@@ -258,6 +258,28 @@ def _visit_services_are_sinks(request):
         yield
 
 
+class _FollowBookingsDb:
+    """Forwards to whatever ``app.routers.bookings.supabase`` is right now."""
+
+    def __getattr__(self, name):
+        import app.routers.bookings as bookings
+        return getattr(bookings.supabase, name)
+
+
+@pytest.fixture(autouse=True)
+def _pricing_reads_the_bookings_db(request):
+    """
+    services/pricing.py (migration 0026) binds its own ``supabase``. Booking
+    tests mock the bookings router's client with the doctor's prices in it;
+    pricing reads the same mock, so those tests need no second one.
+    """
+    if _integration(request):
+        yield
+        return
+    with patch("app.services.pricing.supabase", _FollowBookingsDb()):
+        yield
+
+
 DEFAULT_POLICY = {
     "id": "pol-1", "channel": "online_consult", "version": "2026-10-26",
     "rules": [{"when": {}, "refund_pct": 100}], "summary": "Full refund before the start.",
@@ -420,6 +442,7 @@ _ROUTER_SUPABASE_PATHS = [
     "app.services.erasure.supabase",
     "app.services.otp_store.supabase",
     "app.services.availability.supabase",
+    "app.services.pricing.supabase",
     "app.routers.addresses.supabase",
     "app.routers.uploads.supabase",
     "app.services.storage.supabase",

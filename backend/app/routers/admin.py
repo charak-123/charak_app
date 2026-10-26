@@ -11,7 +11,8 @@ from ..db import supabase
 from ..deps import require_ops
 from ..errors import AppError
 from ..services import (
-    admin_auth, audit, booking_state, erasure, notifications, payouts, prescriptions, refunds, visits,
+    admin_auth, audit, booking_state, erasure, notifications, payouts, prescriptions, pricing,
+    refunds, visits,
 )
 from ..services.admin_auth import AdminAuthError
 from ..services.rate_limit import enforce as enforce_rate_limit, rate_limiter
@@ -317,6 +318,20 @@ def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_o
 
     _audit(user, "booking", booking_id, "revealed_patient_phone")
     return {"phone": (row[0].get("users") or {}).get("phone")}
+
+
+# ── Pricing history ──────────────────────────────────────────────────────────
+
+@router.get("/pricing/{doctor_id}/history")
+def pricing_history(doctor_id: str, user: dict = Depends(require_ops)):
+    """Every price this doctor has had, newest first, with when each applied.
+    A booking's own price_rule_id points at the row it was charged by."""
+    doctor = supabase.table("doctors").select("id, follow_up_validity_days") \
+        .eq("id", doctor_id).execute().data
+    if not doctor:
+        raise AppError("Doctor not found", 404)
+    return {"follow_up_validity_days": doctor[0].get("follow_up_validity_days"),
+            "rules": pricing.history(doctor_id, limit=500)}
 
 
 # ── Visits: exception queues and prescription access ─────────────────────────
