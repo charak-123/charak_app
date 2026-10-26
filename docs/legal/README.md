@@ -21,3 +21,7 @@ The apps link to these URLs through `CharakLegal` in
 When a document changes materially, bump its version there and in
 `backend/app/config.py` (`LEGAL_*_VERSION`); the apps then re-request consent
 and record the new version.
+
+**Decisions** behind these documents (jurisdiction, fees, refunds, retention, and so
+on) are recorded in [`DECISIONS.md`](DECISIONS.md). Read it before you change any
+legal text.
