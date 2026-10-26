@@ -26,9 +26,16 @@ def _uuid_or_none(value) -> Optional[str]:
         return None
 
 
-def record(user: dict, entity: str, entity_id: Optional[str], action: str) -> None:
+def record(user: dict, entity: str, entity_id: Optional[str], action: str,
+           reason: Optional[str] = None, metadata: Optional[dict] = None) -> None:
     """
     Record one action by the caller in ``user`` (a decoded session token).
+
+    ``reason`` is the person's own words for an override ("patient called, card
+    charged twice"). ``metadata`` holds safe facts such as before and after
+    values. Never put clinical detail or secrets in either. The table is
+    append-only (migration 0023): a row can't be edited or removed once
+    written.
 
     Best-effort: an audit write must never be the reason the action itself
     fails, but a failed write is logged loudly so it is noticed.
@@ -40,6 +47,8 @@ def record(user: dict, entity: str, entity_id: Optional[str], action: str) -> No
             "entity": entity,
             "entity_id": _uuid_or_none(entity_id),
             "action": action,
+            "reason": reason,
+            "metadata": metadata or {},
         }).execute()
     except Exception as exc:  # pragma: no cover
         logger.error("failed to record %s on %s/%s: %s", action, entity, entity_id, exc)

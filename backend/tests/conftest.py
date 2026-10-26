@@ -19,6 +19,20 @@ if not os.getenv("CHARAK_INTEGRATION"):
     os.environ["SUPABASE_ANON_KEY"] = "unit-tests-have-no-database"
     os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "unit-tests-have-no-database"
 
+# The same file can hold live third-party credentials. No test, unit or
+# integration, may reach Razorpay, FCM, SMS or a transcription API with them:
+# with live Razorpay keys, a refund test would send a real refund request.
+# load_dotenv never overrides a variable that is already set, even to "", so
+# blanking them here (before app.config is imported) keeps every SDK in stub
+# mode. A test that needs "live" behaviour patches live_mode() and the client.
+for _credential in (
+    "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
+    "FCM_PROJECT_ID", "FCM_SERVER_KEY", "GOOGLE_APPLICATION_CREDENTIALS",
+    "FIREBASE_ADMIN_CREDENTIALS_JSON", "MSG91_API_KEY", "OPENAI_API_KEY",
+    "VERTEX_PROJECT_ID", "AGORA_APP_ID", "AGORA_APP_CERTIFICATE",
+):
+    os.environ[_credential] = ""
+
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
@@ -125,6 +139,107 @@ def _notifications_go_nowhere(request):
 
 
 @pytest.fixture(autouse=True)
+def _refunds_db_is_a_sink(request):
+    """
+    services/refunds.py binds its own `supabase`. A cancel or a late capture
+    calls it after the router's own writes; unpatched, those calls would reach
+    whatever SUPABASE_URL the environment holds. Tests about refunds patch
+    `app.services.refunds.supabase` themselves, which shadows this.
+    """
+    if _integration(request):   # real database: nothing to stand in for
+        yield
+        return
+    db = MagicMock()
+    db.table.return_value = make_chain()
+    with patch("app.services.refunds.supabase", db):
+        yield
+
+
+class TransitionRecorder:
+    """
+    Stands in for the transition_booking() SQL function in the unit suite.
+
+    Every call is recorded (``calls``: event, params) and answered the way the
+    function answers a permitted move: outcome 'ok', the booking with its new
+    status and the patch applied. The rules themselves, ownership, compare-and-
+    set, allowed roles and refusals, run against real Postgres in
+    tests/integration/test_state_machine.py. A test that needs a refusal sets
+    ``refuse = (outcome, current_status)``.
+    """
+
+    TO_STATUS = {
+        "accept": "accepted", "decline": "declined", "cancel": "cancelled",
+        "pay": "paid", "complete": "completed", "no_show": "no_show",
+        "hold_expire": "cancelled", "request_expire": "cancelled",
+    }
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.refuse = None
+
+    def rpc(self, name, params):
+        data = None
+        if name == "transition_booking":
+            self.calls.append(params)
+            if self.refuse:
+                outcome, status = self.refuse
+                data = {"outcome": outcome, "status": status}
+            else:
+                status = self.TO_STATUS[params["p_event"]]
+                data = {"outcome": "ok", "status": status,
+                        "booking": {"id": params["p_booking_id"], "status": status,
+                                    **(params.get("p_patch") or {})}}
+        result = MagicMock()
+        result.execute.return_value = MagicMock(data=data)
+        return result
+
+    def last(self, event=None):
+        calls = [c for c in self.calls if event is None or c["p_event"] == event]
+        return calls[-1] if calls else None
+
+
+@pytest.fixture(autouse=True)
+def transitions(request):
+    """The state machine's stand-in (see TransitionRecorder). Tests that care
+    take it as an argument to inspect or refuse transitions."""
+    if _integration(request):
+        yield None
+        return
+    recorder = TransitionRecorder()
+    db = MagicMock()
+    db.rpc.side_effect = recorder.rpc
+    db.table.return_value = make_chain()
+    with patch("app.services.booking_state.supabase", db):
+        yield recorder
+
+
+@pytest.fixture(autouse=True)
+def _platform_services_are_sinks(request):
+    """
+    Modules from migration 0023 that bind their own ``supabase``: the webhook
+    inbox (every delivery is new), the job queue (nothing due), idempotency
+    keys (only used when a test sends the header) and app_config (empty, so
+    defaults apply). Tests about each patch it themselves.
+    """
+    if _integration(request):
+        yield
+        return
+    from app.services import app_config
+
+    config_db = MagicMock()
+    config_db.table.return_value = make_chain(list_data=[])
+    jobs_db = MagicMock()
+    jobs_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    app_config.clear_cache()
+    with patch("app.services.webhook_inbox.supabase", MagicMock()), \
+         patch("app.services.jobs.supabase", jobs_db), \
+         patch("app.services.idempotency.supabase", MagicMock()), \
+         patch("app.services.app_config.supabase", config_db):
+        yield
+    app_config.clear_cache()
+
+
+@pytest.fixture(autouse=True)
 def _phone_release_finds_nothing(request):
     """
     services/identity.py binds its own `supabase`. verify-otp and Firebase
@@ -200,6 +315,18 @@ def make_chain_seq(*execute_data_list):
     return c
 
 
+def rpc_returns(mock_db: MagicMock, data) -> MagicMock:
+    """Make every ``mock_db.rpc(...).execute()`` return ``data``."""
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=data)
+    return mock_db
+
+
+def cancelled(row: dict, refunds=()) -> dict:
+    """What the cancel_booking() SQL function returns for a successful cancel."""
+    return {"outcome": "cancelled", "status": "cancelled",
+            "booking": {**row, "status": "cancelled"}, "refunds": list(refunds)}
+
+
 def make_supabase(table_map: dict) -> MagicMock:
     """
     Build a mock supabase client.
@@ -239,6 +366,11 @@ _ROUTER_SUPABASE_PATHS = [
     "app.routers.maintenance.supabase",
     "app.services.notifications.supabase",
     "app.services.payouts.supabase",
+    "app.services.refunds.supabase",
+    "app.services.webhook_inbox.supabase",
+    "app.services.jobs.supabase",
+    "app.services.idempotency.supabase",
+    "app.services.app_config.supabase",
     "app.services.erasure.supabase",
     "app.services.otp_store.supabase",
     "app.services.availability.supabase",
@@ -247,6 +379,11 @@ _ROUTER_SUPABASE_PATHS = [
     "app.services.storage.supabase",
     "app.services.transcription.supabase",
 ]
+
+
+# Deliberately absent: app.services.booking_state.supabase. The autouse
+# `transitions` fixture stands in for transition_booking() there, and a
+# generic table mock would answer the RPC with nothing.
 
 
 def patch_all_supabase(mock_db):
@@ -272,24 +409,33 @@ def patch_all_supabase(mock_db):
 @pytest.fixture
 def silent_push(monkeypatch):
     """
-    Stop the notification service from attempting delivery.
+    Record who was notified, and send nothing.
 
-    Persisting the row is still exercised; only the outbound HTTP call is
-    stubbed, so tests assert on what was recorded without needing a network.
+    Hooked at notify(), where "who is told what" is decided, rather than at
+    the sender: with the outbox (migration 0023) nothing reaches the sender
+    when a test's fake table can't hand back a row, and these tests are about
+    the recipient, not the outbox. The real notify() still runs, so recording
+    is exercised; only delivery is stubbed.
     """
     import app.services.notifications as notif
     sent = []
+    original = notif.notify
 
-    def _fake_deliver(recipient_id, recipient_role, title, body, data, notification_id):
+    def _recording_notify(recipient_id, recipient_role, event, title, body,
+                          data=None, booking_id=None, background=None, **kwargs):
         sent.append({
             "recipient_id": recipient_id,
             "role": recipient_role,
+            "event": event,
             "title": title,
             "body": body,
-            "data": data,
+            "data": {k: str(v) for k, v in (data or {}).items()},
         })
+        return original(recipient_id, recipient_role, event, title, body,
+                        data, booking_id, background, **kwargs)
 
-    monkeypatch.setattr(notif, "_deliver", _fake_deliver)
+    monkeypatch.setattr(notif, "notify", _recording_notify)
+    monkeypatch.setattr(notif, "_deliver", lambda *a, **k: None)
     return sent
 
 

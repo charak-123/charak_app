@@ -4,11 +4,13 @@ Patches app.routers.bookings.supabase (the local name bound at import).
 """
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from postgrest.exceptions import APIError
 from fastapi.testclient import TestClient
 from app.main import app
 
-from tests.conftest import make_chain, make_supabase, pricing_chain
+from tests.conftest import cancelled, make_chain, make_supabase, pricing_chain, rpc_returns
 
 DOCTOR_TOKEN  = "Bearer doctor_token"
 PATIENT_TOKEN = "Bearer patient_token"
@@ -175,7 +177,7 @@ def test_wrong_doctor_cannot_accept():
 def test_cancel_by_patient():
     row = _booking("accepted")
     chain = _booking_chain(row, {**row, "status": "cancelled"})
-    mock_db = make_supabase({"bookings": chain})
+    mock_db = rpc_returns(make_supabase({"bookings": chain}), cancelled(row))
 
     with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = PATIENT_PAYLOAD
@@ -329,55 +331,95 @@ def test_create_booking_refuses_a_doctor_with_no_published_price():
     assert "has not published a price" in resp.json()["error"]
 
 
-def test_cancelling_a_paid_booking_refunds_and_reverses_the_ledger():
+def test_cancelling_a_paid_booking_queues_and_sends_the_refund():
     """
-    Regression for the strix finding: cancelling a *paid* booking must refund the
-    patient and reverse the doctor's ledger credit, not merely flip the status.
+    A paid cancel refunds the patient. The refund is queued and the ledger is
+    reversed inside cancel_booking() (one transaction, tested against real SQL
+    in tests/integration/test_refunds.py). The router then sends each queued
+    refund to Razorpay and tells the patient it has started, not that it's done.
     """
-    from tests.conftest import patch_all_supabase
-
     row = _booking("paid")
-    bookings_chain = _booking_chain(row, {**row, "status": "cancelled"})
-    payment = {
-        "id": "pay-1", "booking_id": "bk-1", "type": "consult_fee",
-        "amount": 500.0, "status": "completed", "razorpay_payment_id": "rp-1",
-    }
-    payments_chain = make_chain(list_data=[payment])
-    mock_db = make_supabase({"bookings": bookings_chain, "payments": payments_chain})
+    queued = {"id": "rf-1", "payment_id": "pay-1", "booking_id": "bk-1",
+              "amount_paise": 50000, "status": "pending", "attempts": 0}
+    mock_db = rpc_returns(
+        make_supabase({"bookings": _booking_chain(row, row)}),
+        cancelled(row, refunds=[queued]),
+    )
 
-    with patch_all_supabase(mock_db), \
-         patch(JWT_TARGET) as jw, \
-         patch("app.routers.payments._razorpay_refund") as refund, \
-         patch("app.routers.payments.payouts.reverse") as reverse, \
-         patch("app.routers.payments.notifications.payment_auto_refunded"), \
-         patch("app.routers.bookings.notifications.booking_cancelled"):
+    with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw, \
+         patch("app.routers.bookings.refunds.execute",
+               return_value={**queued, "status": "processing"}) as send, \
+         patch("app.routers.bookings.notifications") as notify:
         jw.decode.return_value = PATIENT_PAYLOAD
         client = TestClient(app)
         resp = client.patch("/bookings/bk-1/cancel", headers={"Authorization": PATIENT_TOKEN})
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "cancelled"
-    assert resp.json()["refunded_payments"] == 1
-    refund.assert_called_once()                       # patient's money returned
-    reverse.assert_called_once()                      # doctor's ledger credit reversed
-    assert reverse.call_args.args[:2] == ("bk-1", "consult_fee")
+    body = resp.json()
+    assert body["status"] == "cancelled"
+    assert body["refunded_payments"] == 1
+    assert body["refunds"] == [{"id": "rf-1", "amount_paise": 50000, "status": "processing"}]
+    send.assert_called_once()
+    assert send.call_args.args[0]["id"] == "rf-1"
+    notify.refund_started.assert_called_once()
+    assert notify.refund_started.call_args.args[1] == 50000
+    notify.booking_cancelled.assert_called_once()
 
 
-def test_cancelling_an_unpaid_booking_does_not_touch_payments():
-    """An accepted (unpaid) cancel must not attempt any refund."""
+def test_a_refund_razorpay_rejects_inline_does_not_fail_the_cancel():
+    """
+    The cancel has committed by the time Razorpay is called. An error there must
+    not tell the patient their cancel failed; the sweep sends the refund later.
+    """
+    row = _booking("paid")
+    queued = {"id": "rf-1", "payment_id": "pay-1", "booking_id": "bk-1",
+              "amount_paise": 50000, "status": "pending", "attempts": 0}
+    mock_db = rpc_returns(
+        make_supabase({"bookings": _booking_chain(row, row)}),
+        cancelled(row, refunds=[queued]),
+    )
+    with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw, \
+         patch("app.routers.bookings.refunds.execute", side_effect=RuntimeError("db blip")), \
+         patch("app.routers.bookings.notifications"):
+        jw.decode.return_value = PATIENT_PAYLOAD
+        resp = TestClient(app).patch("/bookings/bk-1/cancel",
+                                     headers={"Authorization": PATIENT_TOKEN})
+
+    assert resp.status_code == 200
+    assert resp.json()["refunds"][0]["status"] == "pending"
+
+
+def test_cancelling_an_unpaid_booking_sends_no_refund():
+    """An accepted (unpaid) cancel has nothing to refund."""
     row = _booking("accepted")
-    bookings_chain = _booking_chain(row, {**row, "status": "cancelled"})
-    mock_db = make_supabase({"bookings": bookings_chain})
+    mock_db = rpc_returns(make_supabase({"bookings": _booking_chain(row, row)}), cancelled(row))
 
     with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw, \
-         patch("app.routers.payments.refund_completed_payments") as refund_fn:
+         patch("app.routers.bookings.refunds.execute") as send:
         jw.decode.return_value = PATIENT_PAYLOAD
         client = TestClient(app)
         resp = client.patch("/bookings/bk-1/cancel", headers={"Authorization": PATIENT_TOKEN})
 
     assert resp.status_code == 200
     assert resp.json()["refunded_payments"] == 0
-    refund_fn.assert_not_called()
+    send.assert_not_called()
+
+
+@pytest.mark.parametrize("outcome,code", [
+    ({"outcome": "conflict", "status": "paid"}, 409),
+    ({"outcome": "not_cancellable", "status": "completed"}, 400),
+    ({"outcome": "not_found"}, 404),
+])
+def test_cancel_reports_what_the_database_decided(outcome, code):
+    row = _booking("accepted")
+    mock_db = rpc_returns(make_supabase({"bookings": _booking_chain(row, row)}), outcome)
+    with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw, \
+         patch("app.routers.bookings.refunds.execute") as send:
+        jw.decode.return_value = PATIENT_PAYLOAD
+        resp = TestClient(app).patch("/bookings/bk-1/cancel",
+                                     headers={"Authorization": PATIENT_TOKEN})
+    assert resp.status_code == code
+    send.assert_not_called()
 
 
 def test_create_booking_is_rate_limited():

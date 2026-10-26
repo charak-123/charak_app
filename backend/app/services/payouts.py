@@ -32,6 +32,15 @@ from ..errors import AppError
 
 VALID_SOURCES = ("consult_fee", "procedure_bill", "adjustment")
 
+# Which statuses a payout may move to, from where. 'paid' and 'failed' are
+# final: a failed transfer is retried by a new payout run, never by reviving
+# this one.
+PAYOUT_TRANSITIONS = {
+    "processing": ("pending",),
+    "paid": ("pending", "processing"),
+    "failed": ("pending", "processing"),
+}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -136,31 +145,26 @@ def reverse(booking_id: str, source: str, note: str = "reversed") -> Optional[di
     """
     Reverse a credit — a refund, or a bill withdrawn after approval.
 
-    Only a ``payable`` entry can be reversed; once it is inside a settled payout
-    the money has left the building and the correction belongs in an
-    ``adjustment`` entry instead.
-    """
-    rows = (
-        supabase.table("doctor_ledger_entries")
-        .select("*")
-        .eq("booking_id", booking_id)
-        .eq("source", source)
-        .execute()
-        .data
-        or []
-    )
-    if not rows:
-        return None
-    entry = rows[0]
-    if entry["status"] == "paid":
-        raise AppError("Entry is already paid out; post an adjustment instead", 409)
-    if entry["status"] == "reversed":
-        return entry
+    Runs as one locked statement in the database (``reverse_ledger_credit``,
+    migration 0022):
 
-    return supabase.table("doctor_ledger_entries").update({
-        "status": "reversed",
-        "note": note,
-    }).eq("id", entry["id"]).execute().data[0]
+    * ``payable``: marked ``reversed``; the money never left.
+    * ``paid``: a negative ``reversal`` entry is added, and the doctor's next
+      payout recovers it. This used to raise a 409 *after* the booking had been
+      cancelled and the refund sent, so the doctor kept the payout while the
+      patient was refunded.
+    * already reversed, or never credited: nothing changes.
+
+    Safe to call repeatedly. Returns the entry that represents the reversal, or
+    None if the booking was never credited.
+    """
+    if source not in ("consult_fee", "procedure_bill"):
+        raise AppError(f"Cannot reverse a '{source}' entry", 400)
+    return supabase.rpc("reverse_ledger_credit", {
+        "p_booking_id": booking_id,
+        "p_source": source,
+        "p_note": note,
+    }).execute().data
 
 
 def balance(doctor_id: str) -> dict:
@@ -202,16 +206,31 @@ def ledger(doctor_id: str, status: Optional[str] = None) -> list[dict]:
 
 # ── Payout runs ──────────────────────────────────────────────────────────────
 
+def is_payout_eligible(entry: dict) -> bool:
+    """
+    Whether a payable entry may go into a payout yet.
+
+    A consult fee is credited when the patient pays, which is before the visit
+    happens. Paying it out then would hand the doctor money for a visit that can
+    still be cancelled and refunded. So a fee waits until its booking is
+    completed. Adjustments and reversals have no visit to wait for.
+    """
+    if entry.get("source") in ("adjustment", "reversal"):
+        return True
+    return ((entry.get("bookings") or {}).get("status")) == "completed"
+
+
 def create_payout(doctor_id: str, period_start: str, period_end: str) -> dict:
     """
-    Sweep every payable entry created in the window into one payout.
+    Sweep every eligible payable entry created in the window into one payout.
 
-    Raises if there is nothing to pay, or if the doctor has no bank account on
-    file — paying out to nowhere is worse than refusing.
+    Raises if there is nothing to pay, if recoveries leave nothing to pay, or if
+    the doctor has no payout destination on file. Paying out to nowhere is worse
+    than refusing.
     """
-    entries = (
+    candidates = (
         supabase.table("doctor_ledger_entries")
-        .select("*")
+        .select("*, bookings(status)")
         .eq("doctor_id", doctor_id)
         .eq("status", "payable")
         .gte("created_at", period_start)
@@ -220,17 +239,24 @@ def create_payout(doctor_id: str, period_start: str, period_end: str) -> dict:
         .data
         or []
     )
+    entries = [e for e in candidates if is_payout_eligible(e)]
     if not entries:
-        raise AppError("No payable earnings in this period", 400)
+        raise AppError("No payable earnings from completed visits in this period", 400)
 
     bank = supabase.table("doctor_bank_accounts").select("id") \
         .eq("doctor_id", doctor_id).execute().data or []
     if not bank:
-        raise AppError("Doctor has no bank account on file", 400)
+        raise AppError("Doctor has no payout details (UPI or bank account) on file", 400)
 
     gross      = _paise(sum(_paise(e["gross_amount"]) for e in entries))
     commission = _paise(sum(_paise(e["commission_amount"]) for e in entries))
     net        = _paise(sum(_paise(e["net_amount"]) for e in entries))
+    if net <= 0:
+        # Recoveries (reversals of fees already paid out) outweigh what is owed.
+        # Nothing is sent; the entries stay payable and net off future earnings.
+        raise AppError(
+            f"Nothing to pay: recoveries exceed earnings in this period (net ₹{net})", 400
+        )
 
     payout = supabase.table("payouts").insert({
         "doctor_id": doctor_id,
@@ -242,12 +268,28 @@ def create_payout(doctor_id: str, period_start: str, period_end: str) -> dict:
         "status": "pending",
     }).execute().data[0]
 
-    # Attach the entries. Done after the payout exists so a failure here leaves
-    # them payable and the run simply repeatable, rather than orphaning money.
-    supabase.table("doctor_ledger_entries").update({
-        "status": "paid",
-        "payout_id": payout["id"],
-    }).in_("id", [e["id"] for e in entries]).execute()
+    # Attach the entries, but only those still payable. Two runs started at once
+    # for the same doctor would otherwise both claim every entry, and the later
+    # write would re-point entries the first payout had already counted.
+    ids = [e["id"] for e in entries]
+    claimed = (
+        supabase.table("doctor_ledger_entries").update({
+            "status": "paid",
+            "payout_id": payout["id"],
+        }).in_("id", ids).eq("status", "payable").execute().data or []
+    )
+    if len(claimed) != len(ids):
+        # Lost a race. Give back what this run did claim and void the payout.
+        if claimed:
+            supabase.table("doctor_ledger_entries").update({
+                "status": "payable",
+                "payout_id": None,
+            }).eq("payout_id", payout["id"]).execute()
+        supabase.table("payouts").update({
+            "status": "failed",
+            "failure_reason": "voided: another payout run claimed these entries",
+        }).eq("id", payout["id"]).execute()
+        raise AppError("Another payout run for this doctor is in progress. Refresh and retry.", 409)
 
     return {**payout, "entry_count": len(entries)}
 
@@ -266,6 +308,13 @@ def mark_payout(payout_id: str, status: str, reference: Optional[str] = None,
     rows = supabase.table("payouts").select("*").eq("id", payout_id).execute().data or []
     if not rows:
         raise AppError("Payout not found", 404)
+    current = rows[0]["status"]
+
+    # Only forward. Marking a *paid* payout failed used to put its entries back
+    # to payable, so the next run paid the doctor a second time.
+    allowed_from = PAYOUT_TRANSITIONS.get(status, ())
+    if current not in allowed_from:
+        raise AppError(f"A '{current}' payout cannot be marked '{status}'", 409)
 
     update: dict = {"status": status, "reference": reference}
     if status == "processing":
@@ -275,7 +324,14 @@ def mark_payout(payout_id: str, status: str, reference: Optional[str] = None,
     elif status == "failed":
         update["failure_reason"] = failure_reason or "unspecified"
 
-    payout = supabase.table("payouts").update(update).eq("id", payout_id).execute().data[0]
+    changed = (
+        supabase.table("payouts").update(update)
+        .eq("id", payout_id).in_("status", list(allowed_from))
+        .execute().data or []
+    )
+    if not changed:
+        raise AppError("This payout was just updated. Refresh to see where it stands.", 409)
+    payout = changed[0]
 
     if status == "failed":
         supabase.table("doctor_ledger_entries").update({

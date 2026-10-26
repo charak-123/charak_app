@@ -12,13 +12,16 @@ CRON_HEADERS = {"X-Cron-Secret": "cron-secret"}
 
 def test_purges_rows_older_than_a_day():
     deleted_rows = [{"id": 1}, {"id": 2}, {"id": 3}]
-    db = make_supabase({"rate_limit_hits": make_chain(list_data=deleted_rows)})
+    db = make_supabase({
+        "rate_limit_hits": make_chain(list_data=deleted_rows),
+        "idempotency_keys": make_chain(list_data=[{"key": "a"}]),
+    })
 
     with patch(MAINT_DB, db), patch("app.routers.maintenance.CRON_SECRET", "cron-secret"):
         res = TestClient(app).post("/maintenance/purge-old-rate-limit-hits", headers=CRON_HEADERS)
 
     assert res.status_code == 200
-    assert res.json() == {"deleted": 3}
+    assert res.json() == {"deleted": 3, "idempotency_keys_deleted": 1}
 
 
 def test_requires_the_cron_secret():

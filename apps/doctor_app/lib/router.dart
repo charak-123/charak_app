@@ -81,11 +81,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth     = ref.read(authProvider);
       final isAuth   = state.matchedLocation.startsWith('/auth');
       final isSplash = state.matchedLocation == '/';
-      if (!auth.isAuthenticated && !isAuth && !isSplash) return '/auth/sign-in';
+      // Reachable signed out: an old build must update before it can sign in.
+      final isUpdate = state.matchedLocation == '/update';
+      if (!auth.isAuthenticated && !isAuth && !isSplash && !isUpdate) return '/auth/sign-in';
       return null;
     },
     routes: [
       GoRoute(path: '/',                      pageBuilder: (_, __) => _rise(const SplashScreen())),
+      GoRoute(path: '/update',
+          redirect: (_, s) => s.extra is CharakUpdateInfo ? null : '/',
+          pageBuilder: (_, s) => _rise(CharakUpdateRequiredScreen(info: s.extra! as CharakUpdateInfo))),
       GoRoute(path: '/auth/sign-in',          pageBuilder: (_, __) => _push(const SignInScreen())),
       // Phone + OTP: back once DLT approval lets MSG91 deliver SMS.
       GoRoute(path: '/auth/phone',            pageBuilder: (_, __) => _push(const PhoneEntryScreen())),

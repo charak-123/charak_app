@@ -7,9 +7,33 @@ tested — switching one on is a config change, not a code change.
 This document is the checklist for that switch-on, plus what to verify after each
 step.
 
+Production runs on **Cloud Run** (service `charak-api`, region `asia-south1`,
+deployed with `gcloud run deploy charak-api --source backend`). Commands below use
+
+```bash
+export API_URL=$(gcloud run services describe charak-api --region asia-south1 --format 'value(status.url)')
+```
+
 ---
 
 ## 0. Apply the migrations (required first — nothing else works without this)
+
+> **Latest: `0023_booking_state_machine_and_platform.sql`.** Apply it in the SQL
+> Editor *before* deploying the backend that uses it. That backend calls
+> `transition_booking()`, `expire_payment_holds()` and the job functions, and
+> writes to `device_tokens`, `idempotency_keys` and `webhook_events`. The backend
+> already deployed keeps working once 0023 is in: `cancel_booking()` keeps its
+> parameters, and its direct status writes are still allowed, just recorded as
+> `status_changed_outside_state_machine` events. Idempotent. Its last block has
+> two verification queries.
+>
+> **Before it: `0022_refunds_and_ledger_recovery.sql`** (applied 2026-10-26). Apply it in the SQL Editor
+> *before* deploying the backend that uses it: the cancel endpoint calls the
+> `cancel_booking()` function it creates, so a backend deployed first returns a
+> 500 on every cancel until 0022 runs. It is idempotent. It adds the `refunds`
+> table, the `partially_refunded` payment status, ledger `reversal` entries, and
+> closes EXECUTE on functions to the client roles. Its last block is a query to
+> verify that.
 
 Two new migrations must be applied to the Supabase project. There is no Supabase
 CLI or direct Postgres connection string on the dev machine, so these are applied
@@ -26,7 +50,7 @@ so re-running them is harmless.
 **Verify:**
 
 ```bash
-curl -s https://charak-api.fly.dev/readyz | jq
+curl -s $API_URL/readyz | jq
 # database.ok must be true
 ```
 
@@ -100,26 +124,41 @@ RAZORPAY_WEBHOOK_SECRET=...          # from the Razorpay webhook settings page
 
 Then in the Razorpay dashboard, add the webhook:
 
-- URL: `https://charak-api.fly.dev/payments/webhook`
-- Events: `payment.captured`, `payment.failed`
+- URL: `$API_URL/payments/webhook`
+- Events: `payment.captured`, `payment.failed`, `refund.created`,
+  `refund.processed`, `refund.failed`
+
+The refund events matter: a refund is shown to the patient as completed, and the
+payment marked `refunded`, only when `refund.processed` arrives (or the sweep in
+§6 polls Razorpay and finds it processed).
 
 Notes:
 
-- `RAZORPAY_WEBHOOK_SECRET` is **not** the same string as the API key secret.
-  The code falls back to the key secret if the webhook secret is unset, but set
-  it properly.
+- `RAZORPAY_WEBHOOK_SECRET` is **not** the same string as the API key secret, and
+  there is no fallback: with live keys and no webhook secret, the webhook refuses
+  every delivery (503) and `/readyz` reports degraded.
 - Once `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are both present,
   `POST /payments/{id}/stub-complete` starts returning 403. The dev bypass cannot
   be reached in production.
-- `razorpay==1.4.2` is already in `requirements.txt`.
+- `razorpay==2.0.1` is in `requirements.txt`. The earlier 1.4.2 pin imported
+  `pkg_resources`, which `python:3.13-slim` does not have, so `import razorpay`
+  failed in the production image and every live order or refund was a 500.
+  Redeploy after pulling this change. `tests/test_dependencies.py` now catches it.
 
 **Verify:** take one real ₹1 payment end to end, then check that it credited the
 ledger:
 
 ```bash
 curl -s -H "Authorization: Bearer <doctor token>" \
-  https://charak-api.fly.dev/payouts/me/balance | jq
-# payable_net should be the amount minus commission
+  $API_URL/payouts/me/balance | jq
+# payable_net should be the amount paid (no platform fee: LD-003)
+```
+
+Then cancel a test booking you paid for and confirm the refund lands:
+
+```bash
+curl -s -H "Authorization: Bearer <ops token>" "$API_URL/admin/refunds?status=processed" | jq '.[0]'
+# status "processed", a razorpay_refund_id, and the payment now 'refunded'
 ```
 
 ---
@@ -185,7 +224,7 @@ project:
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer <ops token>" \
-  https://charak-api.fly.dev/uploads/buckets/ensure
+  $API_URL/uploads/buckets/ensure
 ```
 
 Uploads go **through the backend**, never from the app. The apps authenticate with
@@ -311,14 +350,66 @@ unauthenticated just because a deploy forgot a variable.
 | `POST /maintenance/purge-expired-otps` | hourly | Dead OTP rows accumulate as PII |
 | `POST /maintenance/purge-deleted-accounts` | daily | A self-deleted patient's data outlives its 30-day grace window |
 | `POST /maintenance/purge-old-rate-limit-hits` | daily | `rate_limit_hits` (admin login, bookings, uploads) grows forever — nothing reads a row older than an hour |
+| `POST /maintenance/tick` | **every minute** | Notifications whose first send didn't happen (Cloud Run throttles CPU after a response) or failed for a moment are never retried; scheduled jobs (reminders, timers) never run |
+| `POST /maintenance/retry-refunds` | every 5 min | A refund whose Razorpay call failed (timeout, outage) is never sent; a refund whose webhook was lost never shows "Refunded" |
 
-Call with the header `X-Cron-Secret: <value>`. Any scheduler works — a Fly
-machine running cron, GitHub Actions on a schedule, or an external pinger:
+Call with the header `X-Cron-Secret: <value>`. Production uses Cloud Scheduler,
+one job per endpoint. As of 2026-10-26 these exist (schedules in UTC):
+
+| Job | Schedule |
+|---|---|
+| `charak-release-expired-holds` | `*/5 * * * *` |
+| `charak-purge-expired-otps` | `0 * * * *` |
+| `charak-purge-deleted-accounts` | `15 2 * * *` |
+| `charak-purge-old-rate-limit-hits` | `30 2 * * *` |
+
+`charak-tick` is new with migration 0023. Create it after that backend is
+deployed, the same way as the refund job below:
 
 ```bash
-curl -fsS -X POST -H "X-Cron-Secret: $CRON_SECRET" \
-  https://charak-api.fly.dev/maintenance/release-expired-holds
+gcloud scheduler jobs create http charak-tick --location asia-south1 \
+  --schedule "* * * * *" --time-zone "Etc/UTC" --http-method POST \
+  --uri "$API_URL/maintenance/tick" \
+  --headers "X-Cron-Secret=$CRON_SECRET" --attempt-deadline 90s
 ```
+
+`release-expired-holds` now also expires requests the doctor never answered
+(once their slot has started, or after `app_config.request_expiry_minutes` if
+ops sets it). No new job is needed for that.
+
+`charak-retry-refunds` is new with migration 0022 (created 2026-10-26). Create it **after** the backend
+that has the endpoint is deployed (before that it would only log 404s):
+
+```bash
+# CRON_SECRET: the same value the other jobs send (Cloud Run env / Secret Manager).
+gcloud scheduler jobs create http charak-retry-refunds --location asia-south1 \
+  --schedule "*/5 * * * *" --time-zone "Etc/UTC" --http-method POST \
+  --uri "$API_URL/maintenance/retry-refunds" \
+  --headers "X-Cron-Secret=$CRON_SECRET" --attempt-deadline 120s
+
+# Run it once by hand and check the response is {"reclaimed":…, "sent":…, "polled":…}:
+gcloud scheduler jobs run charak-retry-refunds --location asia-south1
+gcloud scheduler jobs list --location asia-south1
+```
+
+Check the list after any redeploy that changes the service URL.
+
+---
+
+## 6b. Forcing an app update
+
+`app_config.min_app_version` holds the oldest build each app may run. The apps
+read it at launch (`GET /config/app`). A build below it shows a full-screen
+"Update CHARAK" with a store link and can't go further. Raise it only after the
+new build is live in the stores:
+
+```sql
+update app_config set value = '{"patient": "1.1.0", "doctor": "1.1.0"}' where key = 'min_app_version';
+```
+
+Instances pick the change up within a minute. Set the iOS store links in
+`store_urls` once the apps are listed (they're null until then; the screen then
+names the App Store instead of linking).
 
 ---
 
@@ -355,15 +446,37 @@ through it, so development and production behave identically.
 
 ```
 patient pays ₹1000
-      ↓  doctor_ledger_entries: gross 1000, commission 150 (15%), net 850, status=payable
+      ↓  doctor_ledger_entries: gross 1000, commission 0 (LD-003), net 1000, status=payable
+visit happens, booking → completed            (only now is the entry payout-eligible)
 ops runs a payout   POST /payouts/run   {doctor_id, period_start, period_end}
-      ↓  payouts row: net 850, status=pending; entries → paid
-ops transfers in the bank portal
-      ↓  PATCH /payouts/{id}  {status: "paid", reference: "<bank UTR>"}
+      ↓  payouts row: net 1000, status=pending; entries → paid
+ops transfers (UPI or bank)
+      ↓  PATCH /payouts/{id}  {status: "paid", reference: "<UTR>"}
          a reference is mandatory — every rupee is traceable to a transaction
 ```
 
+Cancelling a paid booking (one transaction, `cancel_booking()` in 0022):
+
+```
+booking → cancelled; any open payment attempt → failed
+refunds row queued per completed payment (pending)  → Razorpay → processing → processed
+ledger: entry still payable  → reversed
+        entry already paid out → a negative 'reversal' entry, recovered from the next payout
+payment stays 'completed' until refund.processed, then 'refunded'
+```
+
 Safety properties, all covered by tests:
+
+- **A refund is never reported done before Razorpay confirms it.** Failed refunds
+  land in Admin → Refunds with a Retry button. Retries look for an earlier
+  Razorpay refund carrying our id before sending another, so a timeout never
+  refunds twice. The database also refuses refunds that add up to more than the
+  payment (`refunds_guard`).
+- **A payout only takes fees for completed visits.** A fee credited at payment
+  waits until the visit has happened.
+- **A payout only moves forward.** `paid` and `failed` are final; marking a paid
+  payout failed is refused (it used to put the entries back to payable and pay
+  the doctor twice).
 
 - **Crediting is idempotent** on `(booking_id, source)`. A Razorpay webhook
   replay cannot pay a doctor twice.
@@ -381,19 +494,19 @@ Safety properties, all covered by tests:
 ```bash
 # 1. Who is owed what
 curl -s -H "Authorization: Bearer <ops token>" \
-  https://charak-api.fly.dev/payouts/pending-summary | jq
+  $API_URL/payouts/pending-summary | jq
 
 # 2. Create the payout (refuses if there is no bank account on file)
 curl -s -X POST -H "Authorization: Bearer <ops token>" \
   -H 'content-type: application/json' \
   -d '{"doctor_id":"<uuid>"}' \
-  https://charak-api.fly.dev/payouts/run
+  $API_URL/payouts/run
 
 # 3. Transfer in the bank portal, then record it
 curl -s -X PATCH -H "Authorization: Bearer <ops token>" \
   -H 'content-type: application/json' \
   -d '{"status":"paid","reference":"<bank UTR>"}' \
-  https://charak-api.fly.dev/payouts/<payout_id>
+  $API_URL/payouts/<payout_id>
 ```
 
 If a transfer bounces, `{"status":"failed","failure_reason":"..."}` returns the
@@ -407,7 +520,7 @@ change.
 ## 10. Post-deploy smoke test
 
 ```bash
-curl -s https://charak-api.fly.dev/readyz | jq
+curl -s $API_URL/readyz | jq
 ```
 
 ```json

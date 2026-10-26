@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show SocketException;
+import 'dart:math' show Random;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
@@ -78,33 +79,84 @@ class ApiClient {
     return _handle(res);
   }
 
-  Future<dynamic> post(String path, Map<String, dynamic> body) async {
+  static final Random _random = Random.secure();
+
+  /// A fresh key for one user action: 32 hex characters from a secure RNG.
+  static String newIdempotencyKey() =>
+      List<int>.generate(16, (_) => _random.nextInt(256))
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
+
+  /// Waits before each automatic retry of a write.
+  @visibleForTesting
+  static List<Duration> retryBackoff = const [
+    Duration(milliseconds: 400),
+    Duration(milliseconds: 1200),
+  ];
+
+  /// Sends a write (POST/PUT/PATCH/DELETE) the way payment APIs do.
+  ///
+  /// When signed in, every write carries an `Idempotency-Key` (backend
+  /// services/idempotency.py), so the server acts on it once however many
+  /// times it arrives. That makes it safe to retry automatically after a
+  /// dropped connection or a timeout. Those are exactly the cases where the
+  /// first attempt may already have gone through (a booking cancelled, a
+  /// payment order created) and a blind retry would do it twice. A 409 with
+  /// `Retry-After` means the first attempt is still running on the server; we
+  /// wait and ask again rather than showing an error.
+  ///
+  /// Sign-in calls (`/auth/…`) carry no session, so the server can't dedupe
+  /// them; they are never retried automatically.
+  Future<http.Response> _sendWrite(
+    String path,
+    Future<http.Response> Function(Map<String, String> headers) request, {
+    String? idempotencyKey,
+  }) async {
     final headers = await _headers();
-    final res = await _send(() => _http.post(
+    final retryable = headers.containsKey('Authorization') && !path.startsWith('/auth/');
+    if (retryable) headers['Idempotency-Key'] = idempotencyKey ?? newIdempotencyKey();
+
+    for (var attempt = 0;; attempt++) {
+      final canRetry = retryable && attempt < retryBackoff.length;
+      try {
+        final res = await _send(() => request(headers));
+        if (canRetry && res.statusCode == 409 && res.headers.containsKey('retry-after')) {
+          await Future.delayed(retryBackoff[attempt]);
+          continue;
+        }
+        return res;
+      } on ApiException catch (e) {
+        // statusCode 0: the request may never have arrived, or its answer was lost.
+        if (!canRetry || e.statusCode != 0) rethrow;
+        await Future.delayed(retryBackoff[attempt]);
+      }
+    }
+  }
+
+  Future<dynamic> post(String path, Map<String, dynamic> body, {String? idempotencyKey}) async {
+    final res = await _sendWrite(path, (headers) => _http.post(
       Uri.parse('$_kBaseUrl$path'),
       headers: headers,
       body: jsonEncode(body),
-    ));
+    ), idempotencyKey: idempotencyKey);
     return _handle(res);
   }
 
-  Future<dynamic> patch(String path, Map<String, dynamic> body) async {
-    final headers = await _headers();
-    final res = await _send(() => _http.patch(
+  Future<dynamic> patch(String path, Map<String, dynamic> body, {String? idempotencyKey}) async {
+    final res = await _sendWrite(path, (headers) => _http.patch(
       Uri.parse('$_kBaseUrl$path'),
       headers: headers,
       body: jsonEncode(body),
-    ));
+    ), idempotencyKey: idempotencyKey);
     return _handle(res);
   }
 
-  Future<dynamic> put(String path, dynamic body) async {
-    final headers = await _headers();
-    final res = await _send(() => _http.put(
+  Future<dynamic> put(String path, dynamic body, {String? idempotencyKey}) async {
+    final res = await _sendWrite(path, (headers) => _http.put(
       Uri.parse('$_kBaseUrl$path'),
       headers: headers,
       body: jsonEncode(body),
-    ));
+    ), idempotencyKey: idempotencyKey);
     return _handle(res);
   }
 
@@ -135,12 +187,11 @@ class ApiClient {
         () async => http.Response.fromStream(await _http.send(request))));
   }
 
-  Future<void> delete(String path) async {
-    final headers = await _headers();
-    final res = await _send(() => _http.delete(
+  Future<void> delete(String path, {String? idempotencyKey}) async {
+    final res = await _sendWrite(path, (headers) => _http.delete(
       Uri.parse('$_kBaseUrl$path'),
       headers: headers,
-    ));
+    ), idempotencyKey: idempotencyKey);
     _handle(res);
   }
 

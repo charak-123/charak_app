@@ -1,0 +1,17 @@
+# What `gcloud run deploy --source backend` uploads to the Cloud Build bucket.
+#
+# Without this file gcloud uploads this whole directory: .env (live
+# service-role key and other secrets) and .venv (hundreds of MB) ended up in the
+# build source archive. The image itself only ever copied app/ (see
+# Dockerfile), so nothing here changes what runs, only what is uploaded.
+.gcloudignore
+.git
+.gitignore
+.env
+*.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/

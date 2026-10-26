@@ -190,8 +190,18 @@ class CharakPush {
   /// Clears the token server-side and locally. Call on logout — otherwise the
   /// next user of the device receives the previous doctor's requests.
   Future<void> stop() async {
+    // Name this device's token, so only this device is forgotten. A doctor
+    // signed in on a phone and a tablet who signs out of one keeps pushes on
+    // the other. Without a token the server forgets every device (safe, broader).
+    String? token;
     try {
-      await ApiClient.instance.delete('/push/register');
+      token = await FirebaseMessaging.instance.getToken();
+    } catch (_) {
+      // Firebase never came up on this device; nothing to name.
+    }
+    try {
+      final query = token == null ? '' : '?${Uri(queryParameters: {'token': token}).query}';
+      await ApiClient.instance.delete('/push/register$query');
     } catch (e) {
       debugPrint('[push] could not unregister token: $e');
     }

@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 from .errors import AppError, app_error_handler, db_error_handler
 from .routers import (
-    addresses, admin, auth, bookings, calls, categories, complaints, consents, doctors,
+    addresses, admin, app_config, auth, bookings, calls, categories, complaints, consents, doctors,
     earnings, intake, maintenance, notifications, payments, payouts,
     procedure_bills, push, ratings, schedules, slot_blocks, uploads, users,
 )
+from .services.idempotency import IdempotencyMiddleware
 from .services.notifications import push_enabled
 
 # The interactive docs publish a complete map of every route and payload. Useful
@@ -45,6 +46,11 @@ if _origins == ["*"]:
         "ALLOWED_ORIGINS is unset (defaulting to '*'). Fine for local "
         "development; set it to the admin dashboard's domain in production."
     )
+
+# Innermost of the middleware (Starlette wraps later additions around earlier
+# ones): CORS and GZip sit outside it, so a replayed response still gets CORS
+# headers and is stored as plain, uncompressed JSON.
+app.add_middleware(IdempotencyMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -96,6 +102,7 @@ app.include_router(users.router,            prefix="/users",            tags=["u
 app.include_router(addresses.router,        prefix="/addresses",        tags=["addresses"])
 app.include_router(uploads.router,          prefix="/uploads",          tags=["uploads"])
 app.include_router(maintenance.router,      prefix="/maintenance",      tags=["maintenance"])
+app.include_router(app_config.router,       prefix="/config",           tags=["config"])
 
 
 @app.get("/healthz", tags=["meta"])

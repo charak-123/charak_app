@@ -78,7 +78,15 @@ final bookings = <Map<String, dynamic>>[
   _booking('bk-done', 'doc-4', 'completed', _at(-6, 10), channel: 'home_visit', price: 900),
   _booking('bk-done2', 'doc-1', 'completed', _at(-20, 18), price: 650),
   _booking('bk-declined', 'doc-3', 'declined', _at(-3, 12), price: 550),
+  _booking('bk-cancelled', 'doc-3', 'cancelled', _at(1, 18), price: 550),
+  _booking('bk-refunded', 'doc-1', 'cancelled', _at(-9, 17, 30), price: 650),
 ];
+
+/// Refunds the backend reports per booking (GET /payments/{id} embeds them).
+final _refunds = <String, List<Map<String, dynamic>>>{
+  'bk-cancelled': [{'id': 'rf-1', 'amount_paise': 55000, 'status': 'processing', 'reason': 'booking_cancelled'}],
+  'bk-refunded': [{'id': 'rf-2', 'amount_paise': 65000, 'status': 'processed', 'reason': 'booking_cancelled'}],
+};
 
 Map<String, List<Map<String, String>>> _slots() {
   final out = <String, List<Map<String, String>>>{};
@@ -141,8 +149,15 @@ MockClient patientBackend() => MockClient((req) async {
       }
       final pay = RegExp(r'^/payments/([^/]+)$').firstMatch(p);
       if (pay != null) {
+        final b = bookings.firstWhere((b) => b['id'] == pay.group(1), orElse: () => bookings.first);
+        final refunds = _refunds[b['id']] ?? const <Map<String, dynamic>>[];
+        final settled = refunds.isNotEmpty && refunds.every((r) => r['status'] == 'processed');
         return _json([
-          {'id': 'pay-1', 'type': 'consult_fee', 'amount': 900.0, 'status': 'captured', 'created_at': _iso(_at(-6, 9))},
+          {
+            'id': 'pay-${b['id']}', 'type': 'consult_fee', 'amount': b['price_confirmed'],
+            'status': settled ? 'refunded' : 'completed', 'razorpay_payment_id': 'pay_Nx81fixture',
+            'created_at': _iso(_at(-6, 9)), 'refunds': refunds,
+          },
         ]);
       }
       if (p == '/addresses') {

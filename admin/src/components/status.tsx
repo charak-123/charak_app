@@ -39,6 +39,10 @@ const STATUS_MAP: Record<string, { label: string; tone: Tone }> = {
   // procedure bills
   under_review: { label: 'Under Review', tone: 'warning' },
   flagged:      { label: 'Flagged',      tone: 'critical' },
+  // refunds ('pending' above reads the same: queued, not yet sent)
+  processing: { label: 'With Razorpay', tone: 'neutral' },
+  processed:  { label: 'Refunded',      tone: 'good' },
+  failed:     { label: 'Failed',        tone: 'critical' },
 }
 
 export function statusLabel(status: string) {

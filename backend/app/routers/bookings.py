@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -9,8 +10,10 @@ from ..config import PAYMENT_HOLD_MINUTES
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor, require_patient
 from ..errors import AppError
-from ..services import availability, geo, notifications
+from ..services import availability, booking_state, geo, notifications, refunds
 from ..services.rate_limit import rate_limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -246,6 +249,35 @@ def get_booking(booking_id: str, user: dict = Depends(get_current_user)):
     return b
 
 
+# ── Timeline ──────────────────────────────────────────────────────────────────
+
+# What the patient and doctor may see of an event's metadata. Payment ids and
+# who-did-what inside ops stay with ops (GET /admin/bookings/{id}/timeline).
+_PARTICIPANT_METADATA = ("cancelled_by", "minutes")
+
+
+@router.get("/{booking_id}/timeline")
+def booking_timeline(booking_id: str, user: dict = Depends(get_current_user)):
+    """The booking's history, oldest first: requested, accepted, paid …"""
+    b = fetch_one(supabase.table("bookings").select("patient_id, doctor_id").eq("id", booking_id))
+    if not b:
+        raise AppError("Booking not found", 404)
+    if user["sub"] not in (b["patient_id"], b["doctor_id"]):
+        raise AppError("Forbidden", 403)
+    return [
+        {
+            "event": e["event"],
+            "from_status": e["from_status"],
+            "to_status": e["to_status"],
+            "actor_role": e["actor_role"],
+            "occurred_at": e["occurred_at"],
+            "metadata": {k: v for k, v in (e.get("metadata") or {}).items()
+                         if k in _PARTICIPANT_METADATA},
+        }
+        for e in booking_state.timeline(booking_id)
+    ]
+
+
 # ── Accept / Decline ──────────────────────────────────────────────────────────
 
 @router.patch("/{booking_id}/accept")
@@ -262,12 +294,15 @@ def accept_booking(
     if b["status"] != "requested":
         raise AppError(f"Cannot accept a booking with status '{b['status']}'", 400)
 
-    updated = _update_status(booking_id, "accepted", expected="requested", extra={
-        "hold_expires_at": (_now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)).isoformat(),
-        # Accepting is what entitles the doctor to the patient's full address.
-        # Until now they saw only the area and distance.
-        "address_released_at": _now_iso() if b["channel"] == "home_visit" else None,
-    })
+    updated = booking_state.transition(
+        booking_id, "accept", actor_role="doctor", actor_id=user["sub"], expected="requested",
+        patch={
+            "hold_expires_at": (_now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)).isoformat(),
+            # Accepting is what entitles the doctor to the patient's full
+            # address. Until now they saw only the area and distance.
+            "address_released_at": _now_iso() if b["channel"] == "home_visit" else None,
+        },
+    )
 
     doctor = supabase.table("doctors").select("name").eq("id", user["sub"]).execute().data or []
     doctor_name = (doctor[0].get("name") if doctor else None) or "Your doctor"
@@ -286,8 +321,10 @@ def decline_booking(
     if b["status"] not in ("requested", "accepted"):
         raise AppError(f"Cannot decline a booking with status '{b['status']}'", 400)
 
-    updated = _update_status(booking_id, "declined", {"hold_expires_at": None},
-                             expected=b["status"])
+    updated = booking_state.transition(
+        booking_id, "decline", actor_role="doctor", actor_id=user["sub"],
+        expected=b["status"], patch={"hold_expires_at": None},
+    )
 
     doctor = supabase.table("doctors").select("name").eq("id", user["sub"]).execute().data or []
     doctor_name = (doctor[0].get("name") if doctor else None) or "The doctor"
@@ -318,8 +355,10 @@ def complete_booking(
             409,
         )
 
-    updated = _update_status(booking_id, "completed", {"hold_expires_at": None},
-                             expected="paid")
+    updated = booking_state.transition(
+        booking_id, "complete", actor_role="doctor", actor_id=user["sub"],
+        expected="paid", patch={"hold_expires_at": None},
+    )
     notifications.visit_completed({**b, **updated}, background)
     return updated
 
@@ -367,11 +406,14 @@ def mark_no_show(
             400,
         )
 
-    updated = _update_status(booking_id, "no_show", expected="accepted", extra={
-        "no_show_marked_by": user["sub"],
-        "no_show_at": _now_iso(),
-        "hold_expires_at": None,
-    })
+    updated = booking_state.transition(
+        booking_id, "no_show", actor_role="doctor", actor_id=user["sub"], expected="accepted",
+        patch={
+            "no_show_marked_by": user["sub"],
+            "no_show_at": _now_iso(),
+            "hold_expires_at": None,
+        },
+    )
     notifications.marked_no_show({**b, **updated}, background)
     return updated
 
@@ -393,25 +435,58 @@ def cancel_booking(
         raise AppError(f"Cannot cancel a booking with status '{b['status']}'", 400)
 
     by = "patient" if b["patient_id"] == user["sub"] else "doctor"
-    updated = _update_status(booking_id, "cancelled", expected=b["status"], extra={
-        "cancelled_by": by,
-        "hold_expires_at": None,
-    })
 
-    # If the booking was already paid for, cancelling must return the patient's
-    # money and reverse the doctor's ledger credit — otherwise the doctor is paid
-    # out for a visit that will not happen. Only a paid booking can carry a
-    # completed payment, so an unpaid cancel skips the payments lookup entirely.
-    # Imported locally to keep the payments/bookings modules free of a cycle.
-    refunded = 0
-    if b["status"] == "paid":
-        from . import payments
-        refunded = payments.refund_completed_payments(
-            {**b, **updated}, note=f"booking cancelled by {by}", background=background
-        )
+    # One transaction (migration 0022): lock the booking, check it's still in
+    # the status read above, cancel it, queue a refund for every completed
+    # payment and reverse the doctor's credit (or recover it, if it was already
+    # paid out). Doing these as separate calls is what used to leave a cancel
+    # half-applied.
+    result = supabase.rpc("cancel_booking", {
+        "p_booking_id": booking_id,
+        "p_expected_status": b["status"],
+        "p_cancelled_by": by,
+        "p_actor_id": user["sub"],
+    }).execute().data or {}
 
-    notifications.booking_cancelled({**b, **updated}, by, background)
-    return {**updated, "refunded_payments": refunded}
+    outcome = result.get("outcome")
+    if outcome == "not_found":
+        raise AppError("Booking not found", 404)
+    if outcome == "forbidden":
+        raise AppError("Forbidden", 403)
+    if outcome == "not_cancellable":
+        raise AppError(f"Cannot cancel a booking with status '{result.get('status')}'", 400)
+    if outcome != "cancelled":
+        raise AppError(booking_state.CONFLICT_MESSAGE, 409)
+
+    updated = result["booking"]
+    booking = {**b, **updated}
+
+    # Razorpay is called only now, after the decision is committed. Inline
+    # rather than as a background task, so the patient's "Refund started"
+    # reflects a refund Razorpay has accepted. Anything that fails here is
+    # retried by /maintenance/retry-refunds.
+    queued = result.get("refunds") or []
+    sent = []
+    for refund in queued:
+        try:
+            sent.append(refunds.execute(refund, background))
+        except Exception as exc:                  # noqa: BLE001 — the cancel has committed
+            # The refund is queued; the sweep sends it. Failing the request now
+            # would tell the patient their cancel didn't happen when it did.
+            logger.error("refund %s not sent inline: %r", refund.get("id"), exc)
+            sent.append(refund)
+        notifications.refund_started(booking, refund["amount_paise"], background,
+                                     refund_id=refund.get("id"))
+
+    notifications.booking_cancelled(booking, by, background)
+    return {
+        **updated,
+        "refunded_payments": len(queued),
+        "refunds": [
+            {"id": r["id"], "amount_paise": r["amount_paise"], "status": r["status"]}
+            for r in sent
+        ],
+    }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -548,31 +623,3 @@ def _get_booking_for_doctor(booking_id: str, doctor_id: str) -> dict:
     if booking["doctor_id"] != doctor_id:
         raise AppError("Forbidden", 403)
     return booking
-
-
-def _update_status(booking_id: str, status: str, extra: Optional[dict] = None, *,
-                   expected: str) -> dict:
-    """
-    Move a booking to `status` only if it is still in `expected` — the status
-    the caller read and based its decision on.
-
-    Without the condition, two writers racing on one booking both won: a
-    patient's cancel landing just after the doctor accepted, or two cancels
-    each deciding to refund. Now the second writer changes nothing and is told
-    the booking moved under it.
-    """
-    data: dict = {"status": status}
-    if status in ("accepted", "declined"):
-        data["decision_at"] = _now_iso()
-    if extra:
-        data.update(extra)
-    rows = (
-        supabase.table("bookings").update(data)
-        .eq("id", booking_id).eq("status", expected)
-        .execute().data
-    )
-    if not rows:
-        raise AppError(
-            "This booking was just updated. Refresh to see where it stands.", 409
-        )
-    return rows[0]

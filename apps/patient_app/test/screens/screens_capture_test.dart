@@ -52,6 +52,10 @@ final _screens = <(String, String, Object?)>[
   ('12_rate', '/booking/bk-done/rate', null),
   ('13_complaint', '/booking/bk-done/complaint', null),
   ('14_notifications', '/notifications', null),
+  ('15_booking_status_cancelled_refund', '/booking/bk-cancelled/status', null),
+  ('16_history_detail_refunded', '/booking/bk-refunded/history-detail', null),
+  ('17_update_required', '/update',
+      const CharakUpdateInfo(minVersion: '1.2.0', storeUrl: 'https://play.google.com/store/apps/details?id=com.charak.patient_app')),
 ];
 
 void main() {

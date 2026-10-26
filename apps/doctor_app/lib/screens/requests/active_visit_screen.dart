@@ -107,7 +107,7 @@ class _State extends ConsumerState<ActiveVisitScreen> {
       context,
       title: 'Mark visit complete?',
       message: _selectedItems.isEmpty
-          ? 'No procedures selected. Only the consult fee will be charged.'
+          ? 'No procedures selected. The consult fee is already paid, so nothing more is billed.'
           : '${_selectedItems.length} procedure(s) totalling ${CharakFormat.rupees(_total)} will be billed.',
       confirmLabel: 'Complete',
     );
@@ -123,7 +123,15 @@ class _State extends ConsumerState<ActiveVisitScreen> {
         );
       }
       if (mounted) {
-        showCharakToast(context, message: 'Visit completed — patient can now pay');
+        // The consult fee was paid before the visit (completion requires it).
+        // Only a procedure bill can still be outstanding, and it may go to
+        // senior review before the patient sees it.
+        showCharakToast(
+          context,
+          message: _selectedItems.isEmpty
+              ? 'Visit completed'
+              : 'Visit completed — procedure bill created',
+        );
         context.go('/home');
       }
     } on ApiException catch (e) {

@@ -21,8 +21,12 @@ pyotp==2.9.0
 firebase-admin==7.7.0
 
 # ── Optional, only needed once the matching credentials are configured ────────
-# Razorpay orders + webhooks (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET)
-razorpay==1.4.2
+# Razorpay orders, refunds + webhooks (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET).
+# 2.x, not 1.4.x: 1.4.2 imports pkg_resources at import time, and
+# python:3.13-slim ships no setuptools, so `import razorpay` failed in the
+# production image and every live order and refund raised a 500.
+# tests/test_dependencies.py imports it so CI catches that class of break.
+razorpay==2.0.1
 # Agora RTC token minting (AGORA_APP_ID / AGORA_APP_CERTIFICATE)
 agora-token-builder==1.0.0
 # FCM HTTP v1 push (FCM_PROJECT_ID / GOOGLE_APPLICATION_CREDENTIALS)

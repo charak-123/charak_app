@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show TextInputFormatter;
 
 import '../design/motion.dart';
 import '../design/tokens.dart';
+import '../models/charak_refund.dart';
 import '../network/api_client.dart';
 import 'charak_button.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -292,6 +293,22 @@ class CharakStatusPill extends StatelessWidget {
     );
   }
 
+  /// Refund pill, so every screen labels a refund the same way. "Refunded"
+  /// only once Razorpay has confirmed it (see [CharakRefundState]).
+  factory CharakStatusPill.forRefund(CharakRefundState state, {Key? key}) {
+    final (tone, label) = switch (state) {
+      CharakRefundState.processing => (CharakStatusTone.muted, 'Refund processing'),
+      CharakRefundState.completed => (CharakStatusTone.confirmed, 'Refunded'),
+      CharakRefundState.delayed => (CharakStatusTone.review, 'Refund delayed'),
+    };
+    return CharakStatusPill(
+      key: key,
+      label: label,
+      tone: tone,
+      pulsingDot: state == CharakRefundState.processing,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final (bg, fg) = charakToneColors(tone);
@@ -331,6 +348,7 @@ class CharakStatusPill extends StatelessWidget {
   'review'      => (CharakStatusTone.review, 'Needs review'),
   'declined'    => (CharakStatusTone.declined, 'Declined'),
   'cancelled'   => (CharakStatusTone.declined, 'Cancelled'),
+  'no_show'     => (CharakStatusTone.muted, 'No-show'),
   'expired'     => (CharakStatusTone.muted, 'Expired'),
   _             => (CharakStatusTone.muted, status),
 };

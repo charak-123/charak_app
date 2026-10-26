@@ -18,8 +18,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _route() async {
+    // The version check runs alongside the splash delay, so it costs nothing
+    // on a normal launch. It never blocks on its own failure (CharakAppGate).
+    final gate = CharakAppGate.check('doctor');
     await Future.delayed(const Duration(milliseconds: 800));
+    final update = await gate;
     if (!mounted) return;
+    if (update != null) {
+      context.go('/update', extra: update);
+      return;
+    }
 
     final auth = ref.read(authProvider);
     if (!auth.isAuthenticated) {

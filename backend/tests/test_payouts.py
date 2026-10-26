@@ -136,25 +136,39 @@ def test_credit_rejects_an_unknown_source():
 
 
 # ── reverse ───────────────────────────────────────────────────────────────────
+# The behaviour itself (payable → reversed, paid → negative recovery entry,
+# idempotent) runs in SQL and is tested against a real database in
+# tests/integration/test_refunds.py. Here: the call is made correctly.
 
-def test_reverse_marks_a_payable_entry_reversed():
-    ledger = make_chain()
-    ledger.execute.side_effect = [
-        MagicMock(data=[{"id": "led-1", "status": "payable"}]),
-        MagicMock(data=[{"id": "led-1", "status": "reversed"}]),
-    ]
-    with patch(ENGINE_DB, make_supabase({"doctor_ledger_entries": ledger})):
-        assert engine.reverse("bk-1", "consult_fee")["status"] == "reversed"
+def test_reverse_runs_the_locked_database_function():
+    db = MagicMock()
+    db.rpc.return_value.execute.return_value = MagicMock(data={"id": "led-1", "status": "reversed"})
+    with patch(ENGINE_DB, db):
+        out = engine.reverse("bk-1", "consult_fee", note="booking cancelled by patient")
+    assert out == {"id": "led-1", "status": "reversed"}
+    db.rpc.assert_called_once_with("reverse_ledger_credit", {
+        "p_booking_id": "bk-1", "p_source": "consult_fee",
+        "p_note": "booking cancelled by patient",
+    })
 
 
-def test_reverse_refuses_an_already_paid_entry():
-    """The money has already left the account; the correction belongs in an
-    adjustment, not a silent rewrite of history."""
-    ledger = make_chain(list_data=[{"id": "led-1", "status": "paid"}])
-    with patch(ENGINE_DB, make_supabase({"doctor_ledger_entries": ledger})):
-        with pytest.raises(AppError) as exc:
-            engine.reverse("bk-1", "consult_fee")
-    assert exc.value.status_code == 409
+def test_reverse_never_raises_for_an_already_paid_entry():
+    """
+    Regression: a paid entry used to raise a 409 *after* the booking was
+    cancelled and the refund sent, so the doctor kept the payout too. The
+    database now answers with a recovery entry instead.
+    """
+    recovery = {"id": "led-2", "source": "reversal", "net_amount": -850, "status": "payable"}
+    db = MagicMock()
+    db.rpc.return_value.execute.return_value = MagicMock(data=recovery)
+    with patch(ENGINE_DB, db):
+        assert engine.reverse("bk-1", "consult_fee")["source"] == "reversal"
+
+
+def test_reverse_refuses_a_source_that_is_not_a_booking_credit():
+    with patch(ENGINE_DB, MagicMock()):
+        with pytest.raises(AppError):
+            engine.reverse("bk-1", "adjustment")
 
 
 # ── balance ───────────────────────────────────────────────────────────────────
@@ -177,11 +191,18 @@ def test_balance_excludes_reversed_entries_from_totals():
 
 # ── create_payout ─────────────────────────────────────────────────────────────
 
-def _payout_db(entries, bank=(("bank-1",)), payout_row=None):
+def _completed(entry, status="completed"):
+    """A consult-fee entry whose visit has happened (payout-eligible)."""
+    return {"source": "consult_fee", "bookings": {"status": status}, **entry}
+
+
+def _payout_db(entries, bank=(("bank-1",)), payout_row=None, claimed=None):
     ledger = make_chain()
+    eligible = [e for e in entries if engine.is_payout_eligible(e)]
     ledger.execute.side_effect = [
-        MagicMock(data=entries),     # the sweep query
-        MagicMock(data=entries),     # the attach update
+        MagicMock(data=entries),                                    # the sweep query
+        MagicMock(data=eligible if claimed is None else claimed),   # the attach update
+        MagicMock(data=[]),                                         # give-back (race only)
     ]
     return make_supabase({
         "doctor_ledger_entries": ledger,
@@ -194,8 +215,8 @@ def _payout_db(entries, bank=(("bank-1",)), payout_row=None):
 
 def test_create_payout_sums_the_swept_entries():
     entries = [
-        {"id": "l1", "gross_amount": 1000, "commission_amount": 150, "net_amount": 850},
-        {"id": "l2", "gross_amount": 1000, "commission_amount": 150, "net_amount": 850},
+        _completed({"id": "l1", "gross_amount": 1000, "commission_amount": 150, "net_amount": 850}),
+        _completed({"id": "l2", "gross_amount": 1000, "commission_amount": 150, "net_amount": 850}),
     ]
     db, ledger = _payout_db(entries)
     with patch(ENGINE_DB, db):
@@ -206,8 +227,70 @@ def test_create_payout_sums_the_swept_entries():
     assert written["commission_amount"] == 300.0
     assert written["net_amount"] == 1700.0
     assert payout["entry_count"] == 2
-    # Entries are flipped to paid and stamped with the payout id.
+    # Entries are flipped to paid and stamped with the payout id, but only
+    # those still payable (two concurrent runs can't both claim one).
     assert ledger.update.call_args[0][0] == {"status": "paid", "payout_id": "po-1"}
+    ledger.eq.assert_any_call("status", "payable")
+
+
+def test_create_payout_leaves_fees_for_visits_that_have_not_happened():
+    """
+    A fee is credited when the patient pays, before the visit. Paying it out then
+    hands the doctor money for a visit that can still be cancelled and refunded.
+    """
+    entries = [
+        _completed({"id": "l1", "gross_amount": 1000, "commission_amount": 0, "net_amount": 1000}),
+        _completed({"id": "l2", "gross_amount": 700, "commission_amount": 0, "net_amount": 700},
+                   status="paid"),
+    ]
+    db, ledger = _payout_db(entries)
+    with patch(ENGINE_DB, db):
+        payout = engine.create_payout("doc-1", "2026-09-01T00:00:00+00:00", "2026-09-30T00:00:00+00:00")
+
+    assert db.table("payouts").insert.call_args[0][0]["net_amount"] == 1000.0
+    assert payout["entry_count"] == 1
+    ledger.in_.assert_any_call("id", ["l1"])
+
+
+def test_create_payout_nets_recoveries_against_earnings():
+    entries = [
+        _completed({"id": "l1", "gross_amount": 1000, "commission_amount": 0, "net_amount": 1000}),
+        {"id": "r1", "source": "reversal", "bookings": {"status": "cancelled"},
+         "gross_amount": -400, "commission_amount": 0, "net_amount": -400},
+    ]
+    db, _ = _payout_db(entries)
+    with patch(ENGINE_DB, db):
+        engine.create_payout("doc-1", "2026-09-01T00:00:00+00:00", "2026-09-30T00:00:00+00:00")
+    assert db.table("payouts").insert.call_args[0][0]["net_amount"] == 600.0
+
+
+def test_create_payout_sends_nothing_when_recoveries_outweigh_earnings():
+    entries = [
+        _completed({"id": "l1", "gross_amount": 300, "commission_amount": 0, "net_amount": 300}),
+        {"id": "r1", "source": "reversal", "bookings": {"status": "cancelled"},
+         "gross_amount": -800, "commission_amount": 0, "net_amount": -800},
+    ]
+    db, _ = _payout_db(entries)
+    with patch(ENGINE_DB, db):
+        with pytest.raises(AppError) as exc:
+            engine.create_payout("doc-1", "2026-09-01T00:00:00+00:00", "2026-09-30T00:00:00+00:00")
+    assert exc.value.status_code == 400
+    db.table("payouts").insert.assert_not_called()
+
+
+def test_create_payout_voids_itself_when_a_concurrent_run_claimed_entries():
+    entries = [
+        _completed({"id": "l1", "gross_amount": 1000, "commission_amount": 0, "net_amount": 1000}),
+        _completed({"id": "l2", "gross_amount": 1000, "commission_amount": 0, "net_amount": 1000}),
+    ]
+    db, ledger = _payout_db(entries, claimed=[{"id": "l1"}])   # l2 went elsewhere
+    with patch(ENGINE_DB, db):
+        with pytest.raises(AppError) as exc:
+            engine.create_payout("doc-1", "2026-09-01T00:00:00+00:00", "2026-09-30T00:00:00+00:00")
+    assert exc.value.status_code == 409
+    # What this run did claim goes back, and the payout is voided, not left pending.
+    assert {"status": "payable", "payout_id": None} in [c.args[0] for c in ledger.update.call_args_list]
+    assert db.table("payouts").update.call_args[0][0]["status"] == "failed"
 
 
 def test_create_payout_refuses_when_nothing_is_payable():
@@ -220,12 +303,12 @@ def test_create_payout_refuses_when_nothing_is_payable():
 
 def test_create_payout_refuses_without_a_bank_account():
     """Paying out to nowhere is worse than refusing to pay out."""
-    entries = [{"id": "l1", "gross_amount": 100, "commission_amount": 15, "net_amount": 85}]
+    entries = [_completed({"id": "l1", "gross_amount": 100, "commission_amount": 15, "net_amount": 85})]
     db, _ = _payout_db(entries, bank=())
     with patch(ENGINE_DB, db):
         with pytest.raises(AppError) as exc:
             engine.create_payout("doc-1", "2026-09-01T00:00:00+00:00", "2026-09-30T00:00:00+00:00")
-    assert "bank account" in exc.value.message
+    assert "payout details" in exc.value.message
 
 
 # ── mark_payout ───────────────────────────────────────────────────────────────
@@ -257,6 +340,24 @@ def test_failed_payout_returns_entries_to_payable():
         engine.mark_payout("po-1", "failed", failure_reason="IFSC rejected")
 
     assert ledger.update.call_args[0][0] == {"status": "payable", "payout_id": None}
+
+
+@pytest.mark.parametrize("current,target", [
+    ("paid", "failed"),        # would put paid-out entries back to payable: paid twice
+    ("paid", "processing"),
+    ("failed", "paid"),
+    ("failed", "processing"),
+    ("processing", "processing"),
+])
+def test_a_payout_only_moves_forward(current, target):
+    payouts_chain = make_chain(list_data=[{"id": "po-1", "status": current, "doctor_id": "doc-1"}])
+    ledger = make_chain(list_data=[])
+    with patch(ENGINE_DB, make_supabase({"payouts": payouts_chain, "doctor_ledger_entries": ledger})):
+        with pytest.raises(AppError) as exc:
+            engine.mark_payout("po-1", target, reference="UTR1")
+    assert exc.value.status_code == 409
+    payouts_chain.update.assert_not_called()
+    ledger.update.assert_not_called()
 
 
 def test_mark_payout_rejects_an_invalid_status():
@@ -385,12 +486,16 @@ def test_marking_a_payout_paid_requires_a_bank_reference():
 
 def test_pending_summary_groups_by_doctor():
     entries = [
-        {"doctor_id": "doc-1", "net_amount": 850, "gross_amount": 1000,
-         "commission_amount": 150, "doctors": {"name": "Dr A", "phone": "+91"}},
-        {"doctor_id": "doc-1", "net_amount": 850, "gross_amount": 1000,
-         "commission_amount": 150, "doctors": {"name": "Dr A", "phone": "+91"}},
-        {"doctor_id": "doc-2", "net_amount": 425, "gross_amount": 500,
-         "commission_amount": 75, "doctors": {"name": "Dr B", "phone": "+92"}},
+        _completed({"doctor_id": "doc-1", "net_amount": 850, "gross_amount": 1000,
+                    "commission_amount": 150, "doctors": {"name": "Dr A", "phone": "+91"}}),
+        _completed({"doctor_id": "doc-1", "net_amount": 850, "gross_amount": 1000,
+                    "commission_amount": 150, "doctors": {"name": "Dr A", "phone": "+91"}}),
+        _completed({"doctor_id": "doc-2", "net_amount": 425, "gross_amount": 500,
+                    "commission_amount": 75, "doctors": {"name": "Dr B", "phone": "+92"}}),
+        # Paid for, but the visit hasn't happened: shown, not counted as payable.
+        _completed({"doctor_id": "doc-2", "net_amount": 600, "gross_amount": 600,
+                    "commission_amount": 0, "doctors": {"name": "Dr B", "phone": "+92"}},
+                   status="paid"),
     ]
     db = make_supabase({"doctor_ledger_entries": make_chain(list_data=entries)})
     for c in _client(OPS_PAYLOAD, db):
@@ -398,8 +503,10 @@ def test_pending_summary_groups_by_doctor():
 
     assert body["total_net"] == 2125.0
     assert body["total_commission"] == 375.0
+    assert body["total_awaiting_visit_net"] == 600.0
     assert body["doctors"][0]["doctor_id"] == "doc-1"    # sorted by net, descending
     assert body["doctors"][0]["entry_count"] == 2
+    assert body["doctors"][1]["awaiting_visit_net"] == 600.0
 
 
 def test_adjustment_applies_no_commission():

@@ -21,9 +21,11 @@ send would have needed an event loop per call. Pass ``background`` (a FastAPI
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
+from postgrest.exceptions import APIError
 
 from ..config import (
     FCM_PROJECT_ID,
@@ -31,7 +33,7 @@ from ..config import (
     FIREBASE_ADMIN_CREDENTIALS_JSON,
     GOOGLE_APPLICATION_CREDENTIALS,
 )
-from ..db import supabase
+from ..db import fetch_one, supabase
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,42 @@ def push_enabled() -> bool:
 
 
 # ── Core ─────────────────────────────────────────────────────────────────────
+# The notifications table is an outbox (migration 0023). notify() records the
+# row and makes one delivery attempt (in a background task when the caller
+# passes one). Anything not delivered then, because the attempt never ran (Cloud
+# Run can throttle CPU once a response has gone), FCM had a bad minute, or
+# delivery was scheduled for later, is picked up by sweep_outbox() from
+# /maintenance/tick. A row is claimed before it is sent, so the inline attempt
+# and the sweep never both send it.
+
+# Temporary failures are retried this many times, waiting 30s, 1m, 2m, 4m …
+MAX_ATTEMPTS = 5
+# How long a claim lasts. A sender that dies mid-send frees the row after this.
+CLAIM_SECONDS = 60
+# A push this stale helps nobody ("Doctor running 10 minutes late", hours
+# later). It stays in the in-app inbox but is not sent.
+MAX_PUSH_AGE = timedelta(hours=6)
+# The sweep leaves a fresh row to its inline attempt for this long first.
+INLINE_GRACE = timedelta(seconds=15)
+
+
+class TokenGone(Exception):
+    """FCM says this token no longer reaches an app install; forget it."""
+
+
+class TransientPushError(Exception):
+    """Worth retrying: a timeout, a 5xx, or a 429 from FCM."""
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse(ts) -> Optional[datetime]:
+    if not ts:
+        return None
+    return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+
 
 def notify(
     recipient_id: str,
@@ -58,40 +96,60 @@ def notify(
     data: Optional[dict] = None,
     booking_id: Optional[str] = None,
     background=None,
+    *,
+    dedupe_key: Optional[str] = None,
+    deliver_after: Optional[datetime] = None,
 ) -> dict:
     """
     Record a notification and attempt delivery.
 
-    Returns the persisted row. Never raises — callers treat notification as a
-    side effect of a transition that has already succeeded.
+    ``dedupe_key`` makes a one-shot event (a booking accepted, a refund
+    completed) impossible to record, and so to send, twice: a second call with
+    the same key is a no-op. ``deliver_after`` schedules it instead of sending
+    now.
+
+    Returns the persisted row ({} if it was a duplicate or could not be
+    recorded). Never raises: callers treat notification as a side effect of a
+    transition that has already succeeded.
     """
     payload_data = {k: str(v) for k, v in (data or {}).items()}
 
-    row = None
+    record = {
+        "recipient_id": recipient_id,
+        "recipient_role": recipient_role,
+        "event": event,
+        "title": title,
+        "body": body,
+        "data": payload_data,
+        "booking_id": booking_id,
+        "delivery": "pending",
+        "dedupe_key": dedupe_key,
+    }
+    if deliver_after is not None:
+        record["deliver_after"] = deliver_after.isoformat()
+
     try:
-        row = supabase.table("notifications").insert({
-            "recipient_id": recipient_id,
-            "recipient_role": recipient_role,
-            "event": event,
-            "title": title,
-            "body": body,
-            "data": payload_data,
-            "booking_id": booking_id,
-            "delivery": "pending",
-        }).execute().data[0]
+        row = supabase.table("notifications").insert(record).execute().data[0]
+    except APIError as exc:
+        if getattr(exc, "code", None) == "23505":
+            return {}                              # already recorded once
+        logger.error("could not persist %s for %s: %s", event, recipient_id, exc)
+        return {}
     except Exception as exc:  # pragma: no cover — DB unavailable
         logger.error("could not persist %s for %s: %s", event, recipient_id, exc)
+        return {}
 
-    notification_id = (row or {}).get("id")
+    if deliver_after is not None and deliver_after > _now():
+        return row
 
+    notification_id = row.get("id")
     if background is not None:
         background.add_task(
             _deliver, recipient_id, recipient_role, title, body, payload_data, notification_id
         )
     else:
         _deliver(recipient_id, recipient_role, title, body, payload_data, notification_id)
-
-    return row or {}
+    return row
 
 
 def _deliver(
@@ -102,29 +160,131 @@ def _deliver(
     data: dict,
     notification_id: Optional[str],
 ) -> None:
-    """Resolve the FCM token and send. Records the outcome on the row."""
-    outcome, error = "skipped", None
+    """The inline attempt. Never raises; the sweep retries whatever is left."""
+    if not notification_id:
+        return
     try:
-        if not push_enabled():
-            print(f"[FCM STUB] to={recipient_id} ({recipient_role}) {title!r} — {body!r}")
-        else:
-            token = _fcm_token(recipient_id, recipient_role)
-            if not token:
-                error = "no token registered"
-            else:
-                _send(token, title, body, data)
-                outcome = "sent"
-    except Exception as exc:
-        outcome, error = "failed", str(exc)[:500]
+        deliver(notification_id)
+    except Exception as exc:  # pragma: no cover — never take the caller down
+        logger.error("delivery of notification %s raised: %r", notification_id, exc)
 
-    if notification_id:
+
+def deliver(notification_id: str) -> Optional[str]:
+    """
+    Claim one pending notification and send it to every device its recipient
+    has registered. Returns the resulting delivery status, or None if the row
+    was not ours to send (already sent, claimed elsewhere, not yet due).
+    """
+    now = _now()
+    row = fetch_one(supabase.table("notifications").select("*").eq("id", notification_id))
+    if not isinstance(row, dict) or row.get("delivery") != "pending":
+        return None
+    claimed_until = _parse(row.get("claimed_until"))
+    if claimed_until and claimed_until > now:
+        return None
+    due = _parse(row.get("deliver_after"))
+    if due and due > now:
+        return None
+
+    attempts = int(row.get("attempts") or 0)
+    claimed = (
+        supabase.table("notifications").update({
+            "claimed_until": (now + timedelta(seconds=CLAIM_SECONDS)).isoformat(),
+            "attempts": attempts + 1,
+            "last_attempt_at": now.isoformat(),
+        })
+        .eq("id", notification_id).eq("delivery", "pending").eq("attempts", attempts)
+        .execute().data or []
+    )
+    if not claimed:
+        return None
+    attempts += 1
+
+    created = _parse(row.get("created_at"))
+    if created and now - created > MAX_PUSH_AGE:
+        return _finish(notification_id, "skipped", "too old to push; kept in the in-app inbox")
+    if row.get("recipient_role") not in _ROLE_TABLE or _ROLE_TABLE[row["recipient_role"]] is None:
+        return _finish(notification_id, "skipped", "no device for this recipient role")
+    if not push_enabled():
+        print(f"[FCM STUB] to={row['recipient_id']} ({row['recipient_role']}) "
+              f"{row['title']!r} — {row['body']!r}")
+        return _finish(notification_id, "skipped", None)
+
+    tokens = _tokens(row["recipient_id"], row["recipient_role"])
+    if not tokens:
+        return _finish(notification_id, "skipped", "no token registered")
+
+    sent, transient, errors = 0, False, []
+    for token in tokens:
         try:
-            supabase.table("notifications").update({
-                "delivery": outcome,
-                "delivery_error": error,
-            }).eq("id", notification_id).execute()
-        except Exception as exc:  # pragma: no cover
-            logger.error("could not record delivery outcome for notification %s: %s", notification_id, exc)
+            _send(token, row["title"], row["body"], row.get("data") or {})
+            sent += 1
+        except TokenGone:
+            _forget_token(token)
+            errors.append("token no longer registered")
+        except TransientPushError as exc:
+            transient = True
+            errors.append(str(exc)[:200])
+        except Exception as exc:              # noqa: BLE001 — recorded, not raised
+            errors.append(str(exc)[:200])
+
+    if sent:
+        return _finish(notification_id, "sent", None)
+    if transient and attempts < MAX_ATTEMPTS:
+        retry_at = now + timedelta(seconds=30 * 2 ** (attempts - 1))
+        supabase.table("notifications").update({
+            "claimed_until": None,
+            "deliver_after": retry_at.isoformat(),
+            "delivery_error": "; ".join(errors)[:500],
+        }).eq("id", notification_id).execute()
+        return "pending"
+    return _finish(notification_id, "failed", "; ".join(errors)[:500] or "no device accepted it")
+
+
+def _finish(notification_id: str, outcome: str, error: Optional[str]) -> str:
+    supabase.table("notifications").update({
+        "delivery": outcome,
+        "delivery_error": error,
+        "claimed_until": None,
+    }).eq("id", notification_id).execute()
+    return outcome
+
+
+def sweep_outbox(now: Optional[datetime] = None, limit: int = 100) -> dict:
+    """Deliver what is due and still pending: scheduled sends, retries, and
+    rows whose inline attempt never ran."""
+    now = now or _now()
+    rows = (
+        supabase.table("notifications").select("id")
+        .eq("delivery", "pending")
+        .lte("deliver_after", now.isoformat())
+        .lte("created_at", (now - INLINE_GRACE).isoformat())
+        .order("deliver_after")
+        .limit(limit)
+        .execute().data or []
+    )
+    outcomes: dict[str, int] = {}
+    for r in rows:
+        outcome = deliver(r["id"]) or "not_claimed"
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+    return {"considered": len(rows), **outcomes}
+
+
+# ── Devices ──────────────────────────────────────────────────────────────────
+
+def _tokens(recipient_id: str, recipient_role: str) -> list[str]:
+    """Every device this person has registered. Falls back to the single
+    legacy column for a user who hasn't opened an updated app yet."""
+    rows = (
+        supabase.table("device_tokens").select("token")
+        .eq("owner_id", recipient_id).eq("owner_role", recipient_role)
+        .execute().data or []
+    )
+    tokens = [r["token"] for r in rows if r.get("token")]
+    if tokens:
+        return tokens
+    legacy = _fcm_token(recipient_id, recipient_role)
+    return [legacy] if legacy else []
 
 
 def _fcm_token(recipient_id: str, recipient_role: str) -> Optional[str]:
@@ -135,6 +295,13 @@ def _fcm_token(recipient_id: str, recipient_role: str) -> Optional[str]:
     return (rows[0].get("fcm_token") if rows else None) or None
 
 
+def _forget_token(token: str) -> None:
+    try:
+        supabase.table("device_tokens").delete().eq("token", token).execute()
+    except Exception as exc:  # pragma: no cover
+        logger.warning("could not forget a dead token: %r", exc)
+
+
 def _send(token: str, title: str, body: str, data: dict) -> None:
     if FCM_PROJECT_ID and (FIREBASE_ADMIN_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS):
         _send_v1(token, title, body, data)
@@ -143,30 +310,48 @@ def _send(token: str, title: str, body: str, data: dict) -> None:
 
 
 def _send_legacy(token: str, title: str, body: str, data: dict) -> None:
-    with httpx.Client(timeout=5) as client:
-        res = client.post(
-            FCM_LEGACY_URL,
-            json={"to": token, "notification": {"title": title, "body": body}, "data": data},
-            headers={"Authorization": f"key={FCM_SERVER_KEY}"},
-        )
-        res.raise_for_status()
+    try:
+        with httpx.Client(timeout=5) as client:
+            res = client.post(
+                FCM_LEGACY_URL,
+                json={"to": token, "notification": {"title": title, "body": body}, "data": data},
+                headers={"Authorization": f"key={FCM_SERVER_KEY}"},
+            )
+    except httpx.TransportError as exc:
+        raise TransientPushError(f"FCM unreachable: {exc!r}") from exc
+    if res.status_code >= 500 or res.status_code == 429:
+        raise TransientPushError(f"FCM {res.status_code}")
+    res.raise_for_status()
+    # The legacy API answers 200 and puts per-token errors in the body.
+    result = ((res.json() or {}).get("results") or [{}])[0]
+    if result.get("error") in ("NotRegistered", "InvalidRegistration"):
+        raise TokenGone(result["error"])
 
 
 def _send_v1(token: str, title: str, body: str, data: dict) -> None:
     """FCM HTTP v1 — the non-deprecated API. Needs a service-account JSON."""
     access_token = _google_access_token()
-    with httpx.Client(timeout=5) as client:
-        res = client.post(
-            FCM_V1_URL.format(project=FCM_PROJECT_ID),
-            json={"message": {
-                "token": token,
-                "notification": {"title": title, "body": body},
-                "data": data,
-                "android": {"priority": "high"},
-            }},
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        res.raise_for_status()
+    try:
+        with httpx.Client(timeout=5) as client:
+            res = client.post(
+                FCM_V1_URL.format(project=FCM_PROJECT_ID),
+                json={"message": {
+                    "token": token,
+                    "notification": {"title": title, "body": body},
+                    "data": data,
+                    "android": {"priority": "high"},
+                }},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except httpx.TransportError as exc:
+        raise TransientPushError(f"FCM unreachable: {exc!r}") from exc
+    if res.status_code >= 500 or res.status_code == 429:
+        raise TransientPushError(f"FCM {res.status_code}")
+    if res.status_code == 404:
+        raise TokenGone("UNREGISTERED")
+    if res.status_code == 400 and "registration token" in res.text.lower():
+        raise TokenGone("INVALID_ARGUMENT")
+    res.raise_for_status()
 
 
 def _google_access_token() -> str:
@@ -203,6 +388,11 @@ def _google_access_token() -> str:
 # One per product event, so wording lives in exactly one place and the routers
 # stay readable.
 
+def _once(event: str, booking: dict, recipient_id: str) -> str:
+    """Dedupe key for an event that can only happen once per booking."""
+    return f"{event}:{booking['id']}:{recipient_id}"
+
+
 def _money(amount) -> str:
     return f"₹{float(amount or 0):,.0f}"
 
@@ -215,6 +405,7 @@ def booking_requested(booking: dict, patient_name: str = "A patient", background
         f"{'home visit' if booking['channel'] == 'home_visit' else 'online consult'}.",
         {"booking_id": booking["id"], "channel": booking["channel"]},
         booking["id"], background,
+        dedupe_key=_once("booking.requested", booking, booking["doctor_id"]),
     )
 
 
@@ -225,6 +416,7 @@ def booking_accepted(booking: dict, doctor_name: str = "Your doctor", background
         f"{doctor_name} accepted your request. Pay now to confirm your booking.",
         {"booking_id": booking["id"]},
         booking["id"], background,
+        dedupe_key=_once("booking.accepted", booking, booking["patient_id"]),
     )
 
 
@@ -235,6 +427,7 @@ def booking_declined(booking: dict, doctor_name: str = "The doctor", background=
         f"{doctor_name} could not take this request. You have not been charged.",
         {"booking_id": booking["id"]},
         booking["id"], background,
+        dedupe_key=_once("booking.declined", booking, booking["patient_id"]),
     )
 
 
@@ -250,6 +443,7 @@ def booking_cancelled(booking: dict, cancelled_by: str, background=None):
         f"{who} cancelled this booking.",
         {"booking_id": booking["id"], "cancelled_by": cancelled_by},
         booking["id"], background,
+        dedupe_key=_once("booking.cancelled", booking, recipient_id),
     )
 
 
@@ -260,6 +454,7 @@ def payment_received(booking: dict, amount, background=None):
         f"{_money(amount)} received. This booking is confirmed.",
         {"booking_id": booking["id"], "amount": amount},
         booking["id"], background,
+        dedupe_key=_once("payment.received", booking, booking["doctor_id"]),
     )
 
 
@@ -270,6 +465,7 @@ def payment_confirmed_to_patient(booking: dict, amount, background=None):
         f"{_money(amount)} paid. Your booking is confirmed.",
         {"booking_id": booking["id"], "amount": amount},
         booking["id"], background,
+        dedupe_key=_once("payment.confirmed", booking, booking["patient_id"]),
     )
 
 
@@ -289,12 +485,33 @@ def booking_hold_expired(booking: dict, background=None):
         "Booking released",
         "The payment window closed, so your slot was released. You can book again.",
         {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=_once("booking.hold_expired", booking, booking["patient_id"]),
     )
     return notify(
         booking["doctor_id"], "doctor", "booking.hold_expired",
         "Slot released",
         "A booking went unpaid and its slot is free again.",
         {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=_once("booking.hold_expired", booking, booking["doctor_id"]),
+    )
+
+
+def request_expired(booking: dict, background=None):
+    """A request the doctor never answered, closed by the system."""
+    notify(
+        booking["patient_id"], "patient", "booking.request_expired",
+        "Request expired",
+        "The doctor didn't respond in time, so this request was closed. You were "
+        "not charged. Try another slot or another doctor.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=_once("booking.request_expired", booking, booking["patient_id"]),
+    )
+    return notify(
+        booking["doctor_id"], "doctor", "booking.request_expired",
+        "Request expired",
+        "A request you hadn't answered has expired.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=_once("booking.request_expired", booking, booking["doctor_id"]),
     )
 
 
@@ -315,6 +532,7 @@ def visit_completed(booking: dict, background=None):
         "Your consultation is complete. Tap to rate your doctor.",
         {"booking_id": booking["id"]},
         booking["id"], background,
+        dedupe_key=_once("visit.completed", booking, booking["patient_id"]),
     )
 
 
@@ -325,6 +543,7 @@ def marked_no_show(booking: dict, background=None):
         "This booking was marked as a no-show. You have not been charged.",
         {"booking_id": booking["id"]},
         booking["id"], background,
+        dedupe_key=_once("booking.no_show", booking, booking["patient_id"]),
     )
 
 
@@ -394,7 +613,7 @@ def payout_paid(doctor_id: str, payout: dict, background=None):
     return notify(
         doctor_id, "doctor", "payout.paid",
         "Payout sent",
-        f"{_money(payout['net_amount'])} has been sent to your bank account.",
+        f"{_money(payout['net_amount'])} has been sent to your payout account (UPI or bank).",
         {"payout_id": payout["id"], "reference": payout.get("reference") or ""},
         None, background,
     )
@@ -432,11 +651,67 @@ def payment_auto_refunded(booking: dict, amount, background=None):
     after the hold expired, so the money arrives against a slot that has been
     released. They are told plainly that nothing is booked and the money is coming
     back, because the alternative is a silent debit with no booking behind it.
+
+    "Is being refunded", never "refunded": Razorpay hasn't confirmed anything
+    yet. refund_completed() says that once it has.
     """
     return notify(
         booking["patient_id"], "patient", "payment.auto_refunded",
-        "Payment refunded",
+        "Payment being refunded",
         f"{_money(amount)} arrived after your slot was released, so it is being "
         "refunded. Nothing was booked — please book again.",
         {"booking_id": booking["id"]}, booking["id"], background,
+    )
+
+
+# ── Refunds ──────────────────────────────────────────────────────────────────
+# Each message matches what Razorpay has actually confirmed at that point
+# (services/refunds.py). Amounts arrive in paise.
+
+def _paise_money(amount_paise) -> str:
+    rupees = int(amount_paise or 0) / 100
+    return f"₹{rupees:,.0f}" if rupees == int(rupees) else f"₹{rupees:,.2f}"
+
+
+def refund_started(booking: dict, amount_paise, background=None, refund_id: Optional[str] = None):
+    return notify(
+        booking["patient_id"], "patient", "refund.started",
+        "Refund started",
+        f"{_paise_money(amount_paise)} is on its way back to your original payment "
+        "method. Banks usually take 5–7 working days.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=f"refund.started:{refund_id}" if refund_id else None,
+    )
+
+
+def refund_completed(booking: dict, amount_paise, background=None, refund_id: Optional[str] = None):
+    return notify(
+        booking["patient_id"], "patient", "refund.completed",
+        "Refund completed",
+        f"{_paise_money(amount_paise)} has been refunded to your original payment method.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=f"refund.completed:{refund_id}" if refund_id else None,
+    )
+
+
+def refund_delayed(booking: dict, amount_paise, background=None, refund_id: Optional[str] = None):
+    return notify(
+        booking["patient_id"], "patient", "refund.delayed",
+        "Refund delayed",
+        f"Your {_paise_money(amount_paise)} refund is taking longer than expected. "
+        "Our team is on it — you don't need to do anything.",
+        {"booking_id": booking["id"]}, booking["id"], background,
+        dedupe_key=f"refund.delayed:{refund_id}" if refund_id else None,
+    )
+
+
+def refund_needs_attention(refund: dict, background=None):
+    """For the admin refunds queue; ops has no device, so this is a record only."""
+    return notify(
+        "00000000-0000-0000-0000-000000000000", "ops", "refund.failed",
+        "Refund needs attention",
+        f"A {_paise_money(refund.get('amount_paise'))} refund could not be sent: "
+        f"{(refund.get('failure_reason') or 'unknown error')[:200]}",
+        {"refund_id": refund["id"], "booking_id": refund.get("booking_id") or ""},
+        refund.get("booking_id"), background,
     )

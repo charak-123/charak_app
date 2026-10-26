@@ -40,7 +40,8 @@ class _Body extends StatelessWidget {
       context,
       title: 'Cancel this booking?',
       message: paid
-          ? 'The doctor is told straight away and your payment is refunded to the original method.'
+          ? 'The doctor is told straight away. Your full payment is refunded to your '
+              'original payment method — banks usually take 5–7 working days.'
           : 'The doctor is told straight away. You have not been charged.',
       confirmLabel: 'Cancel booking',
       cancelLabel: 'Keep it',

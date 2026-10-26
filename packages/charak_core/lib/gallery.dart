@@ -116,6 +116,7 @@ class _CharakGalleryState extends State<CharakGallery> {
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final s in ['requested', 'accepted', 'paid', 'in_progress', 'review', 'declined'])
               CharakStatusPill.forStatus(s),
+            for (final r in CharakRefundState.values) CharakStatusPill.forRefund(r),
           ]),
           const SizedBox(height: 24),
           CharakGroupedList(

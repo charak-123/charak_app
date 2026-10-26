@@ -49,6 +49,40 @@ const bookings = [
   { id: id('da'), channel: 'home_visit' as const, scheduled_at: hoursAgo(96), price_confirmed: null, status: 'declined' as const, created_at: daysAgo(6), users: { name: 'Kavita Balan', phone: '+91 99620 80513' }, doctors: { name: 'Sanjay Gupta' } },
 ]
 
+// Refunds as services/refunds.py records them: one stuck, two in flight, one done.
+const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+const soon = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString()
+let refunds = [
+  {
+    id: 'rf-1', amount_paise: 80000, status: 'failed', reason: 'booking_cancelled', attempts: 5,
+    failure_reason: 'Razorpay reported the refund as failed.', razorpay_refund_id: 'rfnd_Nq2Lx9',
+    requested_by_role: 'patient', created_at: ago(190), processed_at: null,
+    bookings: { id: 'bk-a1c4e2f9', channel: 'home_visit', scheduled_start: soon(20), cancelled_by: 'patient',
+      doctors: { name: 'Dr. Sameer Deshpande' }, users: { name: 'Aarav Kulkarni' } },
+  },
+  {
+    id: 'rf-2', amount_paise: 55000, status: 'processing', reason: 'booking_cancelled', attempts: 1,
+    failure_reason: null, razorpay_refund_id: 'rfnd_Nq7Pa2', requested_by_role: 'doctor',
+    created_at: ago(42), processed_at: null,
+    bookings: { id: 'bk-77d0b3e1', channel: 'online_consult', scheduled_start: soon(4), cancelled_by: 'doctor',
+      doctors: { name: 'Dr. Anjali Patil' }, users: { name: 'Riya Shah' } },
+  },
+  {
+    id: 'rf-3', amount_paise: 65000, status: 'pending', reason: 'late_capture', attempts: 1,
+    failure_reason: 'read timed out', razorpay_refund_id: null, requested_by_role: 'system',
+    created_at: ago(6), processed_at: null,
+    bookings: { id: 'bk-0e5f19aa', channel: 'online_consult', scheduled_start: soon(30), cancelled_by: 'system',
+      doctors: { name: 'Dr. Meera Kulkarni' }, users: { name: 'Kabir Mehta' } },
+  },
+  {
+    id: 'rf-4', amount_paise: 90000, status: 'processed', reason: 'booking_cancelled', attempts: 1,
+    failure_reason: null, razorpay_refund_id: 'rfnd_Nm3Qt8', requested_by_role: 'patient',
+    created_at: ago(60 * 26), processed_at: ago(60 * 2),
+    bookings: { id: 'bk-5c2e8d41', channel: 'home_visit', scheduled_start: soon(-24), cancelled_by: 'patient',
+      doctors: { name: 'Dr. Rahul Joshi' }, users: { name: 'Neha Iyer' } },
+  },
+]
+
 let complaints = [
   { id: id('e1'), description: 'Doctor joined the video consult 25 minutes late and ended the call after four minutes. Asking for a refund of the consult fee.', status: 'open' as string, created_at: hoursAgo(4), bookings: { id: id('d6'), patient_id: id('p1'), doctor_id: id('x1') } },
   { id: id('e2'), description: 'Home visit doctor charged ₹800 over the quoted price for dressing material and would not itemise it.', status: 'open' as string, created_at: hoursAgo(19), bookings: { id: id('d7'), patient_id: id('p2'), doctor_id: id('x2') } },
@@ -152,6 +186,8 @@ function metrics() {
       bills_under_review: bills.filter(b => b.status === 'under_review').length,
       complaints_open: complaints.filter(c => c.status === 'open').length,
       complaints_in_review: complaints.filter(c => c.status === 'in_review').length,
+      refunds_failed: refunds.filter(r => r.status === 'failed').length,
+      refunds_in_flight: refunds.filter(r => r.status === 'pending' || r.status === 'processing').length,
     },
   }
 }
@@ -171,6 +207,16 @@ export async function mockRequest(path: string, method: string, body: unknown): 
 
   if (method === 'POST' && bare === '/admin/login') return { token: 'mock-token' }
 
+  if (method === 'POST') {
+    const retry = match(bare, /^\/admin\/refunds\/([^/]+)\/retry$/)
+    if (retry) {
+      refunds = refunds.map(r => (r.id === retry[1]
+        ? { ...r, status: 'processing', attempts: r.attempts + 1, razorpay_refund_id: 'rfnd_Nr0Ks4', failure_reason: null }
+        : r))
+      return refunds.find(r => r.id === retry[1])
+    }
+  }
+
   if (method === 'GET') {
     if (bare === '/admin/metrics') return metrics()
     if (bare === '/admin/metrics/timeseries') {
@@ -189,6 +235,12 @@ export async function mockRequest(path: string, method: string, body: unknown): 
     if (bare === '/admin/complaints') {
       const status = query(path, 'status')
       return status ? complaints.filter(c => c.status === status) : complaints
+    }
+    if (bare === '/admin/refunds') {
+      const status = query(path, 'status')
+      return status
+        ? refunds.filter(r => r.status === status)
+        : refunds.filter(r => r.status !== 'processed')
     }
     if (bare === '/admin/procedure-bills/review') {
       return bills.filter(b => b.status === 'under_review')

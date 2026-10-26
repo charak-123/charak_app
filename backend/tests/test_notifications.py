@@ -50,60 +50,202 @@ def test_an_event_is_recorded_even_with_push_disabled():
     assert written["delivery"] == "pending"
 
 
-def test_delivery_is_marked_skipped_when_push_is_not_configured():
-    notifications = make_chain(list_data=[{"id": "n-1"}])
-    db = make_supabase({"notifications": notifications})
-    with patch(SVC_DB, db), patch.object(notif, "push_enabled", lambda: False):
-        notif.notify("pat-1", "patient", "test.event", "T", "B")
+# ── delivery through the outbox (migration 0023) ─────────────────────────────
+# Behavioural tests on tests/fakedb.py: they check the row's resulting state,
+# not which calls were made.
 
-    assert notifications.update.call_args[0][0]["delivery"] == "skipped"
+from datetime import datetime, timedelta, timezone   # noqa: E402
 
+import pytest                                         # noqa: E402
 
-def test_delivery_is_marked_sent_when_the_push_succeeds():
-    notifications = make_chain(list_data=[{"id": "n-1"}])
-    db = make_supabase({
-        "notifications": notifications,
-        "users": make_chain(list_data=[{"fcm_token": "tok-123"}]),
-    })
-    with patch(SVC_DB, db), patch.object(notif, "push_enabled", lambda: True), \
-         patch.object(notif, "_send", lambda *a: None):
-        notif.notify("pat-1", "patient", "test.event", "T", "B")
+from tests.fakedb import FakeSupabase                 # noqa: E402
 
-    assert notifications.update.call_args[0][0]["delivery"] == "sent"
+NOW = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
 
 
-def test_a_missing_device_token_is_recorded_not_raised():
-    notifications = make_chain(list_data=[{"id": "n-1"}])
-    db = make_supabase({
-        "notifications": notifications,
-        "users": make_chain(list_data=[{"fcm_token": None}]),
-    })
-    with patch(SVC_DB, db), patch.object(notif, "push_enabled", lambda: True):
-        notif.notify("pat-1", "patient", "test.event", "T", "B")
+def _outbox(tokens=("tok-1",), legacy=None, unique=True):
+    return FakeSupabase(
+        {"notifications": [], "device_tokens": [
+            {"id": f"dt-{i}", "owner_id": "pat-1", "owner_role": "patient", "token": t}
+            for i, t in enumerate(tokens)
+        ], "users": [{"id": "pat-1", "fcm_token": legacy}]},
+        defaults={"notifications": {"delivery": "pending", "attempts": 0, "claimed_until": None,
+                                    "delivery_error": None, "created_at": NOW.isoformat(),
+                                    "deliver_after": NOW.isoformat()}},
+        unique={"notifications": [("dedupe_key",)]} if unique else None,
+    )
 
-    update = notifications.update.call_args[0][0]
-    assert update["delivery"] == "skipped"
-    assert update["delivery_error"] == "no token registered"
+
+@pytest.fixture
+def frozen():
+    with patch.object(notif, "_now", lambda: NOW):
+        yield
 
 
-def test_a_push_failure_is_swallowed_and_recorded():
-    """A booking must not fail to be accepted because Google timed out."""
-    notifications = make_chain(list_data=[{"id": "n-1"}])
-    db = make_supabase({
-        "notifications": notifications,
-        "users": make_chain(list_data=[{"fcm_token": "tok-123"}]),
-    })
+def _send_all(db, push=True, send=lambda *a: None):
+    return patch(SVC_DB, db), patch.object(notif, "push_enabled", lambda: push), \
+        patch.object(notif, "_send", send)
 
-    def _boom(*a):
-        raise RuntimeError("FCM 503")
 
-    with patch(SVC_DB, db), patch.object(notif, "push_enabled", lambda: True), \
-         patch.object(notif, "_send", _boom):
-        notif.notify("pat-1", "patient", "test.event", "T", "B")   # must not raise
+def _notify(db, push=True, send=lambda *a: None, **kw):
+    a, b, c = _send_all(db, push, send)
+    with a, b, c:
+        return notif.notify("pat-1", "patient", "test.event", "T", "B", **kw)
 
-    update = notifications.update.call_args[0][0]
-    assert update["delivery"] == "failed"
-    assert "FCM 503" in update["delivery_error"]
+
+def test_delivery_is_marked_skipped_when_push_is_not_configured(frozen):
+    db = _outbox()
+    _notify(db, push=False)
+    assert db.rows("notifications")[0]["delivery"] == "skipped"
+
+
+def test_delivery_is_marked_sent_when_the_push_succeeds(frozen):
+    db = _outbox()
+    _notify(db)
+    row = db.rows("notifications")[0]
+    assert row["delivery"] == "sent"
+    assert row["attempts"] == 1
+    assert row["claimed_until"] is None
+
+
+def test_every_registered_device_is_sent_the_push(frozen):
+    db = _outbox(tokens=("phone", "tablet"))
+    sent = []
+    _notify(db, send=lambda token, *a: sent.append(token))
+    assert sorted(sent) == ["phone", "tablet"]
+
+
+def test_the_legacy_token_column_is_used_when_no_device_is_registered(frozen):
+    db = _outbox(tokens=(), legacy="old-tok")
+    sent = []
+    _notify(db, send=lambda token, *a: sent.append(token))
+    assert sent == ["old-tok"]
+
+
+def test_a_missing_device_token_is_recorded_not_raised(frozen):
+    db = _outbox(tokens=(), legacy=None)
+    _notify(db)
+    row = db.rows("notifications")[0]
+    assert row["delivery"] == "skipped"
+    assert row["delivery_error"] == "no token registered"
+
+
+def test_a_temporary_push_failure_is_retried_later(frozen):
+    """A booking must not fail because Google timed out, and the push must not be lost."""
+    def flaky(*a):
+        raise notif.TransientPushError("FCM 503")
+
+    db = _outbox()
+    _notify(db, send=flaky)                                  # must not raise
+    row = db.rows("notifications")[0]
+    assert row["delivery"] == "pending"
+    assert "FCM 503" in row["delivery_error"]
+    assert row["deliver_after"] == (NOW + timedelta(seconds=30)).isoformat()
+    assert row["claimed_until"] is None
+
+
+def test_temporary_failures_give_up_after_the_limit(frozen):
+    def flaky(*a):
+        raise notif.TransientPushError("FCM 503")
+
+    db = _outbox()
+    _notify(db, send=flaky)
+    row = db.rows("notifications")[0]
+    row["attempts"] = notif.MAX_ATTEMPTS - 1
+    row["deliver_after"] = NOW.isoformat()
+    a, b, c = _send_all(db, send=flaky)
+    with a, b, c:
+        notif.deliver(row["id"])
+    assert row["delivery"] == "failed"
+
+
+def test_a_permanent_push_failure_is_recorded(frozen):
+    def broken(*a):
+        raise RuntimeError("FCM 400 bad payload")
+
+    db = _outbox()
+    _notify(db, send=broken)
+    row = db.rows("notifications")[0]
+    assert row["delivery"] == "failed"
+    assert "bad payload" in row["delivery_error"]
+
+
+def test_a_token_fcm_no_longer_knows_is_forgotten(frozen):
+    def gone(token, *a):
+        if token == "dead":
+            raise notif.TokenGone("UNREGISTERED")
+
+    db = _outbox(tokens=("dead", "alive"))
+    _notify(db, send=gone)
+    assert [t["token"] for t in db.rows("device_tokens")] == ["alive"]
+    assert db.rows("notifications")[0]["delivery"] == "sent"
+
+
+def test_a_claimed_notification_is_not_sent_twice(frozen):
+    """The inline attempt and the sweep can race; the claim decides."""
+    db = _outbox()
+    _notify(db, push=False)
+    row = db.rows("notifications")[0]
+    row.update(delivery="pending", claimed_until=(NOW + timedelta(seconds=30)).isoformat())
+    sent = []
+    a, b, c = _send_all(db, send=lambda *x: sent.append(x))
+    with a, b, c:
+        assert notif.deliver(row["id"]) is None
+    assert sent == []
+
+
+def test_a_stale_push_is_kept_in_the_inbox_but_not_sent(frozen):
+    db = _outbox()
+    _notify(db, push=False)
+    row = db.rows("notifications")[0]
+    row.update(delivery="pending", created_at=(NOW - timedelta(hours=7)).isoformat())
+    sent = []
+    a, b, c = _send_all(db, send=lambda *x: sent.append(x))
+    with a, b, c:
+        assert notif.deliver(row["id"]) == "skipped"
+    assert sent == []
+
+
+def test_a_dedupe_key_records_and_sends_a_one_shot_event_once(frozen):
+    db = _outbox()
+    sent = []
+    send = lambda *x: sent.append(x)                        # noqa: E731
+    _notify(db, send=send, dedupe_key="booking.accepted:bk-1:pat-1")
+    assert _notify(db, send=send, dedupe_key="booking.accepted:bk-1:pat-1") == {}
+    assert len(db.rows("notifications")) == 1
+    assert len(sent) == 1
+
+
+def test_a_scheduled_notification_is_not_sent_now(frozen):
+    db = _outbox()
+    sent = []
+    _notify(db, send=lambda *x: sent.append(x), deliver_after=NOW + timedelta(hours=1))
+    assert sent == []
+    assert db.rows("notifications")[0]["delivery"] == "pending"
+
+
+def test_the_sweep_sends_what_is_due_and_leaves_fresh_rows_to_their_inline_attempt(frozen):
+    db = _outbox()
+    db.rows("notifications").extend([
+        {"id": "due", "recipient_id": "pat-1", "recipient_role": "patient", "title": "T",
+         "body": "B", "data": {}, "delivery": "pending", "attempts": 0, "claimed_until": None,
+         "created_at": (NOW - timedelta(minutes=5)).isoformat(),
+         "deliver_after": (NOW - timedelta(minutes=1)).isoformat()},
+        {"id": "fresh", "recipient_id": "pat-1", "recipient_role": "patient", "title": "T",
+         "body": "B", "data": {}, "delivery": "pending", "attempts": 0, "claimed_until": None,
+         "created_at": (NOW - timedelta(seconds=3)).isoformat(),
+         "deliver_after": (NOW - timedelta(seconds=3)).isoformat()},
+        {"id": "later", "recipient_id": "pat-1", "recipient_role": "patient", "title": "T",
+         "body": "B", "data": {}, "delivery": "pending", "attempts": 0, "claimed_until": None,
+         "created_at": (NOW - timedelta(minutes=5)).isoformat(),
+         "deliver_after": (NOW + timedelta(minutes=5)).isoformat()},
+    ])
+    a, b, c = _send_all(db)
+    with a, b, c:
+        out = notif.sweep_outbox(now=NOW)
+    assert out == {"considered": 1, "sent": 1}
+    assert {r["id"]: r["delivery"] for r in db.rows("notifications")} == \
+        {"due": "sent", "fresh": "pending", "later": "pending"}
 
 
 def test_notify_survives_the_notifications_table_being_unavailable():

@@ -10,7 +10,7 @@ from ..config import ADMIN_TOKEN_TTL_HOURS, JWT_SECRET
 from ..db import supabase
 from ..deps import require_ops
 from ..errors import AppError
-from ..services import admin_auth, audit, erasure, notifications, payouts
+from ..services import admin_auth, audit, booking_state, erasure, notifications, payouts, refunds
 from ..services.admin_auth import AdminAuthError
 from ..services.rate_limit import enforce as enforce_rate_limit, rate_limiter
 
@@ -286,6 +286,15 @@ def list_all_bookings(status: Optional[str] = None, user: dict = Depends(require
     return rows
 
 
+@router.get("/bookings/{booking_id}/timeline")
+def booking_timeline(booking_id: str, user: dict = Depends(require_ops)):
+    """Every recorded event for a booking, with actors and metadata."""
+    exists = supabase.table("bookings").select("id").eq("id", booking_id).execute().data
+    if not exists:
+        raise AppError("Booking not found", 404)
+    return booking_state.timeline(booking_id)
+
+
 @router.get("/bookings/{booking_id}/phone")
 def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_ops)):
     """Explicit, audited reveal of one patient's number. Separate from the list
@@ -355,6 +364,41 @@ def update_complaint_status(
     return result.data[0]
 
 
+# ── 7b. Refunds ───────────────────────────────────────────────────────────────
+
+_REFUND_STATUSES = ("pending", "processing", "processed", "failed")
+
+
+@router.get("/refunds")
+def list_refunds(status: Optional[str] = None, user: dict = Depends(require_ops)):
+    """
+    The refunds queue. With no filter, everything Razorpay hasn't confirmed yet
+    (pending, processing, failed). 'failed' is the one that needs a person.
+    """
+    if status is not None and status not in _REFUND_STATUSES:
+        raise AppError(f"status must be one of {', '.join(_REFUND_STATUSES)}", 400)
+    statuses = [status] if status else list(refunds.OPEN_STATUSES)
+    return (
+        supabase.table("refunds")
+        .select("*, bookings(id, channel, scheduled_start, cancelled_by, "
+                "doctors(name), users(name))")
+        .in_("status", statuses)
+        .order("created_at", desc=True)
+        .limit(200)
+        .execute()
+        .data
+        or []
+    )
+
+
+@router.post("/refunds/{refund_id}/retry")
+def retry_refund(refund_id: str, user: dict = Depends(require_ops)):
+    """Send a failed refund to Razorpay again. Audited."""
+    row = refunds.retry(refund_id)
+    _audit(user, "refunds", refund_id, "refund_retry")
+    return row
+
+
 # ── 8. Dashboard metrics ──────────────────────────────────────────────────────
 
 @router.get("/metrics")
@@ -374,6 +418,10 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
     ledger = _fetch_all(
         lambda: supabase.table("doctor_ledger_entries")
         .select("net_amount, commission_amount, status")
+    )
+    open_refunds = _fetch_all(
+        lambda: supabase.table("refunds").select("status")
+        .in_("status", list(refunds.OPEN_STATUSES))
     )
 
     def count(rows, field, value):
@@ -423,6 +471,8 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
             "bills_under_review": count(bills, "status", "under_review"),
             "complaints_open": count(complaints, "status", "open"),
             "complaints_in_review": count(complaints, "status", "in_review"),
+            "refunds_failed": count(open_refunds, "status", "failed"),
+            "refunds_in_flight": len([r for r in open_refunds if r.get("status") != "failed"]),
         },
     }
 

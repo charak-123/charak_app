@@ -9,7 +9,14 @@ class _HistoryDetail {
   final Map<String, dynamic>? procedureBill;
   final Map<String, dynamic>? rating;
   final String? paymentRef;
-  const _HistoryDetail({required this.booking, this.procedureBill, this.rating, this.paymentRef});
+  final CharakRefundSummary? refund;
+  const _HistoryDetail({
+    required this.booking,
+    this.procedureBill,
+    this.rating,
+    this.paymentRef,
+    this.refund,
+  });
 }
 
 final _historyDetailProvider =
@@ -31,15 +38,28 @@ final _historyDetailProvider =
   }
 
   String? paymentRef;
+  CharakRefundSummary? refund;
   try {
     final payments = await ApiClient.instance.get('/payments/$bookingId') as List;
-    final completed = payments.cast<Map<String, dynamic>>().where((p) => p['status'] == 'completed').firstOrNull;
-    paymentRef = completed?['razorpay_payment_id'] as String?;
+    // A refunded payment was still paid: its reference stays on the receipt.
+    const captured = {'completed', 'refunded', 'partially_refunded'};
+    final paid = payments
+        .cast<Map<String, dynamic>>()
+        .where((p) => captured.contains(p['status']))
+        .firstOrNull;
+    paymentRef = paid?['razorpay_payment_id'] as String?;
+    refund = CharakRefundSummary.fromPayments(payments);
   } on ApiException {
-    // Payment lookup is best-effort — the receipt row just won't show a reference.
+    // Payment lookup is best-effort — the receipt rows just won't show.
   }
 
-  return _HistoryDetail(booking: booking, procedureBill: procedureBill, rating: rating, paymentRef: paymentRef);
+  return _HistoryDetail(
+    booking: booking,
+    procedureBill: procedureBill,
+    rating: rating,
+    paymentRef: paymentRef,
+    refund: refund,
+  );
 });
 
 class HistoryDetailScreen extends ConsumerWidget {
@@ -127,7 +147,23 @@ class _Body extends StatelessWidget {
             label: 'Status',
             child: CharakStatusPill.forStatus(status),
           ),
+          if (detail.refund != null) ...[
+            const CharakSummaryDivider(),
+            CharakSummaryRow(
+              label: 'Refund',
+              value: CharakFormat.rupees(detail.refund!.rupees),
+              tabular: true,
+            ),
+            CharakSummaryRow(
+              label: 'Refund status',
+              child: CharakStatusPill.forRefund(detail.refund!.state),
+            ),
+          ],
         ]),
+        if (detail.refund != null) ...[
+          const SizedBox(height: 10),
+          Text(detail.refund!.message, style: charakHintStyle, textAlign: TextAlign.center),
+        ],
 
         if (stars != null) ...[
           const SizedBox(height: 12),

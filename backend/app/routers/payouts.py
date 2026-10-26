@@ -239,13 +239,16 @@ def pending_summary(user: dict = Depends(require_ops)):
     """
     entries = (
         supabase.table("doctor_ledger_entries")
-        .select("doctor_id, net_amount, gross_amount, commission_amount, doctors(name, phone)")
+        .select("doctor_id, source, net_amount, gross_amount, commission_amount, "
+                "bookings(status), doctors(name, phone)")
         .eq("status", "payable")
         .execute()
         .data
         or []
     )
 
+    # Same rule as a payout run (engine.is_payout_eligible): a fee for a visit
+    # that hasn't happened yet is shown, but not as payable.
     by_doctor: dict[str, dict] = {}
     for e in entries:
         bucket = by_doctor.setdefault(e["doctor_id"], {
@@ -256,7 +259,11 @@ def pending_summary(user: dict = Depends(require_ops)):
             "gross": 0.0,
             "commission": 0.0,
             "net": 0.0,
+            "awaiting_visit_net": 0.0,
         })
+        if not engine.is_payout_eligible(e):
+            bucket["awaiting_visit_net"] += float(e["net_amount"] or 0)
+            continue
         bucket["entry_count"] += 1
         bucket["gross"] += float(e["gross_amount"] or 0)
         bucket["commission"] += float(e["commission_amount"] or 0)
@@ -267,6 +274,7 @@ def pending_summary(user: dict = Depends(require_ops)):
         "doctors": rows,
         "total_net": round(sum(r["net"] for r in rows), 2),
         "total_commission": round(sum(r["commission"] for r in rows), 2),
+        "total_awaiting_visit_net": round(sum(r["awaiting_visit_net"] for r in rows), 2),
     }
 
 
