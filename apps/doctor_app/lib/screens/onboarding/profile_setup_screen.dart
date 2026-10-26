@@ -30,6 +30,11 @@ const _practitionerTypes = [
   ('other', 'Other healthcare professional'),
 ];
 
+/// The Terms and Privacy versions this doctor still has to accept. Practitioner
+/// Terms join this list once they are published (docs/legal/DECISIONS.md).
+final _requiredDocsProvider = FutureProvider.autoDispose(
+    (ref) async => (await CharakLegal.status()).missing);
+
 class ProfileSetupScreen extends ConsumerStatefulWidget {
   const ProfileSetupScreen({super.key});
 
@@ -88,11 +93,15 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
       (ref.read(authProvider).user?['phone'] as String?)?.isNotEmpty != true;
   String get _phoneDigits => _phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
 
+  bool _consented = false;
+  List<CharakLegalDocument>? get _docs => ref.read(_requiredDocsProvider).valueOrNull;
+
   bool get _valid =>
       _nameCtrl.text.trim().length >= 2 && _practitionerType != null &&
       (!_isDoctor || _categoryId != null) &&
       (!_needsSpecialtyOther || _specialtyOtherCtrl.text.trim().isNotEmpty) &&
-      (!_needsPhone || _phoneDigits.length == 10);
+      (!_needsPhone || _phoneDigits.length == 10) &&
+      _docs != null && (_docs!.isEmpty || _consented);
 
   Future<void> _submit() async {
     setState(() { _loading = true; _error = null; });
@@ -135,6 +144,11 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
           if (_needsSpecialtyOther) 'specialtyOther': _specialtyOtherCtrl.text.trim(),
         },
       });
+
+      // The boxes ticked below, against the exact versions shown. Not
+      // best-effort: without the record there is no consent.
+      final docs = _docs ?? const [];
+      if (docs.isNotEmpty) await CharakLegal.accept(docs, method: 'signup_checkbox');
 
       final photo = _photo;
       if (photo != null) {
@@ -273,6 +287,21 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                     CharakInput(label: 'Bio (1–2 lines)',
                         placeholder: 'General physician with 9 years in family practice.',
                         controller: _bioCtrl, maxLines: 4),
+
+                    const SizedBox(height: 18),
+                    ref.watch(_requiredDocsProvider).when(
+                      loading: () => const CharakSkeleton(height: 96, radius: 20),
+                      error: (e, _) => CharakErrorState(
+                        error: e,
+                        onRetry: () => ref.invalidate(_requiredDocsProvider),
+                      ),
+                      data: (docs) => docs.isEmpty
+                          ? const SizedBox.shrink()
+                          : CharakConsentChecklist(
+                              documents: docs,
+                              onAllChecked: (v) => setState(() => _consented = v),
+                            ),
+                    ),
 
                     if (_error != null) ...[
                       const SizedBox(height: 12),

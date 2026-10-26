@@ -13,6 +13,7 @@ import {
 } from '@/components/shell'
 import { MetaChip, StatusPill } from '@/components/status'
 import FunnelBars from '@/components/charts/FunnelBars'
+import BookingTimeline from '@/components/BookingTimeline'
 import { money } from '@/lib/chart-theme'
 
 type BookingStatus =
@@ -43,6 +44,7 @@ const STATUS_TABS: { label: string; value: StatusFilter }[] = [
 export default function BookingsMonitor() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const [timelineFor, setTimelineFor] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const revealPhone = useMutation({
@@ -158,7 +160,16 @@ export default function BookingsMonitor() {
                 <TableBody>
                   {bookings.map(b => (
                     <TableRow key={b.id}>
-                      <TableCell><MetaChip mono>{b.id.slice(0, 8)}</MetaChip></TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={() => setTimelineFor(b.id)}
+                          className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          title="Open the timeline"
+                        >
+                          <MetaChip mono>{b.id.slice(0, 8)}</MetaChip>
+                        </button>
+                      </TableCell>
                       <TableCell>
                         <p className="text-sm font-medium">{b.users?.name ?? '—'}</p>
                         <button
@@ -191,6 +202,7 @@ export default function BookingsMonitor() {
           )}
         </Section>
       </PageBody>
+      <BookingTimeline bookingId={timelineFor} onClose={() => setTimelineFor(null)} />
     </div>
   )
 }

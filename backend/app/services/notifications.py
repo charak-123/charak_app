@@ -431,16 +431,22 @@ def booking_declined(booking: dict, doctor_name: str = "The doctor", background=
     )
 
 
-def booking_cancelled(booking: dict, cancelled_by: str, background=None):
-    """Tells the other party — whoever did not press cancel."""
+def booking_cancelled(booking: dict, cancelled_by: str, background=None, kept_paise: int = 0):
+    """
+    Tells the other party — whoever did not press cancel. When a patient
+    cancels late, the doctor learns what the policy leaves them (LD-005).
+    """
     if cancelled_by == "patient":
         recipient_id, role, who = booking["doctor_id"], "doctor", "The patient"
     else:
         recipient_id, role, who = booking["patient_id"], "patient", "The doctor"
+    message = f"{who} cancelled this booking."
+    if cancelled_by == "patient" and kept_paise > 0:
+        message += f" Under the cancellation policy, {_paise_money(kept_paise)} stays in your earnings."
     return notify(
         recipient_id, role, "booking.cancelled",
         "Booking cancelled",
-        f"{who} cancelled this booking.",
+        message,
         {"booking_id": booking["id"], "cancelled_by": cancelled_by},
         booking["id"], background,
         dedupe_key=_once("booking.cancelled", booking, recipient_id),

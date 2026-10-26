@@ -35,6 +35,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   void initState() {
     super.initState();
     _idx = ref.read(doctorTabIndexProvider);
+    // A material update to the Terms or Privacy Policy is asked for here, once.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) charakAskForMissingConsent(context);
+    });
   }
 
   @override

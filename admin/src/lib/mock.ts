@@ -236,6 +236,16 @@ export async function mockRequest(path: string, method: string, body: unknown): 
       const status = query(path, 'status')
       return status ? complaints.filter(c => c.status === status) : complaints
     }
+    const timeline = match(bare, /^\/admin\/bookings\/([^/]+)\/timeline$/)
+    if (timeline) {
+      const at = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString()
+      return [
+        { id: 1, event: 'created', from_status: null, to_status: 'requested', actor_role: 'patient', actor_id: 'p', occurred_at: at(30), metadata: {} },
+        { id: 2, event: 'accept', from_status: 'requested', to_status: 'accepted', actor_role: 'doctor', actor_id: 'd', occurred_at: at(29), metadata: {} },
+        { id: 3, event: 'pay', from_status: 'accepted', to_status: 'paid', actor_role: 'system', actor_id: null, occurred_at: at(28.9), metadata: { method: 'upi' } },
+        { id: 4, event: 'cancel', from_status: 'paid', to_status: 'cancelled', actor_role: 'patient', actor_id: 'p', occurred_at: at(1), metadata: { refund_pct: 50, refund_paise: 40000, policy_version: '2026-10-26', reason_code: 'schedule_conflict' } },
+      ]
+    }
     if (bare === '/admin/refunds') {
       const status = query(path, 'status')
       return status

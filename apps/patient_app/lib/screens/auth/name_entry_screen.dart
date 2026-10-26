@@ -4,6 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 
+/// The Terms and Privacy versions this new patient still has to accept.
+final _requiredDocsProvider = FutureProvider.autoDispose(
+    (ref) async => (await CharakLegal.status()).missing);
+
 class NameEntryScreen extends ConsumerStatefulWidget {
   const NameEntryScreen({super.key});
   @override
@@ -14,6 +18,7 @@ class _State extends ConsumerState<NameEntryScreen> {
   final _ctrl      = TextEditingController();
   final _phoneCtrl = TextEditingController();
   bool  _loading = false;
+  bool  _consented = false;
   String? _error;
   String? _phoneError;
 
@@ -24,8 +29,13 @@ class _State extends ConsumerState<NameEntryScreen> {
   @override
   void dispose() { _ctrl.dispose(); _phoneCtrl.dispose(); super.dispose(); }
 
+  List<CharakLegalDocument>? get _docs => ref.read(_requiredDocsProvider).valueOrNull;
+
   bool get _valid =>
-      _ctrl.text.trim().length >= 2 && (!_needsPhone || _phoneCtrl.text.length == 10);
+      _ctrl.text.trim().length >= 2 &&
+      (!_needsPhone || _phoneCtrl.text.length == 10) &&
+      _docs != null &&
+      (_docs!.isEmpty || _consented);
 
   Future<void> _save() async {
     setState(() { _loading = true; _error = null; _phoneError = null; });
@@ -34,9 +44,11 @@ class _State extends ConsumerState<NameEntryScreen> {
         name: _ctrl.text.trim(),
         phone: _needsPhone ? '+91${_phoneCtrl.text}' : null,
       );
-      // New patient account established — record consent to the current legal
-      // document versions (append-only, DPDP accountability). Best-effort.
-      await CharakLegal.recordConsents();
+      // The boxes the patient just ticked, recorded against the exact versions
+      // shown (append-only, DPDP accountability). Not best-effort: without the
+      // record there is no consent, so a failure stops here with a message.
+      final docs = _docs ?? const [];
+      if (docs.isNotEmpty) await CharakLegal.accept(docs, method: 'signup_checkbox');
       if (mounted) context.go('/home');
     } on ApiException catch (e) {
       setState(() {
@@ -93,11 +105,27 @@ class _State extends ConsumerState<NameEntryScreen> {
                   onSubmitted: (_) { if (_valid) _save(); },
                 ),
               ],
+              const SizedBox(height: 22),
+              ref.watch(_requiredDocsProvider).when(
+                loading: () => const CharakSkeleton(height: 96, radius: 20),
+                error: (e, _) => CharakErrorState(
+                  error: e,
+                  onRetry: () => ref.invalidate(_requiredDocsProvider),
+                ),
+                data: (docs) => docs.isEmpty
+                    ? const SizedBox.shrink()
+                    : CharakConsentChecklist(
+                        documents: docs,
+                        onAllChecked: (v) => setState(() => _consented = v),
+                      ),
+              ),
             ]),
           ),
         ),
         CharakCtaBar.single(
           ListenableBuilder(
+            // _consented and the documents arrive through setState / the
+            // provider, which rebuild this screen anyway.
             listenable: Listenable.merge([_ctrl, _phoneCtrl]),
             builder: (_, __) => CharakButton(
               label: 'Continue',

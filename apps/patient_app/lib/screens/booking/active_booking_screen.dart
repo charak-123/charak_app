@@ -35,24 +35,46 @@ class _Body extends StatelessWidget {
   final String bookingId;
   const _Body({required this.booking, required this.bookingId});
 
-  Future<void> _cancel(BuildContext context, bool paid) async {
+  /// Fetch what cancelling now would refund, say exactly that, and cancel
+  /// against that amount. If the outcome moved in between (the doctor just
+  /// started travelling), the server refuses with the new quote and the
+  /// patient sees it before anything is cancelled.
+  Future<void> _cancel(BuildContext context) async {
+    Map<String, dynamic> quote;
+    try {
+      quote = await ApiClient.instance.get('/bookings/$bookingId/cancellation-quote')
+          as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      if (context.mounted) showCharakToast(context, message: e.message, isError: true);
+      return;
+    }
+    if (context.mounted) await _confirmAndCancel(context, quote);
+  }
+
+  Future<void> _confirmAndCancel(BuildContext context, Map<String, dynamic> quote,
+      {bool changed = false}) async {
     final ok = await showCharakConfirm(
       context,
-      title: 'Cancel this booking?',
-      message: paid
-          ? 'The doctor is told straight away. Your full payment is refunded to your '
-              'original payment method — banks usually take 5–7 working days.'
-          : 'The doctor is told straight away. You have not been charged.',
+      title: changed ? 'The refund has changed' : 'Cancel this booking?',
+      message: cancellationMessage(quote),
       confirmLabel: 'Cancel booking',
       cancelLabel: 'Keep it',
       destructive: true,
     );
     if (!ok || !context.mounted) return;
     try {
-      await ApiClient.instance.patch('/bookings/$bookingId/cancel', {});
+      await ApiClient.instance.patch('/bookings/$bookingId/cancel', {
+        'expected_refund_paise': (quote['refund_paise'] as num?)?.toInt() ?? 0,
+      });
       if (context.mounted) context.go('/booking/$bookingId/status');
     } on ApiException catch (e) {
-      if (context.mounted) showCharakToast(context, message: e.message, isError: true);
+      if (!context.mounted) return;
+      final fresh = e.body?['quote'];
+      if (e.statusCode == 409 && fresh is Map<String, dynamic>) {
+        await _confirmAndCancel(context, fresh, changed: true);
+      } else {
+        showCharakToast(context, message: e.message, isError: true);
+      }
     }
   }
 
@@ -169,6 +191,11 @@ class _Body extends StatelessWidget {
               message: 'Visit completed. Your receipt is in History.',
             ),
           ],
+
+          if (status != 'completed' && freeUntilLine(booking) != null) ...[
+            const SizedBox(height: 14),
+            Text(freeUntilLine(booking)!, style: charakHintStyle, textAlign: TextAlign.center),
+          ],
         ],
       )),
 
@@ -193,7 +220,7 @@ class _Body extends StatelessWidget {
             child: CharakButton(
               label: 'Cancel booking',
               variant: CharakButtonVariant.danger,
-              onPressed: () => _cancel(context, status == 'paid'),
+              onPressed: () => _cancel(context),
             ),
           ),
         ],
@@ -259,4 +286,43 @@ class _ActRow extends StatelessWidget {
       ),
     ]),
   );
+}
+
+
+/// The confirm-sheet sentence for a cancellation quote (backend
+/// GET /bookings/{id}/cancellation-quote). Says exactly what comes back.
+String cancellationMessage(Map<String, dynamic> quote) {
+  final paid = (quote['paid_paise'] as num?)?.toInt() ?? 0;
+  final refund = (quote['refund_paise'] as num?)?.toInt() ?? 0;
+  final pct = (quote['refund_pct'] as num?)?.toInt() ?? 100;
+  String rupees(int paise) => CharakFormat.rupees(paise / 100);
+  const lead = 'The doctor is told straight away.';
+  const timing = 'Refunds go back to your original payment method; banks usually take '
+      '5–7 working days.';
+
+  if (paid <= 0) return '$lead You have not been charged.';
+  if (pct >= 100) return '$lead Your full payment of ${rupees(paid)} is refunded. $timing';
+  if (quote['reason'] == 'journey_started') {
+    return 'Your doctor has already started travelling to you, so under the '
+        'cancellation policy the ${rupees(paid)} fee isn\'t refunded.';
+  }
+  if (refund <= 0) {
+    return 'Under the cancellation policy, cancelling now refunds nothing of the '
+        '${rupees(paid)} you paid.';
+  }
+  return 'It\'s close to your appointment, so under the cancellation policy you get '
+      '${rupees(refund)} back ($pct%). The rest goes to the doctor. $timing';
+}
+
+/// "Free cancellation until Today, 4:00 PM", from the booking's own policy
+/// version. Null when the policy has no cut-off or it has passed.
+String? freeUntilLine(Map<String, dynamic> booking, {DateTime? now}) {
+  final policy = booking['cancellation_policy'] as Map<String, dynamic>?;
+  final minutes = (policy?['free_cancellation_minutes'] as num?)?.toInt();
+  final start = DateTime.tryParse(booking['scheduled_start'] as String? ?? '');
+  if (policy == null || start == null) return null;
+  if (minutes == null) return 'Free cancellation until the appointment starts.';
+  final until = start.subtract(Duration(minutes: minutes));
+  if (until.isBefore(now ?? DateTime.now())) return null;
+  return 'Free cancellation until ${CharakFormat.dayTime(until)}.';
 }

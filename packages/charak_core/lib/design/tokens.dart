@@ -158,6 +158,7 @@ abstract final class CharakRadius {
   static const sheet = Radius.circular(CharakRadii.sheet);
   /// 16 — rounded-square avatars.
   static const avatar = Radius.circular(CharakRadii.avatar);
+  static const check = Radius.circular(CharakRadii.check);
 }
 
 abstract final class CharakSpacing {

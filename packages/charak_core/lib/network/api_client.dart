@@ -269,14 +269,20 @@ class ApiClient {
       });
     }
 
-    throw ApiException(msg, res.statusCode);
+    throw ApiException(msg, res.statusCode, body is Map<String, dynamic> ? body : null);
   }
 }
 
 class ApiException implements Exception {
   final String message;
   final int statusCode;
-  const ApiException(this.message, this.statusCode);
+
+  /// The decoded error body, when there was one. Carries the extras some
+  /// errors come with: `consent_required` on a 428, the new `quote` when a
+  /// cancellation refund changed, the current `policy` when it moved.
+  final Map<String, dynamic>? body;
+
+  const ApiException(this.message, this.statusCode, [this.body]);
   @override
   String toString() => 'ApiException($statusCode): $message';
 }

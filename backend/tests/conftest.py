@@ -239,6 +239,32 @@ def _platform_services_are_sinks(request):
     app_config.clear_cache()
 
 
+DEFAULT_POLICY = {
+    "id": "pol-1", "channel": "online_consult", "version": "2026-10-26",
+    "rules": [{"when": {}, "refund_pct": 100}], "summary": "Full refund before the start.",
+}
+
+
+@pytest.fixture(autouse=True)
+def _policy_and_consent_sinks(request):
+    """
+    services/cancellation.py and services/legal.py (migration 0024) bind their
+    own ``supabase``. Default: one current full-refund policy for any channel,
+    and no consent rows (the requirement switches in app_config are off). Tests
+    about policies, quotes or consent patch these themselves.
+    """
+    if _integration(request):
+        yield
+        return
+    policy_db = MagicMock()
+    policy_db.table.return_value = make_chain(list_data=[DEFAULT_POLICY])
+    legal_db = MagicMock()
+    legal_db.table.return_value = make_chain(list_data=[])
+    with patch("app.services.cancellation.supabase", policy_db), \
+         patch("app.services.legal.supabase", legal_db):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _phone_release_finds_nothing(request):
     """
@@ -369,6 +395,7 @@ _ROUTER_SUPABASE_PATHS = [
     "app.services.refunds.supabase",
     "app.services.webhook_inbox.supabase",
     "app.services.jobs.supabase",
+    "app.services.legal.supabase",
     "app.services.idempotency.supabase",
     "app.services.app_config.supabase",
     "app.services.erasure.supabase",

@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 from .errors import AppError, app_error_handler, db_error_handler
 from .routers import (
-    addresses, admin, app_config, auth, bookings, calls, categories, complaints, consents, doctors,
-    earnings, intake, maintenance, notifications, payments, payouts,
+    account, addresses, admin, app_config, auth, bookings, calls, categories, complaints, consents, doctors,
+    earnings, intake, legal, maintenance, notifications, payments, payouts,
     procedure_bills, push, ratings, schedules, slot_blocks, uploads, users,
 )
 from .services.idempotency import IdempotencyMiddleware
@@ -103,6 +103,8 @@ app.include_router(addresses.router,        prefix="/addresses",        tags=["a
 app.include_router(uploads.router,          prefix="/uploads",          tags=["uploads"])
 app.include_router(maintenance.router,      prefix="/maintenance",      tags=["maintenance"])
 app.include_router(app_config.router,       prefix="/config",           tags=["config"])
+app.include_router(legal.router,            prefix="/legal",            tags=["legal"])
+app.include_router(account.router,          prefix="/me",               tags=["account"])
 
 
 @app.get("/healthz", tags=["meta"])

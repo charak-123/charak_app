@@ -22,7 +22,7 @@ Razorpay webhook delivered twice cannot pay a doctor twice.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
@@ -206,18 +206,32 @@ def ledger(doctor_id: str, status: Optional[str] = None) -> list[dict]:
 
 # ── Payout runs ──────────────────────────────────────────────────────────────
 
-def is_payout_eligible(entry: dict) -> bool:
+# What a doctor keeps from a late cancellation (LD-005) can be paid out this
+# long after the cancellation (LD-006, proposed), the same wait a completed
+# visit gets.
+CANCELLATION_HOLD = timedelta(hours=48)
+
+
+def is_payout_eligible(entry: dict, now: Optional[datetime] = None) -> bool:
     """
     Whether a payable entry may go into a payout yet.
 
     A consult fee is credited when the patient pays, which is before the visit
     happens. Paying it out then would hand the doctor money for a visit that can
     still be cancelled and refunded. So a fee waits until its booking is
-    completed. Adjustments and reversals have no visit to wait for.
+    completed, or, for the part a late cancellation leaves the doctor, until 48
+    hours after the cancellation. Adjustments and reversals have no visit to
+    wait for.
     """
     if entry.get("source") in ("adjustment", "reversal"):
         return True
-    return ((entry.get("bookings") or {}).get("status")) == "completed"
+    booking = entry.get("bookings") or {}
+    if booking.get("status") == "completed":
+        return True
+    if booking.get("status") == "cancelled" and booking.get("cancelled_at"):
+        cancelled = datetime.fromisoformat(str(booking["cancelled_at"]).replace("Z", "+00:00"))
+        return (now or datetime.now(timezone.utc)) - cancelled >= CANCELLATION_HOLD
+    return False
 
 
 def create_payout(doctor_id: str, period_start: str, period_end: str) -> dict:
@@ -230,7 +244,7 @@ def create_payout(doctor_id: str, period_start: str, period_end: str) -> dict:
     """
     candidates = (
         supabase.table("doctor_ledger_entries")
-        .select("*, bookings(status)")
+        .select("*, bookings(status, cancelled_at)")
         .eq("doctor_id", doctor_id)
         .eq("status", "payable")
         .gte("created_at", period_start)

@@ -147,6 +147,16 @@ here before launch.
   - The server decides which came first when a cancel and a journey start arrive together.
     If the outcome changed after the patient saw the refund amount, the patient is shown
     the new amount and confirms again.
+- **Built (2026-10-26, migration 0024):**
+  - The rules are a versioned policy in the database, and each booking keeps the version
+    it was made under.
+  - The patient sees the policy and the exact free-cancellation time, and ticks it before
+    sending a request.
+  - The cancel screen shows the exact refund.
+  - Refunds round down to the paisa, so the doctor keeps the odd paisa of a 50% split.
+  - Bookings made before this keep a full refund.
+  - Online consultations keep a full refund until the online rule (D3 in the plan) is
+    confirmed; adding it is one new policy version (runbook §6c).
 
 ## LD-006: Practitioner payouts
 

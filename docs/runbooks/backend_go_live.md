@@ -18,7 +18,14 @@ export API_URL=$(gcloud run services describe charak-api --region asia-south1 --
 
 ## 0. Apply the migrations (required first — nothing else works without this)
 
-> **Latest: `0023_booking_state_machine_and_platform.sql`.** Apply it in the SQL
+> **Latest: `0024_cancellation_policy_and_consent.sql`.** Apply before deploying
+> the backend that uses it. It adds versioned cancellation policies (LD-005 for
+> home visits; online keeps a full refund until D3 is decided), the refund quote
+> the cancel uses, partial refunds, `legal_documents`, and consent records with
+> method and booking. Existing bookings keep their full-refund terms (the
+> `legacy` policy version). The two consent switches start off; see §6c.
+>
+> **Before it: `0023_booking_state_machine_and_platform.sql`.** Apply it in the SQL
 > Editor *before* deploying the backend that uses it. That backend calls
 > `transition_booking()`, `expire_payment_holds()` and the job functions, and
 > writes to `device_tokens`, `idempotency_keys` and `webhook_events`. The backend
@@ -410,6 +417,49 @@ update app_config set value = '{"patient": "1.1.0", "doctor": "1.1.0"}' where ke
 Instances pick the change up within a minute. Set the iOS store links in
 `store_urls` once the apps are listed (they're null until then; the screen then
 names the App Store instead of linking).
+
+---
+
+## 6c. Cancellation policy and consent
+
+**Changing a cancellation policy.** A published version is never edited (the
+table refuses). Add a new version, and new bookings get it. Existing bookings
+keep theirs. For example, when the online late-cancellation rule (D3) is
+decided as "no refund inside 15 minutes":
+
+```sql
+insert into policies (kind, channel, version, rules, summary, decision_ref) values
+  ('cancellation', 'online_consult', '2026-11-01',
+   '[{"when": {"minutes_before_start_lt": 15}, "refund_pct": 0},
+     {"when": {}, "refund_pct": 100}]',
+   'Free cancellation up to 15 minutes before your consultation. After that the fee '
+   'isn''t refunded. If the doctor cancels or doesn''t join, you get a full refund.',
+   'LD-005 / D3');
+```
+
+Rules are checked in order and the first match wins. Conditions:
+`journey_started` (true/false) and `minutes_before_start_lt` (number).
+Refunds round down to the paisa. A doctor or ops cancellation is always a full
+refund.
+
+**Publishing a new legal document version.** Publish the text on the website
+first, then:
+
+```sql
+insert into legal_documents (type, version, title, url, audience, material)
+values ('tos', '2026-12-01', 'Terms of Use', 'https://www.charak.care/terms', '{patient,doctor}', true);
+```
+
+Apps ask everyone again on their next visit to home. With the switch below on,
+booking also refuses (428) until they have accepted.
+
+**Consent switches** (`app_config`). Turn them on once app builds with the new
+screens are in the stores, and raise `min_app_version` at the same time (§6b):
+
+```sql
+update app_config set value = 'true' where key = 'require_legal_acceptance';           -- Terms, Privacy, Telemedicine
+update app_config set value = 'true' where key = 'require_booking_policy_acceptance';  -- the ticked cancellation policy
+```
 
 ---
 

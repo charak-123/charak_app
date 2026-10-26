@@ -29,6 +29,10 @@ class _State extends ConsumerState<HomeShell> {
   void initState() {
     super.initState();
     _tab = ref.read(homeTabIndexProvider);
+    // A material update to the Terms or Privacy Policy is asked for here, once.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) charakAskForMissingConsent(context);
+    });
   }
 
   @override

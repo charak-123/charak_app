@@ -7,6 +7,7 @@ import 'push_routes.dart';
 import 'screens/auth/phone_entry_screen.dart';
 import 'screens/auth/sign_in_screen.dart';
 import 'screens/notifications/notifications_screen.dart';
+import 'screens/profile/payments_screen.dart';
 import 'screens/auth/otp_screen.dart';
 import 'screens/auth/name_entry_screen.dart';
 import 'screens/home/home_shell.dart';
@@ -111,6 +112,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       // ── Main shell ───────────────────────────────────────────────────────
       GoRoute(path: '/home',                 pageBuilder: (_, __) => _rise(const HomeShell())),
       GoRoute(path: '/notifications',        pageBuilder: (_, __) => _push(const NotificationsScreen())),
+      GoRoute(path: '/payments',             pageBuilder: (_, __) => _push(const PaymentsScreen())),
 
       // ── Directory ────────────────────────────────────────────────────────
       GoRoute(path: '/directory',

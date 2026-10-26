@@ -54,6 +54,18 @@ final _screens = <(String, String, Object?)>[
   ('14_notifications', '/notifications', null),
   ('15_booking_status_cancelled_refund', '/booking/bk-cancelled/status', null),
   ('16_history_detail_refunded', '/booking/bk-refunded/history-detail', null),
+  ('18_signup_consent', '/auth/name', null),
+  ('19_review_confirm_online', '/book/review', {
+    'doctor_id': 'doc-1', 'channel': 'online_consult',
+    'scheduled_start': DateTime.now().add(const Duration(days: 1, hours: 3)).toUtc().toIso8601String(),
+    'text': 'Fever for two days, around 101°F, with a mild cough at night.',
+  }),
+  ('20_review_confirm_home', '/book/review', {
+    'doctor_id': 'doc-2', 'channel': 'home_visit', 'address_id': 'addr-1',
+    'scheduled_start': DateTime.now().add(const Duration(days: 1, hours: 3)).toUtc().toIso8601String(),
+    'text': 'Knee pain after a fall yesterday.',
+  }),
+  ('21_payments', '/payments', null),
   ('17_update_required', '/update',
       const CharakUpdateInfo(minVersion: '1.2.0', storeUrl: 'https://play.google.com/store/apps/details?id=com.charak.patient_app')),
 ];
@@ -88,7 +100,7 @@ void main() {
       addTearDown(tester.view.reset);
 
       CharakColors.useScheme(CharakScheme.patient);
-      ApiClient.debugClient = patientBackend();
+      ApiClient.debugClient = patientBackend(newPatient: name.contains('consent'));
       FlutterSecureStorage.setMockInitialValues({'auth_token': 'fixture-token'});
       SharedPreferences.setMockInitialValues({'user_id': patientId, 'user_name': 'Aarav Kulkarni'});
 

@@ -170,10 +170,12 @@
   --radius-tile: 20px;
   --radius-field: 20px;
   --radius-avatar: 16px;
+  --radius-check: 8px;
   --size-button-min-height: 52px;
   --size-button-compact: 44px;
   --size-chip-height: 40px;
   --size-touch-min: 44px;
+  --size-check-box: 24px;
   --size-bottom-bar-height: 68px;
   --size-nav-pill-width: 56px;
   --size-nav-pill-height: 32px;

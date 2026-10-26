@@ -34,3 +34,4 @@ export 'components/charak_sheet.dart';
 export 'components/charak_nav.dart';
 export 'components/charak_layout.dart';
 export 'components/charak_brand.dart';
+export 'components/charak_check.dart';

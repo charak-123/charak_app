@@ -21,6 +21,7 @@ class _CharakGalleryState extends State<CharakGallery> {
   String _channel = 'online';
   String _slot = '10:00';
   bool _online = true;
+  bool _agreed = false;
   bool _home = false;
 
   @override
@@ -118,6 +119,16 @@ class _CharakGalleryState extends State<CharakGallery> {
               CharakStatusPill.forStatus(s),
             for (final r in CharakRefundState.values) CharakStatusPill.forRefund(r),
           ]),
+          const SizedBox(height: 12),
+          CharakCheckRow(
+            value: _agreed,
+            onChanged: (v) => setState(() => _agreed = v),
+            spans: [
+              const TextSpan(text: 'I accept the '),
+              CharakCheckRow.link('Terms of Use', () {}),
+            ],
+          ),
+          CharakCheckRow(value: true, onChanged: (_) {}, label: "I've read the cancellation policy"),
           const SizedBox(height: 24),
           CharakGroupedList(
             label: 'Consultation',

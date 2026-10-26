@@ -12,6 +12,18 @@ final _reviewDoctorProvider =
   return res as Map<String, dynamic>;
 });
 
+/// The cancellation policy a booking made now would get, shown and ticked
+/// before the request is sent (backend GET /legal/cancellation-policy).
+final _policyProvider =
+    FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, channel) async {
+  return await ApiClient.instance.get('/legal/cancellation-policy?channel=$channel')
+      as Map<String, dynamic>;
+});
+
+/// Which documents this patient has accepted; telemedicine consent is asked
+/// for here, at their first online consultation.
+final _legalProvider = FutureProvider.autoDispose((ref) => CharakLegal.status());
+
 class ReviewConfirmScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> booking;
   const ReviewConfirmScreen({super.key, required this.booking});
@@ -21,20 +33,24 @@ class ReviewConfirmScreen extends ConsumerStatefulWidget {
 
 class _State extends ConsumerState<ReviewConfirmScreen> {
   bool _sending = false;
+  bool _policyTicked = false;
+  bool _telemedicineTicked = false;
 
-  Future<void> _send() async {
+  Future<void> _send({
+    required Map<String, dynamic> policy,
+    CharakLegalDocument? telemedicine,
+  }) async {
     setState(() => _sending = true);
     try {
       final b = widget.booking;
 
-      final created = await ApiClient.instance.post('/bookings/', {
-        'doctor_id':       b['doctor_id'] as String,
-        'channel':         b['channel'] as String,
-        'scheduled_start': b['scheduled_start'] as String,
-        // Home visits book against a saved address; the backend needs its
-        // coordinates to check the doctor's service radius.
-        if (b['address_id'] != null) 'address_id': b['address_id'] as String,
-      }) as Map<String, dynamic>;
+      // First online consultation: record the telemedicine consent the
+      // patient just ticked, before the booking that relies on it.
+      if (telemedicine != null) {
+        await CharakLegal.accept([telemedicine], method: 'booking_confirmation');
+      }
+
+      final created = await _create(b, policy['version'] as String);
 
       final bookingId = created['id'] as String;
 
@@ -54,13 +70,39 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
 
       if (mounted) context.go('/book/sent/$bookingId');
     } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: CharakPalette.statusDeclined),
-        );
+      if (!mounted) return;
+      if (e.statusCode == 409 && e.body?['policy'] != null) {
+        // The policy changed while this screen was open: show the new one,
+        // and ask for the tick again.
+        ref.invalidate(_policyProvider(widget.booking['channel'] as String));
+        setState(() => _policyTicked = false);
       }
+      showCharakToast(context, message: e.message, isError: true);
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// Create the booking. A 428 means a document this booking needs hasn't been
+  /// accepted (a material update since sign-up): show it, then try once more.
+  Future<Map<String, dynamic>> _create(Map<String, dynamic> b, String policyVersion) async {
+    Future<Map<String, dynamic>> post() async => await ApiClient.instance.post('/bookings/', {
+          'doctor_id':       b['doctor_id'] as String,
+          'channel':         b['channel'] as String,
+          'scheduled_start': b['scheduled_start'] as String,
+          // Home visits book against a saved address; the backend needs its
+          // coordinates to check the doctor's service radius.
+          if (b['address_id'] != null) 'address_id': b['address_id'] as String,
+          'accepted_policy_version': policyVersion,
+        }) as Map<String, dynamic>;
+    try {
+      return await post();
+    } on ApiException catch (e) {
+      final needed = CharakLegalDocument.listFrom(e.body?['consent_required']);
+      if (e.statusCode != 428 || needed.isEmpty || !mounted) rethrow;
+      final ok = await showCharakConsentSheet(context, needed, method: 'reconsent');
+      if (!ok) rethrow;
+      return await post();
     }
   }
 
@@ -147,6 +189,23 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
                     : null;
     final intakePreview = text.isNotEmpty ? text : transcript;
 
+    final policyAsync = ref.watch(_policyProvider(channel));
+    final policy = policyAsync.valueOrNull;
+    final legal = ref.watch(_legalProvider).valueOrNull;
+    // Asked once: only when this is an online consult and the current version
+    // hasn't been accepted.
+    final telemedicine = isHome
+        ? null
+        : legal?.documents.where((d) => d.type == 'telemedicine' && !d.accepted).firstOrNull;
+    final freeMinutes = (policy?['free_cancellation_minutes'] as num?)?.toInt();
+    final startAt = DateTime.tryParse(start)?.toLocal();
+    final freeUntil = (freeMinutes != null && startAt != null)
+        ? startAt.subtract(Duration(minutes: freeMinutes))
+        : null;
+    final ready = policy != null &&
+        _policyTicked &&
+        (telemedicine == null || _telemedicineTicked);
+
     return CharakScreen(
       title: 'Review & confirm',
       body: Column(children: [
@@ -227,15 +286,78 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
               'slot does not confirm it automatically.',
               style: charakHintStyle,
             ),
+
+            // ── Cancellation policy, shown and ticked before booking ─────
+            const SizedBox(height: 18),
+            policyAsync.when(
+              loading: () => const CharakSkeleton(height: 120, radius: 26),
+              error: (e, _) => CharakErrorState(
+                error: e,
+                onRetry: () => ref.invalidate(_policyProvider(channel)),
+              ),
+              data: (policy) => CharakSummaryCard(
+                title: 'Cancellation',
+                rows: [
+                  Text(
+                    freeUntil != null
+                        ? 'Free cancellation until ${CharakFormat.dayTime(freeUntil)}'
+                        : 'Free cancellation until the consultation starts',
+                    style: CharakText.label.copyWith(color: CharakColors.ink),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(policy['summary'] as String? ?? '',
+                      style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
+                  const SizedBox(height: 6),
+                  CharakCheckRow(
+                    value: _policyTicked,
+                    onChanged: (v) => setState(() => _policyTicked = v),
+                    label: "I've read the cancellation policy",
+                  ),
+                  if (telemedicine != null)
+                    CharakCheckRow(
+                      value: _telemedicineTicked,
+                      onChanged: (v) => setState(() => _telemedicineTicked = v),
+                      spans: [
+                        const TextSpan(text: 'I accept the '),
+                        CharakCheckRow.link(telemedicine.title,
+                            () => CharakLegal.open(telemedicine.url)),
+                        const TextSpan(text: ' for consultations by video'),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'CHARAK is not for emergencies. In an emergency, call 112.',
+              style: charakHintStyle,
+            ),
           ],
         )),
 
-        CharakCtaBar.single(
-          CharakButton(
-            label: price > 0 ? 'Send request · ${CharakFormat.rupees(price)}' : 'Send request',
-            isLoading: _sending,
-            onPressed: _send,
-          ),
+        CharakCtaBar(
+          // A disabled button needs a reason: the boxes to tick sit below the
+          // fold on most phones.
+          header: ready || policy == null
+              ? null
+              : Text(
+                  telemedicine != null && !_telemedicineTicked && _policyTicked
+                      ? 'Accept the telemedicine consent below to continue.'
+                      : 'Tick the cancellation policy below to continue.',
+                  style: charakHintStyle,
+                  textAlign: TextAlign.center,
+                ),
+          children: [
+            Expanded(
+              child: CharakButton(
+                label: price > 0 ? 'Send request · ${CharakFormat.rupees(price)}' : 'Send request',
+                isLoading: _sending,
+                onPressed: ready && !_sending
+                    ? () => _send(policy: policy, telemedicine: telemedicine)
+                    : null,
+              ),
+            ),
+          ],
         ),
       ]),
     );

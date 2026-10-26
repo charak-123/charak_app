@@ -68,8 +68,28 @@ Map<String, dynamic> _booking(String id, String doctorId, String status, DateTim
     'patient_address': channel == 'home_visit' ? 'Flat 4B, Rose Lane, Kothrud, Pune 411038' : null,
     'distance_km': channel == 'home_visit' ? 2.4 : null,
     'doctors': {'name': d['name'], 'photo_url': null, 'categories': d['categories']},
+    'cancellation_policy': _policies[channel],
   };
 }
+
+/// Cancellation policies as GET /legal/cancellation-policy serves them (LD-005).
+final _policies = <String, Map<String, dynamic>>{
+  'home_visit': {
+    'channel': 'home_visit', 'version': '2026-10-26', 'free_cancellation_minutes': 120,
+    'summary': 'Free cancellation up to 2 hours before your visit. Cancel later and you get 50% '
+        "back, as long as the doctor hasn't started travelling. Once the doctor is on the way, "
+        "the fee isn't refunded. If the doctor cancels or doesn't come, you get a full refund.",
+  },
+  'online_consult': {
+    'channel': 'online_consult', 'version': '2026-10-26', 'free_cancellation_minutes': null,
+    'summary': 'Cancel any time before your consultation starts for a full refund. If the doctor '
+        "cancels or doesn't join, you get a full refund.",
+  },
+};
+
+Map<String, dynamic> _doc(String type, String title, String url, {bool accepted = true}) =>
+    {'type': type, 'version': '2026-10-01', 'title': title, 'url': url, 'material': true,
+     'accepted': accepted};
 
 final bookings = <Map<String, dynamic>>[
   _booking('bk-accepted', 'doc-2', 'accepted', _at(1, 11), channel: 'home_visit', price: 800),
@@ -107,10 +127,43 @@ http.Response _json(Object body, [int status = 200]) => http.Response(
       headers: {'content-type': 'application/json; charset=utf-8'},
     );
 
-/// Answers every request the patient app makes.
-MockClient patientBackend() => MockClient((req) async {
+/// Answers every request the patient app makes. [newPatient]: Terms and
+/// Privacy not yet accepted (the sign-up consent step).
+MockClient patientBackend({bool newPatient = false}) => MockClient((req) async {
       final p = req.url.path.replaceAll(RegExp(r'/$'), '');
       final m = req.method;
+      if (p == '/legal/current') {
+        final docs = [
+          _doc('tos', 'Terms of Use', 'https://www.charak.care/terms', accepted: !newPatient),
+          _doc('privacy', 'Privacy Policy', 'https://www.charak.care/privacy', accepted: !newPatient),
+          _doc('telemedicine', 'Telemedicine Consent', 'https://www.charak.care/telemedicine',
+              accepted: false),
+        ];
+        return _json({
+          'documents': docs,
+          'missing': [for (final d in docs) if (d['accepted'] != true && d['type'] != 'telemedicine') d],
+        });
+      }
+      if (p == '/legal/cancellation-policy') {
+        return _json(_policies[req.url.queryParameters['channel']] ?? _policies['online_consult']!);
+      }
+      if (p == '/me/payments') {
+        return _json([
+          for (final id in ['bk-paid', 'bk-cancelled', 'bk-refunded', 'bk-done'])
+            () {
+              final b = bookings.firstWhere((b) => b['id'] == id);
+              final refunds = _refunds[id] ?? const <Map<String, dynamic>>[];
+              return {
+                'id': 'pay-$id', 'booking_id': id, 'amount': b['price_confirmed'], 'type': 'consult_fee',
+                'status': refunds.isNotEmpty && refunds.every((r) => r['status'] == 'processed')
+                    ? 'refunded' : 'completed',
+                'paid_at': b['created_at'], 'created_at': b['created_at'], 'refunds': refunds,
+                'bookings': {'id': id, 'channel': b['channel'], 'scheduled_start': b['scheduled_start'],
+                             'status': b['status'], 'doctors': {'name': (b['doctors'] as Map)['name']}},
+              };
+            }(),
+        ]);
+      }
       if (p == '/users/me') {
         return _json({'id': patientId, 'name': 'Aarav Kulkarni', 'phone': '+919876543210', 'email': 'aarav@example.com'});
       }

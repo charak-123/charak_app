@@ -657,6 +657,29 @@ starts. Sizes are relative: S, M, L.
 
 ### Phase 2: Consent, cancellation, refunds and the ledger (L)
 
+> **Progress (2026-10-26): done, not deployed.**
+>
+> The double-entry ledger moved to Phase 5, next to the earnings tab and withdrawals that
+> use it; its release timing depends on Phase 3's prescription timestamps.
+>
+> Built:
+> - migration 0024 (versioned cancellation policies, `cancellation_quote()`, partial refunds
+>   with the doctor keeping the rest, `legal_documents`, consent records with method and
+>   booking, two rollout switches)
+> - quote endpoint and quoted cancel (409 with the new quote if it moved), and reason codes
+> - `/legal/*` and `/me/payments`
+> - kept cancellation amounts become payable 48 h after the cancel
+> - patient app: sign-up ticks, policy and telemedicine ticks before booking, exact refund
+>   in the cancel sheet, free-until line, Payments & refunds screen, emergency notice
+> - doctor app: onboarding ticks
+> - both apps: re-consent sheet; `CharakCheckRow` added to the gallery
+> - admin: booking timeline
+>
+> Tests: 687 unit, 84 integration; Flutter suites and the admin build pass.
+>
+> To deploy: apply 0024, then deploy the backend. Turn the consent switches on only after
+> the new app builds ship (runbook §6c).
+
 - **Build:**
   - legal documents and the acceptance screens in both apps
   - the booking disclosure and its snapshot
