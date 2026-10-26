@@ -42,8 +42,10 @@ create table if not exists doctor_price_rules (
   visit_category  text not null check (visit_category in ('initial', 'follow_up')),
   duration_min    int  not null check (duration_min in (10, 15, 20, 30, 45, 60)),
   -- Integer paise. A first visit is never free; a follow-up may be (a free
-  -- follow-up is common practice) and then needs no payment.
-  price_paise     bigint not null check (price_paise between 0 and 5000000),
+  -- follow-up is common practice) and then needs no payment. The bound here
+  -- is a sanity limit (₹10 lakh) so existing prices always carry over; the
+  -- API holds new prices to ₹50,000 (services/pricing.py).
+  price_paise     bigint not null,
   currency        text not null default 'INR' check (currency = 'INR'),
   effective_from  timestamptz not null default now(),
   effective_until timestamptz,
@@ -52,6 +54,13 @@ create table if not exists doctor_price_rules (
   constraint price_rules_initial_not_free check (visit_category = 'follow_up' or price_paise > 0),
   constraint price_rules_period check (effective_until is null or effective_until >= effective_from)
 );
+
+-- Named, and re-added on a re-run: an earlier version of this migration
+-- created the table with a ₹50,000 bound that refused existing prices.
+alter table doctor_price_rules drop constraint if exists doctor_price_rules_price_paise_check;
+alter table doctor_price_rules drop constraint if exists price_rules_price_bounds;
+alter table doctor_price_rules add constraint price_rules_price_bounds
+  check (price_paise between 0 and 100000000);
 
 -- One current price per (doctor, channel, category, duration).
 create unique index if not exists uq_price_rules_current
