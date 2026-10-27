@@ -263,7 +263,8 @@ def list_doctors(
 ):
     query = (
         supabase.table("doctors")
-        .select("*, categories(name)")
+        .select("id, name, phone, category_id, verification_status, suspended, rating_avg, rating_count, "
+                "offers_online_consult, offers_home_visit, accepting_requests, created_at, categories(name)")
         .order("created_at", desc=True)
     )
     if status:
@@ -272,7 +273,11 @@ def list_doctors(
         query = query.eq("verification_status", status)
     if suspended is not None:
         query = query.eq("suspended", suspended)
-    return query.execute().data
+    rows = query.execute().data or []
+    for row in rows:
+        row["phone"] = _mask_phone(row.get("phone"))
+        row["category_name"] = (row.pop("categories", None) or {}).get("name")
+    return rows
 
 
 def _mask_phone(phone: Optional[str]) -> Optional[str]:

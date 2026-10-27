@@ -67,6 +67,7 @@ export default function Incidents() {
   const { data = [], isLoading, isError, error } = useQuery<Incident[]>({
     queryKey: ['admin-incidents', view],
     queryFn: () => api.get<Incident[]>(`/admin/incidents?view=${view}`),
+    refetchInterval: 60_000,
   })
 
   async function post(id: string, path: string, body: unknown) {

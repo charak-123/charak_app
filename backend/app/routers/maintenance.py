@@ -8,6 +8,7 @@ a missing secret in development is inconvenient rather than dangerous.
 """
 import hmac
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header
@@ -95,8 +96,11 @@ def tick(_: bool = Depends(require_cron)):
     queue. Each part has its own time budget so a backlog in one can't starve
     the other, and the whole call stays well inside the scheduler's deadline.
     """
+    started = time.monotonic()
     outbox = notifications.sweep_outbox()
-    queue = jobs.run_due(budget_seconds=40.0)
+    t_outbox = time.monotonic()
+    queue = jobs.run_due(budget_seconds=30.0)
+    t_jobs = time.monotonic()
     # Backstop for the 72-hour completion: anything a lost job left waiting.
     try:
         completed = visits.complete_overdue()
@@ -110,6 +114,10 @@ def tick(_: bool = Depends(require_cron)):
     except Exception as exc:                       # noqa: BLE001 — never fail the tick
         logger.error("trust sweep failed: %r", exc)
         trust = None
+    done = time.monotonic()
+    # One line per tick, so a slow part shows up in the logs by name.
+    logger.info("tick: outbox %.1fs, jobs %.1fs, sweeps %.1fs (total %.1fs)",
+                t_outbox - started, t_jobs - t_outbox, done - t_jobs, done - started)
     return {"notifications": outbox, "jobs": queue, "completed_overdue": completed, "trust": trust}
 
 

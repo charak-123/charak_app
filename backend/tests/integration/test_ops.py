@@ -197,3 +197,17 @@ def test_a_dead_job_can_be_seen_and_run_again(client_for, db):
     res = lead.post(f"/admin/system/jobs/{job_id}/retry", headers=AUTH)
     assert res.status_code == 200 and res.json()["status"] == "queued" and res.json()["attempts"] == 0
     assert lead.post(f"/admin/system/jobs/{job_id}/retry", headers=AUTH).status_code == 404
+
+
+# ── Directory ────────────────────────────────────────────────────────────────
+
+def test_the_directory_lists_every_doctor_with_a_masked_phone(seed, client_for):
+    s = seed()
+    rows = client_for(_id(), "ops", admin_role="support").get("/admin/doctors", headers=AUTH)
+    assert rows.status_code == 200, rows.text
+    mine = next(d for d in rows.json() if d["id"] == s["doctor"]["id"])
+    assert {"verification_status", "suspended", "created_at", "category_name", "rating_count"} <= set(mine)
+    assert "categories" not in mine
+    phone = s["doctor"].get("phone")
+    if phone:
+        assert mine["phone"] != phone and mine["phone"].endswith(phone[-2:])

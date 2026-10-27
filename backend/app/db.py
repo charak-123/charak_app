@@ -10,9 +10,17 @@ from .config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 # flaky resolver or a Wi-Fi blip otherwise turns into a 500 on whatever request
 # was unlucky, e.g. sign-in. httpx only retries when no request bytes were sent,
 # so a write is never applied twice.
+#
+# HTTP/1.1 with a pool, not one shared HTTP/2 connection: every request
+# thread in a process shared that single connection, and the synchronous
+# HTTP/2 client serialises a lot of the work on it, so one slow caller (the
+# every-minute tick) held up everyone else, admin pages included.
 _http = httpx.Client(
-    transport=httpx.HTTPTransport(retries=2, http2=True),
-    timeout=httpx.Timeout(30.0),
+    transport=httpx.HTTPTransport(
+        retries=2,
+        limits=httpx.Limits(max_connections=40, max_keepalive_connections=20, keepalive_expiry=30),
+    ),
+    timeout=httpx.Timeout(30.0, connect=5.0),
     follow_redirects=True,
 )
 

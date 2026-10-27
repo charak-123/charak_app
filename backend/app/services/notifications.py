@@ -21,6 +21,8 @@ send would have needed an event loop per call. Pass ``background`` (a FastAPI
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -250,9 +252,11 @@ def _finish(notification_id: str, outcome: str, error: Optional[str]) -> str:
     return outcome
 
 
-def sweep_outbox(now: Optional[datetime] = None, limit: int = 100) -> dict:
+def sweep_outbox(now: Optional[datetime] = None, limit: int = 100, budget_seconds: float = 20.0) -> dict:
     """Deliver what is due and still pending: scheduled sends, retries, and
-    rows whose inline attempt never ran."""
+    rows whose inline attempt never ran. Stops after ``budget_seconds``; the
+    rest go next tick."""
+    started = time.monotonic()
     now = now or _now()
     rows = (
         supabase.table("notifications").select("id")
@@ -265,6 +269,9 @@ def sweep_outbox(now: Optional[datetime] = None, limit: int = 100) -> dict:
     )
     outcomes: dict[str, int] = {}
     for r in rows:
+        if time.monotonic() - started > budget_seconds:
+            outcomes["deferred"] = outcomes.get("deferred", 0) + 1
+            continue
         outcome = deliver(r["id"]) or "not_claimed"
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
     return {"considered": len(rows), **outcomes}
@@ -328,12 +335,16 @@ def _send_legacy(token: str, title: str, body: str, data: dict) -> None:
         raise TokenGone(result["error"])
 
 
+# One connection to FCM, reused (keep-alive): a new client per push meant a
+# new TLS handshake per push.
+_fcm_http = httpx.Client(timeout=5)
+
+
 def _send_v1(token: str, title: str, body: str, data: dict) -> None:
     """FCM HTTP v1 — the non-deprecated API. Needs a service-account JSON."""
     access_token = _google_access_token()
     try:
-        with httpx.Client(timeout=5) as client:
-            res = client.post(
+        res = _fcm_http.post(
                 FCM_V1_URL.format(project=FCM_PROJECT_ID),
                 json={"message": {
                     "token": token,
@@ -354,7 +365,27 @@ def _send_v1(token: str, title: str, body: str, data: dict) -> None:
     res.raise_for_status()
 
 
+_token_lock = threading.Lock()
+_token_cache: dict = {"token": None, "expires": None}
+
+
 def _google_access_token() -> str:
+    """
+    An OAuth token for the FCM v1 API, reused until 5 minutes before it
+    expires (tokens last an hour). Minting one per push meant a round trip
+    to Google and an RSA signature for every notification, which is what made
+    the outbox sweep, and so the tick, take tens of seconds.
+    """
+    with _token_lock:
+        cached, expires = _token_cache["token"], _token_cache["expires"]
+        if cached and expires and expires - _now() > timedelta(minutes=5):
+            return cached
+        token, expiry = _mint_google_access_token()
+        _token_cache.update(token=token, expires=expiry or (_now() + timedelta(minutes=50)))
+        return token
+
+
+def _mint_google_access_token():
     """
     Mint an OAuth token for the FCM v1 API.
 
@@ -381,7 +412,11 @@ def _google_access_token() -> str:
             GOOGLE_APPLICATION_CREDENTIALS, scopes=scopes,
         )
     creds.refresh(Request())
-    return creds.token
+    # google-auth reports expiry as a naive UTC datetime.
+    expiry = creds.expiry if isinstance(creds.expiry, datetime) else None
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    return creds.token, expiry
 
 
 # ── Event helpers ────────────────────────────────────────────────────────────

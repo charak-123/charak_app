@@ -58,6 +58,9 @@ app.add_middleware(
     allow_credentials="*" not in _origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Browsers may reuse a preflight this long (Chrome caps it at 2 hours):
+    # without it the admin sent an OPTIONS before nearly every request.
+    max_age=7200,
 )
 
 @app.middleware("http")

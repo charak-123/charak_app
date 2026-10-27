@@ -61,6 +61,7 @@ export default function BookingsMonitor() {
   const all = useQuery<Booking[]>({
     queryKey: ['admin-bookings', 'all'],
     queryFn: () => api.get<Booking[]>('/admin/bookings'),
+    refetchInterval: 60_000,
   })
 
   const { data: bookings = [], isLoading, isError, error } = useQuery<Booking[]>({

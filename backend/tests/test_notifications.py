@@ -6,7 +6,10 @@ notification. The behaviours under test are that every event is recorded even
 with push switched off, that a delivery failure cannot break the transition that
 triggered it, and that the inbox is scoped to its owner.
 """
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -506,7 +509,14 @@ def test_push_enabled_false_with_a_project_id_but_no_credential_at_all():
         assert notif.push_enabled() is False
 
 
-def test_google_access_token_prefers_the_json_credential_over_a_file_path():
+@pytest.fixture
+def no_cached_token():
+    notif._token_cache.update(token=None, expires=None)
+    yield
+    notif._token_cache.update(token=None, expires=None)
+
+
+def test_google_access_token_prefers_the_json_credential_over_a_file_path(no_cached_token):
     """
     Both happen to be set (e.g. a deployment mid-migration) — the JSON env var
     must win, since that's the one Cloud Run secrets actually populate.
@@ -526,7 +536,7 @@ def test_google_access_token_prefers_the_json_credential_over_a_file_path():
     from_file.assert_not_called()
 
 
-def test_google_access_token_falls_back_to_a_file_path():
+def test_google_access_token_falls_back_to_a_file_path(no_cached_token):
     fake_creds = MagicMock()
     fake_creds.token = "minted-token"
     with patch.object(notif, "FIREBASE_ADMIN_CREDENTIALS_JSON", ""), \
@@ -538,3 +548,30 @@ def test_google_access_token_falls_back_to_a_file_path():
 
     assert token == "minted-token"
     from_file.assert_called_once()
+
+
+def test_google_access_token_is_reused_until_shortly_before_it_expires(no_cached_token):
+    """Minting per push made every sweep slow: one token serves the hour."""
+    minted = iter([("first", notif._now() + timedelta(minutes=60)),
+                   ("second", notif._now() + timedelta(minutes=60))])
+    with patch.object(notif, "_mint_google_access_token", side_effect=lambda: next(minted)) as mint:
+        assert notif._google_access_token() == "first"
+        assert notif._google_access_token() == "first"
+        assert mint.call_count == 1
+        notif._token_cache["expires"] = notif._now() + timedelta(minutes=4)   # nearly expired
+        assert notif._google_access_token() == "second"
+        assert mint.call_count == 2
+
+
+def test_the_sweep_stops_at_its_budget_and_leaves_the_rest_for_next_tick():
+    rows = [{"id": f"n{i}"} for i in range(5)]
+    clock = iter([0.0, 0.0, 1.0, 30.0, 30.0, 30.0])
+    db = MagicMock()
+    db.table.return_value.select.return_value.eq.return_value.lte.return_value.lte.return_value \
+        .order.return_value.limit.return_value.execute.return_value.data = rows
+    with patch.object(notif, "supabase", db), \
+         patch.object(notif, "deliver", return_value="sent") as deliver, \
+         patch.object(notif.time, "monotonic", side_effect=lambda: next(clock)):
+        out = notif.sweep_outbox(budget_seconds=20.0)
+    assert deliver.call_count == 2
+    assert out == {"considered": 5, "sent": 2, "deferred": 3}
