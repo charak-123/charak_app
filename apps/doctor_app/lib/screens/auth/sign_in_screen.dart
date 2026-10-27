@@ -60,7 +60,7 @@ class _State extends ConsumerState<SignInScreen> {
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
-            child: CharakLegalFooter(),
+            child: CharakLegalFooter(afterwards: 'You will be asked to accept them before you take bookings.'),
           ),
           CharakCtaBar.single(
             CharakButton(

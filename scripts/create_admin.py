@@ -9,8 +9,14 @@ itself uses, so it must be run somewhere that already has backend/.env (or
 the equivalent production secrets) available.
 
 Usage:
-    cd backend && ../scripts/create_admin.py ops@charak.care
+    cd backend && ../scripts/create_admin.py ops@charak.care --role ops_lead
     cd backend && ../scripts/create_admin.py ops@charak.care --reset-password
+
+--role is one of support (the default: bookings, cases, queues), ops_lead
+(also decides incidents, reviews, refunds, verification), finance (refunds and
+payouts) or admin (everything, including approving policies and managing
+admins). See backend/app/services/admin_roles.py. An admin can change a role
+later from the console.
 
 You'll be prompted for a password (not echoed). The account starts with TOTP
 not yet enrolled — the first time this person logs in at /admin/login with
@@ -43,6 +49,8 @@ def main() -> None:
     parser.add_argument("email")
     parser.add_argument("--reset-password", action="store_true",
                          help="Change the password on an existing account; keep its TOTP secret.")
+    parser.add_argument("--role", choices=("support", "ops_lead", "finance", "admin"), default="support",
+                        help="What the account may do (default: support, the least).")
     args = parser.parse_args()
     email = args.email.strip().lower()
 
@@ -79,8 +87,9 @@ def main() -> None:
         "password_hash": password_hash,
         "totp_secret": totp_secret,
         "totp_enabled": False,
+        "role": args.role,
     }).execute()
-    print(f"Created {email}.")
+    print(f"Created {email} as {args.role}.")
     print("Sign in once at the admin dashboard with just the password — it will show a QR")
     print("code to scan in an authenticator app (Google Authenticator, Authy, 1Password, …).")
     print("Entering the 6-digit code it generates finishes setup and logs you in.")

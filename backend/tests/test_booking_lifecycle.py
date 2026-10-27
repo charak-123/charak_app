@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.conftest import make_chain, make_supabase
+from tests.conftest import cancelled, make_chain, make_supabase, rpc_returns
 
 DOCTOR  = {"sub": "doc-1", "role": "doctor"}
 PATIENT = {"sub": "pat-1", "role": "patient"}
@@ -53,18 +53,21 @@ def _client(payload, db):
 
 # ── accept starts the payment hold ────────────────────────────────────────────
 
-def test_accepting_a_booking_sets_a_payment_hold():
+def test_accepting_a_booking_sets_a_payment_hold(transitions):
     """Without a hold an unpaid patient occupies a doctor's slot indefinitely."""
-    db, chain = _db(BOOKING, {**BOOKING, "status": "accepted"})
+    db, _ = _db(BOOKING, {**BOOKING, "status": "accepted"})
     with patch("app.routers.bookings.PAYMENT_HOLD_MINUTES", 10):
         for c in _client(DOCTOR, db):
             res = c.patch("/bookings/bk-1/accept", headers=AUTH)
 
     assert res.status_code == 200
-    written = chain.update.call_args[0][0]
-    assert written["status"] == "accepted"
-    assert written["hold_expires_at"] is not None
-    assert "decision_at" in written
+    call = transitions.last("accept")
+    assert call["p_actor_role"] == "doctor" and call["p_actor_id"] == "doc-1"
+    # Compare-and-set on the status the doctor saw (decision_at is stamped by
+    # transition_booking itself for accept/decline).
+    assert call["p_expected_status"] == "requested"
+    assert call["p_patch"]["hold_expires_at"] is not None
+    assert res.json()["status"] == "accepted"
 
 
 def test_accepting_notifies_the_patient_to_pay():
@@ -77,11 +80,11 @@ def test_accepting_notifies_the_patient_to_pay():
     assert rows[0]["recipient_id"] == "pat-1"
 
 
-def test_declining_clears_any_hold():
-    db, chain = _db(BOOKING, {**BOOKING, "status": "declined"})
+def test_declining_clears_any_hold(transitions):
+    db, _ = _db(BOOKING, {**BOOKING, "status": "declined"})
     for c in _client(DOCTOR, db):
         c.patch("/bookings/bk-1/decline", headers=AUTH)
-    assert chain.update.call_args[0][0]["hold_expires_at"] is None
+    assert transitions.last("decline")["p_patch"] == {"hold_expires_at": None}
 
 
 def test_another_doctor_cannot_accept_someone_elses_request():
@@ -93,16 +96,17 @@ def test_another_doctor_cannot_accept_someone_elses_request():
 
 # ── no-show ───────────────────────────────────────────────────────────────────
 
-def test_an_accepted_booking_can_be_marked_no_show():
-    db, chain = _db({**BOOKING, "status": "accepted"}, {**BOOKING, "status": "no_show"})
+def test_an_accepted_booking_can_be_marked_no_show(transitions):
+    db, _ = _db({**BOOKING, "status": "accepted"}, {**BOOKING, "status": "no_show"})
     for c in _client(DOCTOR, db):
         res = c.patch("/bookings/bk-1/no-show", headers=AUTH)
 
     assert res.status_code == 200
-    written = chain.update.call_args[0][0]
-    assert written["status"] == "no_show"
-    assert written["no_show_marked_by"] == "doc-1"
-    assert written["hold_expires_at"] is None
+    assert res.json()["status"] == "no_show"
+    call = transitions.last("no_show")
+    assert call["p_expected_status"] == "accepted"
+    assert call["p_patch"]["no_show_marked_by"] == "doc-1"
+    assert call["p_patch"]["hold_expires_at"] is None
 
 
 def test_a_no_show_creates_no_ledger_entry():
@@ -175,18 +179,27 @@ def test_running_late_is_rejected_on_an_inactive_booking():
 # ── cancellation attribution ──────────────────────────────────────────────────
 
 def test_a_patient_cancellation_is_attributed_to_the_patient():
-    db, chain = _db({**BOOKING, "status": "accepted"}, {**BOOKING, "status": "cancelled"})
+    row = {**BOOKING, "status": "accepted"}
+    db, _ = _db(row, {**row, "status": "cancelled"})
+    rpc_returns(db, cancelled(row))
     for c in _client(PATIENT, db):
         res = c.patch("/bookings/bk-1/cancel", headers=AUTH)
     assert res.status_code == 200
-    assert chain.update.call_args[0][0]["cancelled_by"] == "patient"
+    name, params = db.rpc.call_args.args
+    assert name == "cancel_booking"
+    assert params["p_cancelled_by"] == "patient"
+    # The status the decision was made on, so a concurrent change loses.
+    assert params["p_expected_status"] == "accepted"
+    assert params["p_actor_id"] == "pat-1"
 
 
 def test_a_doctor_cancellation_is_attributed_to_the_doctor():
-    db, chain = _db({**BOOKING, "status": "accepted"}, {**BOOKING, "status": "cancelled"})
+    row = {**BOOKING, "status": "accepted"}
+    db, _ = _db(row, {**row, "status": "cancelled"})
+    rpc_returns(db, cancelled(row))
     for c in _client(DOCTOR, db):
         c.patch("/bookings/bk-1/cancel", headers=AUTH)
-    assert chain.update.call_args[0][0]["cancelled_by"] == "doctor"
+    assert db.rpc.call_args.args[1]["p_cancelled_by"] == "doctor"
 
 
 def test_a_no_show_booking_cannot_then_be_cancelled():
@@ -227,7 +240,7 @@ def test_history_includes_no_show_bookings():
     for c in _client(DOCTOR, db):
         res = c.get("/bookings/doctor/history", headers=AUTH)
     assert res.status_code == 200
-    bookings.in_.assert_any_call("status", ["completed", "declined", "cancelled", "no_show"])
+    bookings.in_.assert_any_call("status", ["consulted", "completed", "declined", "cancelled", "no_show"])
 
 
 # ── the hold sweeper ──────────────────────────────────────────────────────────
@@ -238,51 +251,79 @@ def _maint_client(db):
         yield TestClient(app)
 
 
-def test_the_sweeper_releases_an_expired_hold_as_a_system_cancellation():
-    expired = {**BOOKING, "status": "accepted",
-               "hold_expires_at": "2026-09-19T00:00:00+00:00"}
-    bookings = make_chain(list_data=[expired])
+def _sweeper_db(released=(), expired=()):
+    """expire_payment_holds / expire_stale_requests (SQL, migration 0023) return
+    the ids they moved; the bookings lookup then feeds the notifications."""
+    rows = [{**BOOKING, "id": i} for i in [*released, *expired]]
     db = make_supabase({
-        "bookings": bookings,
-        "payments": make_chain(list_data=[]),
+        "bookings": make_chain(list_data=rows),
         "notifications": make_chain(list_data=[{"id": "n-1"}]),
-        "users": make_chain(list_data=[{"fcm_token": None}]),
-        "doctors": make_chain(list_data=[{"fcm_token": None}]),
     })
+    answers = {"expire_payment_holds": list(released), "expire_stale_requests": list(expired)}
+
+    def rpc(name, params):
+        call = MagicMock()
+        call.execute.return_value = MagicMock(data=answers.get(name))
+        return call
+
+    db.rpc.side_effect = rpc
+    return db
+
+
+def test_the_sweeper_releases_expired_holds_through_the_state_machine():
+    db = _sweeper_db(released=["bk-1"])
     for c in _maint_client(db):
         res = c.post("/maintenance/release-expired-holds",
                      headers={"X-Cron-Secret": "cron-secret"})
 
     assert res.status_code == 200
-    assert res.json() == {"released": 1, "booking_ids": ["bk-1"]}
-    written = bookings.update.call_args[0][0]
-    assert written["status"] == "cancelled"
-    assert written["cancelled_by"] == "system"
+    assert res.json() == {"released": 1, "booking_ids": ["bk-1"],
+                          "expired_requests": 0, "expired_request_ids": []}
+    assert [c.args[0] for c in db.rpc.call_args_list] == \
+        ["expire_payment_holds", "expire_stale_requests"]
+    # No direct status writes: the SQL functions move bookings, with events.
+    db.table("bookings").update.assert_not_called()
 
 
 def test_the_sweeper_notifies_both_parties_when_it_releases_a_slot():
-    expired = {**BOOKING, "status": "accepted", "hold_expires_at": "2026-09-19T00:00:00+00:00"}
-    db = make_supabase({
-        "bookings": make_chain(list_data=[expired]),
-        "payments": make_chain(list_data=[]),
-        "notifications": make_chain(list_data=[{"id": "n-1"}]),
-        "users": make_chain(list_data=[{"fcm_token": None}]),
-        "doctors": make_chain(list_data=[{"fcm_token": None}]),
-    })
+    db = _sweeper_db(released=["bk-1"])
     for c in _maint_client(db):
         c.post("/maintenance/release-expired-holds", headers={"X-Cron-Secret": "cron-secret"})
 
-    recipients = [call[0][0]["recipient_id"]
-                  for call in db.table("notifications").insert.call_args_list]
-    assert set(recipients) == {"pat-1", "doc-1"}
+    rows = [call[0][0] for call in db.table("notifications").insert.call_args_list]
+    assert {r["recipient_id"] for r in rows} == {"pat-1", "doc-1"}
+    assert {r["event"] for r in rows} == {"booking.hold_expired"}
+
+
+def test_the_sweeper_expires_unanswered_requests_and_tells_both_sides():
+    db = _sweeper_db(expired=["bk-9"])
+    for c in _maint_client(db):
+        res = c.post("/maintenance/release-expired-holds", headers={"X-Cron-Secret": "cron-secret"})
+
+    assert res.json()["expired_request_ids"] == ["bk-9"]
+    events = {call[0][0]["event"] for call in db.table("notifications").insert.call_args_list}
+    assert events == {"booking.request_expired"}
+
+
+def test_request_expiry_age_comes_from_app_config():
+    """Off (only once the slot starts) unless ops sets request_expiry_minutes."""
+    db = _sweeper_db()
+    with patch("app.routers.maintenance.app_config.get",
+               side_effect=lambda k, d=None: 45 if k == "request_expiry_minutes" else d):
+        for c in _maint_client(db):
+            c.post("/maintenance/release-expired-holds", headers={"X-Cron-Secret": "cron-secret"})
+    stale_call = [c for c in db.rpc.call_args_list if c.args[0] == "expire_stale_requests"][0]
+    assert stale_call.args[1] == {"p_max_age": "45 minutes"}
 
 
 def test_the_sweeper_reports_zero_when_nothing_has_expired():
-    db = make_supabase({"bookings": make_chain(list_data=[])})
+    db = _sweeper_db()
     for c in _maint_client(db):
         res = c.post("/maintenance/release-expired-holds",
                      headers={"X-Cron-Secret": "cron-secret"})
-    assert res.json() == {"released": 0, "booking_ids": []}
+    assert res.json() == {"released": 0, "booking_ids": [],
+                          "expired_requests": 0, "expired_request_ids": []}
+    db.table("notifications").insert.assert_not_called()
 
 
 def test_the_sweeper_rejects_a_wrong_secret():

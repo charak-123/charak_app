@@ -6,11 +6,14 @@ import 'package:intl/intl.dart';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
+/// Open start times for a visit of the chosen length: a time is offered only
+/// if the whole visit fits before the doctor's next booking or break.
 final _slotsProvider =
-    FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, doctorId) async {
+    FutureProvider.autoDispose.family<Map<String, dynamic>, (String, int?)>((ref, key) async {
+  final (doctorId, minutes) = key;
   final from = DateFormat('yyyy-MM-dd').format(DateTime.now());
   final res  = await ApiClient.instance.get(
-      '/doctors/$doctorId/slots?from_date=$from&days=6');
+      '/doctors/$doctorId/slots?from_date=$from&days=6${minutes != null ? '&duration_min=$minutes' : ''}');
   return res as Map<String, dynamic>;
 });
 
@@ -31,9 +34,12 @@ String _fmt12h(String t24) {
 
 // ── SlotSelectionScreen ───────────────────────────────────────────────────────
 
+/// The second booking step: when. [extra] is the draft from the first step
+/// (channel, length, price, and for a home visit the address).
 class SlotSelectionScreen extends ConsumerStatefulWidget {
   final String doctorId;
-  const SlotSelectionScreen({super.key, required this.doctorId});
+  final Map<String, dynamic> extra;
+  const SlotSelectionScreen({super.key, required this.doctorId, required this.extra});
   @override
   ConsumerState<SlotSelectionScreen> createState() => _State();
 }
@@ -42,8 +48,15 @@ class _State extends ConsumerState<SlotSelectionScreen> {
   DateTime _selectedDay = DateTime.now();
   String? _selectedSlot; // "09:00"
 
+  int? get _minutes => (widget.extra['duration_min'] as num?)?.toInt();
+
+  /// A follow-up price applies until this time; later days aren't offered.
+  DateTime? get _until => DateTime.tryParse(widget.extra['follow_up_until'] as String? ?? '')?.toLocal();
+
   // 6-day relative strip: Today, Tomorrow, then weekday names.
-  List<DateTime> get _days => List.generate(6, (i) => DateTime.now().add(Duration(days: i)));
+  List<DateTime> get _days => List.generate(6, (i) => DateTime.now().add(Duration(days: i)))
+      .where((d) => _until == null || !DateTime(d.year, d.month, d.day).isAfter(_until!))
+      .toList();
 
   String _dayLabel(DateTime d, int i) {
     if (i == 0) return 'Today';
@@ -61,7 +74,8 @@ class _State extends ConsumerState<SlotSelectionScreen> {
     final scheduledStart =
         '${dayStr}T${slot['start']}:00+05:30'; // IST
 
-    context.push('/book/${widget.doctorId}/channel', extra: {
+    context.push('/book/${widget.doctorId}/intake', extra: {
+      ...widget.extra,
       'scheduled_start': scheduledStart,
       'slot': slot,
       'day': dayStr,
@@ -70,7 +84,7 @@ class _State extends ConsumerState<SlotSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final async = ref.watch(_slotsProvider(widget.doctorId));
+    final async = ref.watch(_slotsProvider((widget.doctorId, _minutes)));
     final doctorAsync = ref.watch(_doctorHeaderProvider(widget.doctorId));
     final doctorName = doctorAsync.maybeWhen(data: (d) => d['name'] as String?, orElse: () => null);
     final doctorSpec = doctorAsync.maybeWhen(
@@ -79,7 +93,8 @@ class _State extends ConsumerState<SlotSelectionScreen> {
     return CharakScreen(
       body: async.when(
         loading: () => const _SlotsLoading(),
-        error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_slotsProvider(widget.doctorId))),
+        error: (e, _) => CharakErrorState(
+            error: e, onRetry: () => ref.invalidate(_slotsProvider((widget.doctorId, _minutes)))),
         data: (slotData) {
           final dayKey = DateFormat('yyyy-MM-dd').format(_selectedDay);
           final slots = List<Map<String,dynamic>>.from(
@@ -97,7 +112,11 @@ class _State extends ConsumerState<SlotSelectionScreen> {
                   if (doctorName != null) ...[
                     const SizedBox(height: 6),
                     Text(
-                      doctorSpec != null ? '${CharakFormat.doctor(doctorName)} · $doctorSpec' : CharakFormat.doctor(doctorName),
+                      [
+                        CharakFormat.doctor(doctorName),
+                        if (doctorSpec != null) doctorSpec,
+                        if (_minutes != null) '$_minutes-min ${CharakFormat.channel(widget.extra['channel'] as String?).toLowerCase()}',
+                      ].join(' · '),
                       style: charakScreenSubStyle,
                     ),
                   ],

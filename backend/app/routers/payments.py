@@ -9,13 +9,15 @@ Flow
 ----
   POST /payments/{booking_id}/order    patient starts payment → order + payments row
   POST /payments/{booking_id}/failed   client reports a failed attempt → retry window
-  POST /payments/webhook               Razorpay → mark paid, credit the doctor's ledger
-  GET  /payments/{booking_id}          payment history for a booking
+  POST /payments/webhook               Razorpay → mark paid, credit the doctor's ledger;
+                                       refund.* → services/refunds.py
+  GET  /payments/{booking_id}          payment history for a booking, with its refunds
   POST /payments/{booking_id}/stub-complete   dev only, refuses once keys are set
 
 Confirming a payment is idempotent end to end: a replayed webhook finds the
 payment already completed and the ledger credit already present, so nobody is
-paid twice.
+paid twice. Refunds have their own lifecycle in services/refunds.py; nothing
+here marks a payment refunded until Razorpay confirms it.
 """
 import hashlib
 import hmac
@@ -25,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from ..config import (
@@ -32,13 +35,15 @@ from ..config import (
     PAYMENT_HOLD_MINUTES,
     PAYMENT_MAX_ATTEMPTS,
     RAZORPAY_KEY_ID,
-    RAZORPAY_KEY_SECRET,
     RAZORPAY_WEBHOOK_SECRET,
 )
 from ..db import fetch_one, supabase
 from ..deps import get_current_user
 from ..errors import AppError
-from ..services import notifications, payouts
+from ..services import booking_state, notifications, payouts, refunds, visits, webhook_inbox
+from ..services.razorpay_gateway import TIMEOUT_SECONDS
+from ..services.razorpay_gateway import client as razorpay_client
+from ..services.razorpay_gateway import live_mode
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +68,6 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def live_mode() -> bool:
-    return bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
-
-
 def _razorpay_create_order(amount_paise: int, receipt: str) -> dict:
     """Create a Razorpay order, or a deterministic stub when keys are unset."""
     if not live_mode():
@@ -76,36 +77,12 @@ def _razorpay_create_order(amount_paise: int, receipt: str) -> dict:
             "currency": "INR",
             "receipt": receipt,
         }
-    import razorpay  # type: ignore — optional until credentials are configured
-
-    client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-    return client.order.create({
+    return razorpay_client().order.create({
         "amount": amount_paise,
         "currency": "INR",
         "receipt": receipt,
         "payment_capture": 1,
-    })
-
-
-def _razorpay_refund(razorpay_payment_id: Optional[str], amount_paise: int) -> None:
-    """
-    Refund a captured payment. A no-op without credentials or a payment id.
-
-    Deliberately not raising on failure: the caller has already decided this money
-    must go back, and the booking must not be left in a confirmed-looking state
-    because Razorpay's API had a bad minute. A refund that does not go through is
-    recoverable by ops from the payment row, which is marked ``refunded`` either
-    way; a slot sold twice is not.
-    """
-    if not live_mode() or not razorpay_payment_id:
-        return
-    try:
-        import razorpay  # type: ignore — optional until credentials are configured
-
-        client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-        client.payment.refund(razorpay_payment_id, {"amount": amount_paise})
-    except Exception as exc:                      # noqa: BLE001 — see docstring
-        logger.error("refund FAILED payment=%s — %r", razorpay_payment_id, exc)
+    }, timeout=TIMEOUT_SECONDS)
 
 
 # ── Create order ──────────────────────────────────────────────────────────────
@@ -300,20 +277,63 @@ async def razorpay_webhook(request: Request, background: BackgroundTasks):
         event = json.loads(body)
     except json.JSONDecodeError:
         raise AppError("Malformed webhook body", 400)
+    if not isinstance(event, dict):
+        raise AppError("Malformed webhook body", 400)
 
+    # The webhook inbox: Razorpay's own event id (or, without one, a hash of
+    # the signed body) identifies a delivery. Processing runs in the threadpool
+    # because every database call here is blocking; on the event loop it would
+    # stall every other request while it ran.
+    event_id = request.headers.get("x-razorpay-event-id") or hashlib.sha256(body).hexdigest()
+    return await run_in_threadpool(_process_webhook, event_id, event, background)
+
+
+def _process_webhook(event_id: str, event: dict, background) -> dict:
+    """
+    Record the delivery, skip it if it was already processed, otherwise handle
+    it and mark it processed. A delivery that raised stays unprocessed, with
+    its error, so Razorpay's retry runs it again.
+    """
+    if not webhook_inbox.claim("razorpay", event_id, event.get("event"), event):
+        return {"ok": True, "duplicate": True}
+    try:
+        result = _handle_event(event, background)
+    except Exception as exc:
+        webhook_inbox.record_failure("razorpay", event_id, exc)
+        raise
+    webhook_inbox.mark_processed("razorpay", event_id)
+    return result
+
+
+def _handle_event(event: dict, background) -> dict:
     kind = event.get("event")
-    entity = (event.get("payload", {}).get("payment", {}) or {}).get("entity", {}) or {}
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+
+    # Refund events carry the payment too, so they are routed before the
+    # payment handling below can mistake one for a payment event.
+    if isinstance(kind, str) and kind.startswith("refund."):
+        refund_entity = (payload.get("refund") or {}).get("entity") or {}
+        if not refund_entity.get("id"):
+            return {"ok": True}
+        return refunds.apply_webhook(kind, refund_entity, background)
+
+    entity = (payload.get("payment", {}) or {}).get("entity", {}) or {}
     order_id = entity.get("order_id")
     if not order_id:
         return {"ok": True}
 
     if kind == "payment.failed":
+        # Only an attempt still open can fail. On UPI one order can see a failed
+        # attempt and then a captured one, and Razorpay doesn't promise to
+        # deliver them in that order. Without the status condition, a late
+        # 'failed' would overwrite a captured payment, and a later cancel would
+        # find nothing completed to refund.
         supabase.table("payments").update({"status": "failed"}) \
-            .eq("razorpay_order_id", order_id).execute()
+            .eq("razorpay_order_id", order_id).eq("status", "initiated").execute()
         return {"ok": True}
 
     if kind != "payment.captured":
-        return {"ok": True}   # ignore refunds, order.paid, etc.
+        return {"ok": True}   # order.paid etc. carry nothing payment.captured doesn't
 
     payment_rows = (
         supabase.table("payments").select("*")
@@ -323,8 +343,10 @@ async def razorpay_webhook(request: Request, background: BackgroundTasks):
         return {"ok": True}
     payment = payment_rows[0]
 
-    if payment["status"] == "completed":
-        return {"ok": True, "idempotent": True}   # replayed delivery
+    if payment["status"] in ("completed", "refunded", "partially_refunded"):
+        # A replayed delivery. A refunded payment counts too: treating it as new
+        # would queue its refund a second time.
+        return {"ok": True, "idempotent": True}
 
     # Pass the outcome straight through: a late capture that got refunded rather
     # than confirmed must say so, or the distinction is invisible in Razorpay's
@@ -336,58 +358,38 @@ def _refund_orphaned_payment(
     payment: dict,
     booking: dict,
     razorpay_payment_id: Optional[str],
+    method: Optional[str] = None,
     background=None,
 ) -> None:
     """
     Send back money that arrived too late, and reverse any credit behind it.
+
+    The payment is recorded as what it is, money Razorpay captured, and a refund
+    is queued against it. It becomes 'refunded' only when Razorpay confirms (see
+    services/refunds.py). Marking it refunded here, before asking, is how a
+    failed refund used to go unnoticed.
 
     The ledger reversal is belt and braces: reaching here means the credit never
     ran, but a replayed webhook or a hand-fixed row could have left one, and
     ``payouts.reverse`` returns None when there is nothing to reverse.
     """
     supabase.table("payments").update({
-        "status": "refunded",
+        "status": "completed",
         "razorpay_payment_id": razorpay_payment_id,
-    }).eq("id", payment["id"]).execute()
-
-    _razorpay_refund(
-        razorpay_payment_id,
-        int(round(float(payment["amount"]) * 100)),
-    )
+        "method": method,
+        "paid_at": _now().isoformat(),
+    }).eq("id", payment["id"]).in_("status", ["initiated", "failed"]).execute()
 
     source = "consult_fee" if payment["type"] == "consult_fee" else "procedure_bill"
     payouts.reverse(booking["id"], source, note="payment refunded — booking was gone")
 
-    notifications.payment_auto_refunded(booking, payment["amount"], background)
-
-
-def refund_completed_payments(booking: dict, note: str, background=None) -> int:
-    """
-    Refund every completed payment on a booking and reverse the matching ledger
-    credit. Returns how many payments were refunded.
-
-    Used when a *paid* booking is cancelled: previously the cancel only flipped
-    the booking status, so the patient's money was never returned and the
-    doctor's ledger credit stood — the doctor would be paid out for a visit that
-    never happened. Both the Razorpay refund and ``payouts.reverse`` are safe to
-    re-run, so a retried cancel does not double-refund.
-    """
-    rows = (
-        supabase.table("payments").select("*")
-        .eq("booking_id", booking["id"]).eq("status", "completed").execute().data
-        or []
+    refund = refunds.queue(
+        {**payment, "razorpay_payment_id": razorpay_payment_id},
+        reason="late_capture", requested_by_role="system",
     )
-    for payment in rows:
-        supabase.table("payments").update({"status": "refunded"}) \
-            .eq("id", payment["id"]).execute()
-        _razorpay_refund(
-            payment.get("razorpay_payment_id"),
-            int(round(float(payment["amount"]) * 100)),
-        )
-        source = "consult_fee" if payment["type"] == "consult_fee" else "procedure_bill"
-        payouts.reverse(booking["id"], source, note=note)
-        notifications.payment_auto_refunded(booking, payment["amount"], background)
-    return len(rows)
+    if refund:
+        refunds.execute(refund, background)
+    notifications.payment_auto_refunded(booking, payment["amount"], background)
 
 
 def _confirm_payment(
@@ -424,7 +426,7 @@ def _confirm_payment(
     # cancelled booking back to `paid` — on a slot that has since been sold to
     # someone else. The money goes back instead.
     if booking["status"] in ("cancelled", "declined", "no_show"):
-        _refund_orphaned_payment(payment, booking, razorpay_payment_id, background)
+        _refund_orphaned_payment(payment, booking, razorpay_payment_id, method, background)
         return {"ok": True, "refunded": True}
 
     source = "consult_fee" if payment["type"] == "consult_fee" else "procedure_bill"
@@ -445,23 +447,22 @@ def _confirm_payment(
         # can be cancelled (by the patient, the doctor or the hold sweeper)
         # before this write lands. Flipping it to `paid` regardless would
         # revive a cancelled booking whose slot may already be someone else's.
-        flipped = (
-            supabase.table("bookings").update({
-                "status": "paid",
-                "hold_expires_at": None,
-                "payment_failed_at": None,
-            }).eq("id", booking["id"]).eq("status", "accepted").execute().data
-        )
-        if not flipped:
-            now_row = fetch_one(
-                supabase.table("bookings").select("status").eq("id", booking["id"])
+        try:
+            booking_state.transition(
+                booking["id"], "pay", actor_role="system", expected="accepted",
+                patch={"hold_expires_at": None, "payment_failed_at": None},
+                metadata={"payment_id": payment["id"], "method": method},
             )
-            if now_row and now_row.get("status") in ("cancelled", "declined", "no_show"):
+            visits.schedule_reminders(booking)
+        except booking_state.TransitionRefused as refused:
+            if refused.current_status in ("cancelled", "declined", "no_show"):
                 # Lost the race to a cancel: same outcome as arriving after it.
-                _refund_orphaned_payment(payment, booking, razorpay_payment_id, background)
+                _refund_orphaned_payment(payment, booking, razorpay_payment_id, method, background)
                 return {"ok": True, "refunded": True}
-            # Otherwise it is already `paid` — a redelivery finishing a confirm
-            # that got this far before. Nothing left to change.
+            if refused.current_status != "paid":
+                raise
+            # Already `paid`: a redelivery finishing a confirm that got this far
+            # before. Nothing left to change.
     else:
         supabase.table("procedure_bills").update({"status": "paid"}) \
             .eq("booking_id", booking["id"]).execute()
@@ -483,8 +484,11 @@ def get_payment(booking_id: str, user: dict = Depends(get_current_user)):
         raise AppError("Booking not found", 404)
     if booking["patient_id"] != user["sub"] and booking["doctor_id"] != user["sub"]:
         raise AppError("Forbidden", 403)
+    # Each payment carries its refunds, so the app can say "Refund processing"
+    # or "Refunded" from what Razorpay has actually confirmed.
     return (
-        supabase.table("payments").select("*")
+        supabase.table("payments")
+        .select("*, refunds(id, amount_paise, status, reason, created_at, processed_at)")
         .eq("booking_id", booking_id).order("created_at", desc=True).execute().data
     )
 

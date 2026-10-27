@@ -10,6 +10,14 @@ final _bookingProvider =
   return res as Map<String, dynamic>;
 });
 
+/// Refunds on a cancelled booking, as Razorpay has confirmed them. Only read
+/// once the booking is cancelled; a live booking has nothing to refund.
+final _refundProvider =
+    FutureProvider.autoDispose.family<CharakRefundSummary?, String>((ref, id) async {
+  final payments = await ApiClient.instance.get('/payments/$id') as List;
+  return CharakRefundSummary.fromPayments(payments);
+});
+
 // Statuses still waiting on someone else to act — a doctor's decision, a
 // payment hold expiring. Anything else (paid, completed, declined,
 // cancelled) is the end of the line for this screen and needs no more polls.
@@ -67,14 +75,18 @@ class _BookingStatusScreenState extends ConsumerState<BookingStatusScreen> {
 
 /// The wireframe's `accepted` and `declined` screens, plus the remaining
 /// lifecycle states, all rendered through `.ok-state` + `.bsum`.
-class _StatusBody extends StatelessWidget {
+class _StatusBody extends ConsumerWidget {
   final Map<String, dynamic> booking;
   final String bookingId;
   const _StatusBody({required this.booking, required this.bookingId});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final status  = booking['status'] as String? ?? 'requested';
+    // A failed lookup just hides the refund row; the cancel itself happened.
+    final refund = status == 'cancelled'
+        ? ref.watch(_refundProvider(bookingId)).valueOrNull
+        : null;
     final channel = booking['channel'] as String? ?? '';
     final docName = (booking['doctors'] as Map?)?['name'] as String?;
     final start   = booking['scheduled_start'] as String?;
@@ -116,6 +128,18 @@ class _StatusBody extends StatelessWidget {
         "You're set with $doctor${when.isNotEmpty ? ' on $when' : ''} "
             '($channelLabel).',
       ),
+      'in_progress' => (
+        CharakOutcomeTone.success,
+        LucideIcons.stethoscope,
+        'Consultation under way',
+        "You're with $doctor now. The prescription arrives here when it ends.",
+      ),
+      'consulted' => (
+        CharakOutcomeTone.success,
+        LucideIcons.fileText,
+        'Your prescription is ready',
+        '$doctor has sent it. Open it to complete your visit.',
+      ),
       'completed' => (
         CharakOutcomeTone.success,
         null,
@@ -126,7 +150,15 @@ class _StatusBody extends StatelessWidget {
         CharakOutcomeTone.neutral,
         LucideIcons.circleMinus,
         'Booking cancelled',
-        'This booking was cancelled. You can book another slot any time.',
+        refund != null
+            ? 'This booking was cancelled. ${refund.message}'
+            : 'This booking was cancelled. You can book another slot any time.',
+      ),
+      'no_show' => (
+        CharakOutcomeTone.neutral,
+        LucideIcons.circleMinus,
+        'Marked as a no-show',
+        '$doctor marked this booking as a no-show. You have not been charged.',
       ),
       _ => (
         CharakOutcomeTone.waiting,
@@ -170,6 +202,17 @@ class _StatusBody extends StatelessWidget {
                       child: CharakStatusPill.forStatus(status, key: ValueKey(status)),
                     ),
                   ),
+                  if (refund != null) ...[
+                    CharakSummaryRow(
+                      label: 'Refund',
+                      value: CharakFormat.rupees(refund.rupees),
+                      tabular: true,
+                    ),
+                    CharakSummaryRow(
+                      label: 'Refund status',
+                      child: CharakStatusPill.forRefund(refund.state),
+                    ),
+                  ],
                 ]),
                 if (status == 'accepted') ...[
                   const SizedBox(height: 10),
@@ -197,10 +240,10 @@ class _StatusBody extends StatelessWidget {
               onPressed: () => context.go('/directory'),
             ),
           )
-        else if (status == 'paid')
+        else if (status == 'paid' || status == 'in_progress' || status == 'consulted')
           Expanded(
             child: CharakButton(
-              label: 'View booking',
+              label: status == 'consulted' ? 'Open prescription' : 'View booking',
               onPressed: () => context.go('/booking/$bookingId/active'),
             ),
           )

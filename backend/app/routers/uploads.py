@@ -13,7 +13,7 @@ write one, and splitting it across modules is how those two drift apart.
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 
 from ..db import fetch_one, supabase
-from ..deps import get_current_user, require_doctor, require_ops
+from ..deps import get_current_user, require_doctor, require_permission
 from ..errors import AppError
 from ..services import storage, transcription
 from ..services.rate_limit import rate_limiter
@@ -96,6 +96,32 @@ async def upload_doctor_photo(
         storage.remove(storage.BUCKET_DOCTOR_PHOTOS, doctor["photo_path"])
 
     return {"photo_url": url, "photo_path": path, "doctor": updated}
+
+
+# ── Prescription signature ───────────────────────────────────────────────────
+
+@router.post("/doctor/signature", status_code=201, dependencies=[rate_limiter("upload-signature", 10, 600)])
+async def upload_doctor_signature(
+    file: UploadFile = File(...),
+    user: dict = Depends(require_doctor),
+):
+    """
+    The signature printed on this doctor's prescription PDFs. Private: a
+    signature image is a credential, never served on its own. It's read only
+    by the backend when it renders a PDF. Prescriptions already sent keep the
+    signature they were rendered with.
+    """
+    content, ext, content_type = await _read(file, "signature")
+    previous = fetch_one(supabase.table("doctors").select("signature_path").eq("id", user["sub"]))
+    if previous is None:
+        raise AppError("Doctor profile not found", 404)
+
+    path = storage.build_path("signatures", user["sub"], extension=ext)
+    storage.upload(storage.BUCKET_PRESCRIPTIONS, path, content, content_type)
+    supabase.table("doctors").update({"signature_path": path}).eq("id", user["sub"]).execute()
+    if previous.get("signature_path") and previous["signature_path"] != path:
+        storage.remove(storage.BUCKET_PRESCRIPTIONS, previous["signature_path"])
+    return {"signature_saved": True}
 
 
 # ── Verification document ────────────────────────────────────────────────────
@@ -195,7 +221,7 @@ async def upload_intake_media(
         raise AppError("Booking not found", 404)
     if booking["patient_id"] != user["sub"]:
         raise AppError("Only the patient may add intake media", 403)
-    if booking["status"] in ("completed", "cancelled", "declined", "no_show"):
+    if booking["status"] in ("consulted", "completed", "cancelled", "declined", "no_show"):
         raise AppError(f"Cannot add intake to a {booking['status']} booking", 400)
 
     content, ext, content_type = await _read(file, INTAKE_KIND_BY_MEDIA[media_type])
@@ -256,7 +282,7 @@ def read_intake_media(media_id: str, user: dict = Depends(get_current_user)):
 # ── Ops bootstrap ────────────────────────────────────────────────────────────
 
 @router.post("/buckets/ensure")
-def ensure_buckets(user: dict = Depends(require_ops)):
+def ensure_buckets(user: dict = Depends(require_permission("storage.manage"))):
     """
     Create any missing Storage bucket.
 

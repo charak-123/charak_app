@@ -16,13 +16,20 @@ python-multipart==0.0.32
 bcrypt==4.3.0
 # Admin TOTP two-factor codes (app/services/admin_auth.py)
 pyotp==2.9.0
+# Prescription PDFs (app/services/prescription_pdf.py). Pure Python; the font
+# ships in app/assets/fonts (DejaVu Sans: Latin and the rupee sign).
+reportlab==5.1.0
 # Verifying Firebase ID tokens — website + app sign-in via Firebase Auth
 # (app/services/firebase_auth.py)
 firebase-admin==7.7.0
 
 # ── Optional, only needed once the matching credentials are configured ────────
-# Razorpay orders + webhooks (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET)
-razorpay==1.4.2
+# Razorpay orders, refunds + webhooks (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET).
+# 2.x, not 1.4.x: 1.4.2 imports pkg_resources at import time, and
+# python:3.13-slim ships no setuptools, so `import razorpay` failed in the
+# production image and every live order and refund raised a 500.
+# tests/test_dependencies.py imports it so CI catches that class of break.
+razorpay==2.0.1
 # Agora RTC token minting (AGORA_APP_ID / AGORA_APP_CERTIFICATE)
 agora-token-builder==1.0.0
 # FCM HTTP v1 push (FCM_PROJECT_ID / GOOGLE_APPLICATION_CREDENTIALS)

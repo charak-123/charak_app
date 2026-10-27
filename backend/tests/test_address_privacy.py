@@ -79,7 +79,7 @@ def test_the_patient_always_sees_their_own_address():
 
 # ── on accept ─────────────────────────────────────────────────────────────────
 
-def test_accepting_releases_the_address():
+def test_accepting_releases_the_address(transitions):
     bookings = make_chain()
     bookings.execute.side_effect = [
         MagicMock(data=_booking()),                                    # lookup
@@ -94,10 +94,11 @@ def test_accepting_releases_the_address():
         res = c.patch("/bookings/bk-1/accept", headers=AUTH)
 
     assert res.status_code == 200
-    assert bookings.update.call_args[0][0]["address_released_at"] is not None
+    # Released as part of the accept transition itself, in the same transaction.
+    assert transitions.last("accept")["p_patch"]["address_released_at"] is not None
 
 
-def test_accepting_an_online_consult_releases_nothing():
+def test_accepting_an_online_consult_releases_nothing(transitions):
     """There is no address to release, and stamping one would be misleading."""
     bookings = make_chain()
     bookings.execute.side_effect = [
@@ -111,7 +112,7 @@ def test_accepting_an_online_consult_releases_nothing():
     })
     for c in _client(DOCTOR, db):
         c.patch("/bookings/bk-1/accept", headers=AUTH)
-    assert bookings.update.call_args[0][0]["address_released_at"] is None
+    assert transitions.last("accept")["p_patch"]["address_released_at"] is None
 
 
 # ── after accept ──────────────────────────────────────────────────────────────

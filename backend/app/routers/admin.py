@@ -8,9 +8,12 @@ from pydantic import BaseModel, Field
 
 from ..config import ADMIN_TOKEN_TTL_HOURS, JWT_SECRET
 from ..db import supabase
-from ..deps import require_ops
+from ..deps import require_ops, require_permission
 from ..errors import AppError
-from ..services import admin_auth, audit, erasure, notifications, payouts
+from ..services import (
+    admin_auth, admin_roles, audit, booking_state, erasure, incidents, notifications, payouts, prescriptions,
+    pricing, refunds, remedies, reviews, visits,
+)
 from ..services.admin_auth import AdminAuthError
 from ..services.rate_limit import enforce as enforce_rate_limit, rate_limiter
 
@@ -23,6 +26,9 @@ router = APIRouter()
 # dashboard numbers would look plausible and just be wrong. Page through in
 # fixed-size chunks instead so metrics stay correct as the tables grow.
 _PAGE_SIZE = 1000
+
+# Bookings the patient has paid for, at any stage after payment.
+PAID_STATUSES = ("paid", "in_progress", "consulted", "completed")
 
 
 def _fetch_all(build_query) -> list[dict]:
@@ -85,17 +91,29 @@ def admin_login(body: AdminLoginRequest):
         "sub": admin["id"],
         "email": admin["email"],
         "role": "ops",
+        # What this admin may do (services/admin_roles.py). Accounts from
+        # before roles existed are 'admin' (migration 0029).
+        "admin_role": admin.get("role") or "admin",
         "iat": now,
         "exp": now + timedelta(hours=ADMIN_TOKEN_TTL_HOURS),
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
-    return {"token": token}
+    return {"token": token, "role": payload["admin_role"],
+            "permissions": sorted(admin_roles.PERMISSIONS.get(payload["admin_role"], ()))}
+
+
+@router.get("/me")
+def admin_me(user: dict = Depends(require_ops)):
+    """Who is signed in and what they may do: the console shows only what
+    the role allows (the API enforces it regardless)."""
+    return {"email": user.get("email"), "role": admin_roles.role_of(user),
+            "permissions": admin_roles.permissions_of(user)}
 
 
 # ── 2. Pending doctors ────────────────────────────────────────────────────────
 
 @router.get("/doctors/pending")
-def list_pending_doctors(user: dict = Depends(require_ops)):
+def list_pending_doctors(user: dict = Depends(require_permission("doctors.read"))):
     """
     Everything ops needs to decide approve/reject without leaving the page:
     the application details the doctor filled in (specialty, bio, channels,
@@ -125,7 +143,7 @@ def verify_doctor(
     doctor_id: str,
     body: VerifyDoctorRequest,
     background: BackgroundTasks,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("doctors.verify")),
 ):
     """Approve or reject a doctor. An approved doctor goes live immediately."""
     if body.action not in ("approve", "reject"):
@@ -172,7 +190,7 @@ def suspend_doctor(
     doctor_id: str,
     body: SuspendRequest,
     background: BackgroundTasks,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("doctors.suspend")),
 ):
     """
     Pull a listing from the directory without destroying the account.
@@ -212,7 +230,7 @@ def suspend_doctor(
 # unaffected.
 
 @router.patch("/doctors/{doctor_id}/revoke-sessions")
-def revoke_doctor_sessions(doctor_id: str, user: dict = Depends(require_ops)):
+def revoke_doctor_sessions(doctor_id: str, user: dict = Depends(require_permission("sessions.revoke"))):
     doctor = supabase.table("doctors").select("id").eq("id", doctor_id).execute().data
     if not doctor:
         raise AppError("Doctor not found", 404)
@@ -224,7 +242,7 @@ def revoke_doctor_sessions(doctor_id: str, user: dict = Depends(require_ops)):
 
 
 @router.patch("/users/{user_id}/revoke-sessions")
-def revoke_patient_sessions(user_id: str, user: dict = Depends(require_ops)):
+def revoke_patient_sessions(user_id: str, user: dict = Depends(require_permission("sessions.revoke"))):
     patient = supabase.table("users").select("id").eq("id", user_id).execute().data
     if not patient:
         raise AppError("Patient not found", 404)
@@ -241,11 +259,12 @@ def revoke_patient_sessions(user_id: str, user: dict = Depends(require_ops)):
 def list_doctors(
     status: Optional[str] = None,
     suspended: Optional[bool] = None,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("doctors.read")),
 ):
     query = (
         supabase.table("doctors")
-        .select("*, categories(name)")
+        .select("id, name, phone, category_id, verification_status, suspended, rating_avg, rating_count, "
+                "offers_online_consult, offers_home_visit, accepting_requests, created_at, categories(name)")
         .order("created_at", desc=True)
     )
     if status:
@@ -254,7 +273,11 @@ def list_doctors(
         query = query.eq("verification_status", status)
     if suspended is not None:
         query = query.eq("suspended", suspended)
-    return query.execute().data
+    rows = query.execute().data or []
+    for row in rows:
+        row["phone"] = _mask_phone(row.get("phone"))
+        row["category_name"] = (row.pop("categories", None) or {}).get("name")
+    return rows
 
 
 def _mask_phone(phone: Optional[str]) -> Optional[str]:
@@ -269,7 +292,7 @@ def _mask_phone(phone: Optional[str]) -> Optional[str]:
 # ── 4. All bookings ───────────────────────────────────────────────────────────
 
 @router.get("/bookings")
-def list_all_bookings(status: Optional[str] = None, user: dict = Depends(require_ops)):
+def list_all_bookings(status: Optional[str] = None, user: dict = Depends(require_permission("bookings.read"))):
     query = (
         supabase.table("bookings")
         .select("*, users(name, phone), doctors(name)")
@@ -286,8 +309,17 @@ def list_all_bookings(status: Optional[str] = None, user: dict = Depends(require
     return rows
 
 
+@router.get("/bookings/{booking_id}/timeline")
+def booking_timeline(booking_id: str, user: dict = Depends(require_permission("bookings.read"))):
+    """Every recorded event for a booking, with actors and metadata."""
+    exists = supabase.table("bookings").select("id").eq("id", booking_id).execute().data
+    if not exists:
+        raise AppError("Booking not found", 404)
+    return booking_state.timeline(booking_id)
+
+
 @router.get("/bookings/{booking_id}/phone")
-def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_ops)):
+def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_permission("patient_phone.reveal"))):
     """Explicit, audited reveal of one patient's number. Separate from the list
     endpoint so looking at the book doesn't put every patient's phone number on
     screen (or in the browser's memory/devtools) by default."""
@@ -305,10 +337,153 @@ def reveal_booking_patient_phone(booking_id: str, user: dict = Depends(require_o
     return {"phone": (row[0].get("users") or {}).get("phone")}
 
 
+# ── Incidents ────────────────────────────────────────────────────────────────
+
+@router.get("/incidents")
+def incident_queue(view: str = "open", user: dict = Depends(require_permission("incidents.read"))):
+    """'open': reported or under review, oldest first. 'appealed': appeals
+    waiting. 'all': everything recent. Each with its full event history."""
+    if view not in ("open", "appealed", "all"):
+        raise AppError("view must be open, appealed or all", 400)
+    return incidents.ops_queue(view)
+
+
+class IncidentDecision(BaseModel):
+    status: str                    # confirmed | dismissed | undetermined
+    cause: str                     # doctor | patient | platform | mutual | undetermined
+    reason: str = Field(min_length=5, max_length=1000)
+    # Let the patient choose a refund or another doctor now.
+    offer_remedy: bool = False
+
+
+@router.post("/incidents/{incident_id}/decide")
+def decide_incident(incident_id: str, body: IncidentDecision, background: BackgroundTasks,
+                    user: dict = Depends(require_permission("incidents.decide"))):
+    row = incidents.decide(incident_id, user, body.status, body.cause, body.reason,
+                           body.offer_remedy, background)
+    audit.record(user, "incident", incident_id, f"incident_{body.status}", reason=body.reason,
+                 metadata={"cause": body.cause, "offer_remedy": body.offer_remedy})
+    return row
+
+
+class AppealDecision(BaseModel):
+    outcome: str                   # upheld | reversed
+    reason: str = Field(min_length=5, max_length=1000)
+
+
+@router.post("/incidents/{incident_id}/appeal-decision")
+def decide_incident_appeal(incident_id: str, body: AppealDecision, background: BackgroundTasks,
+                           user: dict = Depends(require_permission("incidents.decide"))):
+    row = incidents.decide_appeal(incident_id, user, body.outcome, body.reason, background)
+    audit.record(user, "incident", incident_id, f"appeal_{body.outcome}", reason=body.reason)
+    return row
+
+
+@router.post("/incidents/{incident_id}/refund")
+def refund_incident(incident_id: str, background: BackgroundTasks, user: dict = Depends(require_permission("refunds.manage"))):
+    """Refund the patient now (the case must be open to a remedy)."""
+    out = remedies.refund(incident_id, "ops", user.get("sub"), background)
+    audit.record(user, "incident", incident_id, "remedy_refund_by_ops")
+    return out
+
+
+# ── Review moderation ────────────────────────────────────────────────────────
+
+@router.get("/reviews")
+def review_queue(status: str = "reported", user: dict = Depends(require_permission("reviews.read"))):
+    """'reported': published reviews with an open report, oldest first.
+    'hidden': reviews ops has hidden, newest first."""
+    if status not in ("reported", "hidden"):
+        raise AppError("status must be reported or hidden", 400)
+    return reviews.moderation_queue(status)
+
+
+class ModerationRequest(BaseModel):
+    action: str        # hide | restore | dismiss
+    reason: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/reviews/{review_id}/moderate")
+def moderate_review(review_id: str, body: ModerationRequest, user: dict = Depends(require_permission("reviews.moderate"))):
+    """Hide (abusive, irrelevant or private details; never for being
+    negative), restore, or dismiss the reports and leave it up."""
+    return reviews.moderate(review_id, body.action, body.reason, user)
+
+
+# ── Pricing history ──────────────────────────────────────────────────────────
+
+@router.get("/pricing/{doctor_id}/history")
+def pricing_history(doctor_id: str, user: dict = Depends(require_permission("pricing.read"))):
+    """Every price this doctor has had, newest first, with when each applied.
+    A booking's own price_rule_id points at the row it was charged by."""
+    doctor = supabase.table("doctors").select("id, follow_up_validity_days") \
+        .eq("id", doctor_id).execute().data
+    if not doctor:
+        raise AppError("Doctor not found", 404)
+    return {"follow_up_validity_days": doctor[0].get("follow_up_validity_days"),
+            "rules": pricing.history(doctor_id, limit=500)}
+
+
+# ── Visits: exception queues and prescription access ─────────────────────────
+
+@router.get("/visits/queues")
+def visit_queues(user: dict = Depends(require_permission("visits.read"))):
+    """Home visits with no journey near their time, consultations with nothing
+    sent to the patient, and prescriptions not opened after a day. Flags for a
+    person to look at, not verdicts (nothing here is marked a no-show)."""
+    queues = visits.ops_queues()
+    for rows in queues.values():
+        for row in rows:
+            row["patient_name"] = (row.pop("users", None) or {}).get("name")
+            row["doctor_name"] = (row.pop("doctors", None) or {}).get("name")
+            row.pop("patient_id", None)
+    return queues
+
+
+@router.get("/bookings/{booking_id}/prescriptions")
+def booking_prescriptions(booking_id: str, user: dict = Depends(require_permission("visits.read"))):
+    """Every version's status and timestamps, without its clinical content.
+    Enough to answer "was it sent, when, and did the patient open it"."""
+    return (
+        supabase.table("prescriptions")
+        .select("id, version, kind, status, submitted_at, first_viewed_at, superseded_at, "
+                "created_at")
+        .eq("booking_id", booking_id).order("version").execute().data or []
+    )
+
+
+class BreakGlassRequest(BaseModel):
+    # Why ops needs to read a patient's prescription: a complaint, a pharmacy
+    # query, a legal request. Recorded with the access.
+    reason: str = Field(min_length=10, max_length=500)
+
+
+@router.post("/prescriptions/{prescription_id}/access",
+             dependencies=[rate_limiter("admin-rx-access", 20, 3600)])
+def break_glass_prescription(prescription_id: str, body: BreakGlassRequest,
+                             user: dict = Depends(require_permission("prescriptions.break_glass"))):
+    """
+    Ops reads one prescription's content (spec §9.3: admin access restricted to
+    operational need). Every read is recorded with its reason first; if that
+    record can't be written, nothing is shown. Reading it never counts as the
+    patient's view.
+    """
+    rx = prescriptions.get(prescription_id)
+    if not rx or rx["status"] == "draft":
+        raise AppError("Prescription not found", 404)
+    try:
+        audit.record_or_refuse(user, "prescription", prescription_id, "break_glass_read",
+                               reason=body.reason.strip(),
+                               metadata={"booking_id": rx["booking_id"], "version": rx["version"]})
+    except Exception:
+        raise AppError("Access can't be recorded right now, so it isn't allowed. Try again.", 503)
+    return {**prescriptions.public(rx), **prescriptions.files(rx)}
+
+
 # ── 5. Procedure bills under review ──────────────────────────────────────────
 
 @router.get("/procedure-bills/review")
-def list_procedure_bills_under_review(user: dict = Depends(require_ops)):
+def list_procedure_bills_under_review(user: dict = Depends(require_permission("procedure_bills.review"))):
     result = (
         supabase.table("procedure_bills")
         .select("*, bookings(id, doctor_id, doctors(name))")
@@ -321,7 +496,7 @@ def list_procedure_bills_under_review(user: dict = Depends(require_ops)):
 # ── 6. All complaints ─────────────────────────────────────────────────────────
 
 @router.get("/complaints")
-def list_all_complaints(status: Optional[str] = None, user: dict = Depends(require_ops)):
+def list_all_complaints(status: Optional[str] = None, user: dict = Depends(require_permission("complaints.read"))):
     query = (
         supabase.table("complaints")
         .select("*, bookings(id, patient_id, doctor_id)")
@@ -340,7 +515,7 @@ def list_all_complaints(status: Optional[str] = None, user: dict = Depends(requi
 def update_complaint_status(
     complaint_id: str,
     body: ComplaintStatusUpdate,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("complaints.update")),
 ):
     if body.status not in VALID_COMPLAINT_STATUSES:
         raise AppError(f"Invalid status '{body.status}'", 400)
@@ -355,10 +530,45 @@ def update_complaint_status(
     return result.data[0]
 
 
+# ── 7b. Refunds ───────────────────────────────────────────────────────────────
+
+_REFUND_STATUSES = ("pending", "processing", "processed", "failed")
+
+
+@router.get("/refunds")
+def list_refunds(status: Optional[str] = None, user: dict = Depends(require_permission("refunds.manage"))):
+    """
+    The refunds queue. With no filter, everything Razorpay hasn't confirmed yet
+    (pending, processing, failed). 'failed' is the one that needs a person.
+    """
+    if status is not None and status not in _REFUND_STATUSES:
+        raise AppError(f"status must be one of {', '.join(_REFUND_STATUSES)}", 400)
+    statuses = [status] if status else list(refunds.OPEN_STATUSES)
+    return (
+        supabase.table("refunds")
+        .select("*, bookings(id, channel, scheduled_start, cancelled_by, "
+                "doctors(name), users(name))")
+        .in_("status", statuses)
+        .order("created_at", desc=True)
+        .limit(200)
+        .execute()
+        .data
+        or []
+    )
+
+
+@router.post("/refunds/{refund_id}/retry")
+def retry_refund(refund_id: str, user: dict = Depends(require_permission("refunds.manage"))):
+    """Send a failed refund to Razorpay again. Audited."""
+    row = refunds.retry(refund_id)
+    _audit(user, "refunds", refund_id, "refund_retry")
+    return row
+
+
 # ── 8. Dashboard metrics ──────────────────────────────────────────────────────
 
 @router.get("/metrics")
-def dashboard_metrics(user: dict = Depends(require_ops)):
+def dashboard_metrics(user: dict = Depends(require_permission("metrics.read"))):
     """
     The numbers the admin landing page needs, in one round trip rather than the
     six the dashboard was making.
@@ -375,11 +585,15 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
         lambda: supabase.table("doctor_ledger_entries")
         .select("net_amount, commission_amount, status")
     )
+    open_refunds = _fetch_all(
+        lambda: supabase.table("refunds").select("status")
+        .in_("status", list(refunds.OPEN_STATUSES))
+    )
 
     def count(rows, field, value):
         return len([r for r in rows if r.get(field) == value])
 
-    paid_bookings = [b for b in bookings if b.get("status") in ("paid", "completed")]
+    paid_bookings = [b for b in bookings if b.get("status") in PAID_STATUSES]
 
     return {
         "doctors": {
@@ -394,6 +608,8 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
             "requested": count(bookings, "status", "requested"),
             "accepted": count(bookings, "status", "accepted"),
             "paid": count(bookings, "status", "paid"),
+            "in_progress": count(bookings, "status", "in_progress"),
+            "consulted": count(bookings, "status", "consulted"),
             "completed": count(bookings, "status", "completed"),
             "cancelled": count(bookings, "status", "cancelled"),
             "declined": count(bookings, "status", "declined"),
@@ -423,13 +639,15 @@ def dashboard_metrics(user: dict = Depends(require_ops)):
             "bills_under_review": count(bills, "status", "under_review"),
             "complaints_open": count(complaints, "status", "open"),
             "complaints_in_review": count(complaints, "status", "in_review"),
+            "refunds_failed": count(open_refunds, "status", "failed"),
+            "refunds_in_flight": len([r for r in open_refunds if r.get("status") != "failed"]),
         },
     }
 
 
 
 @router.get("/metrics/timeseries")
-def dashboard_timeseries(days: int = 30, user: dict = Depends(require_ops)):
+def dashboard_timeseries(days: int = 30, user: dict = Depends(require_permission("metrics.read"))):
     """
     Daily booking counts and consult revenue for the overview's trend chart.
 
@@ -462,7 +680,7 @@ def dashboard_timeseries(days: int = 30, user: dict = Depends(require_ops)):
         if bucket is None:
             continue
         bucket["bookings"] += 1
-        if r.get("status") in ("paid", "completed"):
+        if r.get("status") in PAID_STATUSES:
             bucket["completed"] += 1
             bucket["revenue"] += float(r.get("price_confirmed") or 0)
 
@@ -474,7 +692,7 @@ def dashboard_timeseries(days: int = 30, user: dict = Depends(require_ops)):
 # ── 9. Audit log ──────────────────────────────────────────────────────────────
 
 @router.get("/audit-log")
-def read_audit_log(limit: int = 100, user: dict = Depends(require_ops)):
+def read_audit_log(limit: int = 100, user: dict = Depends(require_permission("audit.read"))):
     limit = max(1, min(limit, 500))
     return (
         supabase.table("audit_log")
@@ -494,7 +712,7 @@ def _audit(user: dict, entity: str, entity_id: Optional[str], action: str) -> No
 # ── Doctor account-deletion requests (ops fulfils) ───────────────────────────
 
 @router.get("/doctors/deletion-requests")
-def list_doctor_deletion_requests(user: dict = Depends(require_ops)):
+def list_doctor_deletion_requests(user: dict = Depends(require_permission("deletions.fulfil"))):
     """Doctors who have asked to delete their account, oldest request first."""
     return (
         supabase.table("doctors")
@@ -507,7 +725,7 @@ def list_doctor_deletion_requests(user: dict = Depends(require_ops)):
 
 
 @router.post("/doctors/{doctor_id}/deletion/fulfill")
-def fulfill_doctor_deletion(doctor_id: str, user: dict = Depends(require_ops)):
+def fulfill_doctor_deletion(doctor_id: str, user: dict = Depends(require_permission("deletions.fulfil"))):
     """
     Complete a doctor's account deletion after settling their account.
 
@@ -529,7 +747,7 @@ def fulfill_doctor_deletion(doctor_id: str, user: dict = Depends(require_ops)):
 
     active = (
         supabase.table("bookings").select("id")
-        .eq("doctor_id", doctor_id).in_("status", ["accepted", "paid"])
+        .eq("doctor_id", doctor_id).in_("status", ["accepted", "paid", "in_progress", "consulted"])
         .execute().data or []
     )
     if active:

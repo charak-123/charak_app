@@ -2,7 +2,7 @@
 Procedure bills router.
 
 Flow:
-  booking completed → POST /bookings/:id/procedure-bill (doctor submits line items)
+  consultation under way or done → POST /bookings/:id/procedure-bill (doctor submits line items)
   if total > effective threshold → status = under_review
   else                           → status = approved (ready for patient payment)
   (effective threshold = the doctor's own, capped at PROCEDURE_REVIEW_THRESHOLD_MAX;
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from ..config import PROCEDURE_REVIEW_THRESHOLD_MAX
 from ..db import fetch_one, supabase
-from ..deps import require_doctor, require_ops, get_current_user
+from ..deps import get_current_user, require_doctor, require_permission
 from ..errors import AppError
 from ..services import audit, notifications
 
@@ -109,7 +109,7 @@ def get_bill(booking_id: str, user: dict = Depends(get_current_user)):
 def approve_bill(
     booking_id: str,
     background: BackgroundTasks,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("procedure_bills.review")),
 ):
     """Ops approves a bill that was under senior review — it becomes payable."""
     bill = _get_bill_for_booking(booking_id)
@@ -133,7 +133,7 @@ def approve_bill(
 
 
 @router.patch("/{booking_id}/procedure-bill/flag")
-def flag_bill(booking_id: str, user: dict = Depends(require_ops)):
+def flag_bill(booking_id: str, user: dict = Depends(require_permission("procedure_bills.review"))):
     """Ops flags a bill — keeps it under_review, logs reviewer."""
     bill = _get_bill_for_booking(booking_id)
     if bill["status"] != "under_review":
@@ -174,8 +174,11 @@ def _get_completed_booking(booking_id: str, doctor_id: str) -> dict:
         raise AppError("Booking not found", 404)
     if b["doctor_id"] != doctor_id:
         raise AppError("Forbidden", 403)
-    if b["status"] != "completed":
-        raise AppError("Booking must be completed before submitting a procedure bill", 400)
+    # The procedures happen during the visit, so the bill can follow as soon as
+    # the consultation has started; it doesn't wait for the patient to open the
+    # prescription.
+    if b["status"] not in ("in_progress", "consulted", "completed"):
+        raise AppError("A procedure bill can be raised once the consultation has started", 400)
     return b
 
 

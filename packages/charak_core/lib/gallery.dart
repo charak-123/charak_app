@@ -21,6 +21,7 @@ class _CharakGalleryState extends State<CharakGallery> {
   String _channel = 'online';
   String _slot = '10:00';
   bool _online = true;
+  bool _agreed = false;
   bool _home = false;
 
   @override
@@ -114,10 +115,54 @@ class _CharakGalleryState extends State<CharakGallery> {
           ]),
           const SizedBox(height: 12),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final s in ['requested', 'accepted', 'paid', 'in_progress', 'review', 'declined'])
+            for (final s in ['requested', 'accepted', 'paid', 'in_progress', 'consulted', 'review', 'declined'])
               CharakStatusPill.forStatus(s),
+            for (final r in CharakRefundState.values) CharakStatusPill.forRefund(r),
           ]),
+          const SizedBox(height: 12),
+          CharakCheckRow(
+            value: _agreed,
+            onChanged: (v) => setState(() => _agreed = v),
+            spans: [
+              const TextSpan(text: 'I accept the '),
+              CharakCheckRow.link('Terms of Use', () {}),
+            ],
+          ),
+          CharakCheckRow(value: true, onChanged: (_) {}, label: "I've read the cancellation policy"),
           const SizedBox(height: 24),
+          CharakRatingSummaryCard(
+            summary: CharakRatingSummary(
+              count: 23, overall: 4.6, isNew: false,
+              dimensions: const {'professionalism': 4.8, 'communication': 4.5, 'punctuality': 4.1},
+              explanation: 'The average of up to the last 200 reviews from patients who completed a visit.',
+              reviews: [CharakReview(id: 'r', overall: 5, comment: 'Explained everything clearly.',
+                  createdAt: DateTime(2026, 10, 20))],
+            ),
+          ),
+          const SizedBox(height: 8),
+          CharakReviewTile(review: CharakReview(id: 'r', overall: 5, comment: 'Explained everything clearly.',
+              createdAt: DateTime(2026, 10, 20)), last: true),
+          CharakDimensionPicker(label: 'On time', value: 4, onChanged: (_) {}),
+          const SizedBox(height: 12),
+          CharakPrescriptionView(
+            prescription: CharakPrescription(
+              id: 'rx', bookingId: 'bk', status: 'submitted',
+              complaints: 'Fever and sore throat for 3 days',
+              diagnosis: 'Viral pharyngitis',
+              advice: 'Warm fluids, rest. Return if the fever lasts beyond 5 days.',
+              items: const [
+                CharakMedicine(medicine: 'Paracetamol', strength: '500 mg', form: 'Tablet',
+                    route: 'Oral', dose: '1 tablet', frequency: '1-1-1', duration: '3 days',
+                    instructions: 'After food'),
+                CharakMedicine(medicine: 'Chlorhexidine gargle', dose: '10 ml', frequency: 'Twice a day',
+                    duration: '5 days'),
+              ],
+              followUp: CharakFollowUp(date: DateTime(2026, 11, 5), channel: 'either',
+                  note: 'Sooner if breathing becomes difficult.'),
+            ),
+            followUpAction: const CharakButton(label: 'Book follow-up', onPressed: _noop),
+          ),
+          const SizedBox(height: 12),
           CharakGroupedList(
             label: 'Consultation',
             children: [

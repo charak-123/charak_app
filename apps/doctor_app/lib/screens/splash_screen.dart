@@ -18,8 +18,28 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _route() async {
+    // The version check runs alongside the splash delay, so it costs nothing
+    // on a normal launch. It never blocks on its own failure (CharakAppGate).
+    final gate = CharakAppGate.check('doctor');
+    // So does the profile that decides where a signed-in doctor lands, once
+    // the gate has said no update is due (a 401 here signs the doctor out,
+    // which must not pre-empt the update screen). Fetching it after the delay
+    // made every launch wait for both in turn. Null: not fetched early, so it
+    // is fetched below as before.
+    final profile = gate.then((update) =>
+        update == null && mounted && ref.read(authProvider).isAuthenticated
+            ? ApiClient.instance.get('/doctors/me')
+            : null);
+    // Its failure is handled where it is awaited; this only keeps one that is
+    // never awaited (the splash left early) from surfacing as a crash.
+    profile.catchError((_) => null);
     await Future.delayed(const Duration(milliseconds: 800));
+    final update = await gate;
     if (!mounted) return;
+    if (update != null) {
+      context.go('/update', extra: update);
+      return;
+    }
 
     final auth = ref.read(authProvider);
     if (!auth.isAuthenticated) {
@@ -29,7 +49,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
     // Fetch doctor profile to determine where in onboarding we are
     try {
-      final me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+      final me = (await profile ?? await ApiClient.instance.get('/doctors/me')) as Map<String, dynamic>;
       if (!mounted) return;
 
       final status = me['verification_status'] as String?;

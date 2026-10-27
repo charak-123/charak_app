@@ -58,7 +58,18 @@ DoctorPushDestination? doctorPushDestination(CharakPushMessage message) {
       return const DoctorPushDestination('/');
 
     case 'rating.received':
-      return const DoctorPushDestination('/home', tabIndex: kProfileTab);
+      return const DoctorPushDestination('/reviews');
+
+    // A case about the doctor: respond, or see the outcome and appeal.
+    case 'incident.reported':
+    case 'incident.decided':
+      return const DoctorPushDestination('/reliability');
+
+    // The visit itself: reminders before it, and its completion after.
+    case 'booking.reminder':
+    case 'visit.completed':
+    case 'reschedule.answered':
+      return bookingId == null ? null : DoctorPushDestination('/visit/$bookingId');
 
     case 'booking.cancelled':
     case 'booking.hold_expired':

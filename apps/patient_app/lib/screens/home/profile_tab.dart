@@ -40,6 +40,11 @@ class ProfileTab extends ConsumerWidget {
               onTap: () => _editProfile(context, ref, name, phone),
             ),
             CharakListRow(
+              icon: LucideIcons.receiptText,
+              title: 'Payments & refunds',
+              onTap: () => context.push('/payments'),
+            ),
+            CharakListRow(
               icon: LucideIcons.octagonAlert,
               title: 'Submit a complaint',
               onTap: () => context.push('/complaint'),

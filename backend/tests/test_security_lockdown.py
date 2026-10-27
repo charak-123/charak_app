@@ -442,7 +442,7 @@ def test_a_call_channel_is_the_whole_booking_id():
 
 
 def test_ledger_adjustments_are_audited():
-    OPS = {"sub": "00000000-0000-0000-0000-0000000000a1", "role": "ops"}
+    OPS = {"sub": "00000000-0000-0000-0000-0000000000a1", "role": "ops", "admin_role": "admin"}
     ledger = make_chain(list_data=[{"id": "00000000-0000-0000-0000-00000000e001"}])
     audit_db = make_supabase({"audit_log": make_chain()})
     jw = _as(OPS)
@@ -535,44 +535,52 @@ def test_a_booking_time_without_an_offset_is_refused():
 def test_a_cancel_that_loses_a_race_changes_nothing_and_refunds_nothing():
     booking = {"id": "bk-1", "patient_id": "pat-1", "doctor_id": "doc-1",
                "status": "paid", "channel": "online_consult"}
-    bookings = make_chain_seq(booking, [])      # read: paid; conditional write: no row
+    db = make_supabase({"bookings": make_chain(data=booking)})
+    # cancel_booking() locks the row and finds it moved on from 'paid'.
+    db.rpc.return_value.execute.return_value = MagicMock(
+        data={"outcome": "conflict", "status": "completed"})
     jw = _as(PATIENT)
     try:
-        with patch("app.routers.bookings.supabase", make_supabase({"bookings": bookings})), \
-             patch("app.routers.payments.refund_completed_payments") as refund:
+        with patch("app.routers.bookings.supabase", db), \
+             patch("app.routers.bookings.refunds.execute") as refund:
             res = client.patch("/bookings/bk-1/cancel", headers=AUTH)
     finally:
         jw.stop()
 
     assert res.status_code == 409
     refund.assert_not_called()
-    bookings.eq.assert_any_call("status", "paid")
+    assert db.rpc.call_args.args[1]["p_expected_status"] == "paid"
 
 
-def test_the_hold_sweeper_only_releases_bookings_still_unpaid():
-    expired = [{"id": "bk-1", "status": "accepted"}, {"id": "bk-2", "status": "accepted"}]
-    # bk-2 was paid between the sweeper's read and its write.
-    bookings = make_chain_seq(expired, [{"id": "bk-1"}])
+def test_the_hold_sweeper_only_reports_bookings_it_actually_released():
+    """
+    expire_payment_holds() (SQL) skips a booking whose payment is being confirmed
+    right now (FOR UPDATE SKIP LOCKED) and returns only what it released, so
+    only those are notified. The locking itself is tested against Postgres in
+    tests/integration/test_state_machine.py.
+    """
+    db = make_supabase({"bookings": make_chain(list_data=[{"id": "bk-1"}])})
+    db.rpc.side_effect = lambda name, params: MagicMock(
+        execute=lambda: MagicMock(data=["bk-1"] if name == "expire_payment_holds" else []))
     notified = []
     with patch("app.routers.maintenance.CRON_SECRET", "s"), \
-         patch("app.routers.maintenance.supabase", make_supabase({"bookings": bookings})), \
+         patch("app.routers.maintenance.supabase", db), \
          patch("app.routers.maintenance.notifications.booking_hold_expired",
                side_effect=lambda b: notified.append(b["id"])):
         res = client.post("/maintenance/release-expired-holds", headers={"X-Cron-Secret": "s"})
 
-    assert res.json() == {"released": 1, "booking_ids": ["bk-1"]}
+    assert res.json()["booking_ids"] == ["bk-1"]
     assert notified == ["bk-1"]
-    bookings.eq.assert_any_call("status", "accepted")
 
 
-def test_a_capture_that_loses_a_race_to_a_cancel_is_refunded():
+def test_a_capture_that_loses_a_race_to_a_cancel_is_refunded(transitions):
     from app.routers import payments
 
     booking = {"id": "bk-1", "doctor_id": "doc-1", "patient_id": "pat-1", "status": "accepted"}
     payment = {"id": "pay-1", "booking_id": "bk-1", "amount": 500, "type": "consult_fee"}
-    # read: accepted → conditional flip: no row → re-read: cancelled
-    bookings = make_chain_seq(booking, [], {"status": "cancelled"})
-    db = make_supabase({"bookings": bookings, "payments": make_chain()})
+    db = make_supabase({"bookings": make_chain(data=booking), "payments": make_chain()})
+    # transition_booking: expected 'accepted', but a cancel got there first.
+    transitions.refuse = ("conflict", "cancelled")
     with patch("app.routers.payments.supabase", db), \
          patch("app.routers.payments.payouts.credit"), \
          patch("app.routers.payments._refund_orphaned_payment") as refund, \
@@ -582,4 +590,20 @@ def test_a_capture_that_loses_a_race_to_a_cancel_is_refunded():
     assert out == {"ok": True, "refunded": True}
     refund.assert_called_once()
     # The flip to `paid` is conditional on the booking still being accepted.
-    bookings.eq.assert_any_call("status", "accepted")
+    assert transitions.last("pay")["p_expected_status"] == "accepted"
+    assert transitions.last("pay")["p_actor_role"] == "system"
+
+
+def test_a_capture_redelivered_after_the_booking_is_paid_changes_nothing(transitions):
+    from app.routers import payments
+
+    booking = {"id": "bk-1", "doctor_id": "doc-1", "patient_id": "pat-1", "status": "accepted"}
+    payment = {"id": "pay-1", "booking_id": "bk-1", "amount": 500, "type": "consult_fee"}
+    db = make_supabase({"bookings": make_chain(data=booking), "payments": make_chain()})
+    transitions.refuse = ("invalid", "paid")
+    with patch("app.routers.payments.supabase", db), \
+         patch("app.routers.payments.payouts.credit"), \
+         patch("app.routers.payments._refund_orphaned_payment") as refund, \
+         patch("app.routers.payments.notifications"):
+        assert payments._confirm_payment(payment, "rzp_pay_1", "upi") == {"ok": True}
+    refund.assert_not_called()

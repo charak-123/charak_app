@@ -11,11 +11,25 @@ final _doctorProvider =
   return res as Map<String, dynamic>;
 });
 
+/// The doctor's rating ("New" below 5 reviews) and recent comments.
+final _reviewsProvider = FutureProvider.autoDispose.family<CharakRatingSummary, String>((ref, id) async {
+  return CharakRatingSummary.fromJson(
+      await ApiClient.instance.get('/doctors/$id/reviews?limit=5') as Map<String, dynamic>);
+});
+
+/// The doctor's first-visit prices by channel and length.
+final _pricesProvider = FutureProvider.autoDispose.family<CharakPriceList, String>((ref, id) async {
+  return CharakPriceList.fromJson(await ApiClient.instance.get('/doctors/$id/prices') as Map<String, dynamic>);
+});
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class DoctorProfileScreen extends ConsumerWidget {
   final String doctorId;
-  const DoctorProfileScreen({super.key, required this.doctorId});
+
+  /// Choosing another doctor after one didn't attend (directory_screen.dart).
+  final Map<String, dynamic>? replacement;
+  const DoctorProfileScreen({super.key, required this.doctorId, this.replacement});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -24,7 +38,12 @@ class DoctorProfileScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),
         error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_doctorProvider(doctorId))),
-        data: (doc) => _Body(doctor: doc),
+        data: (doc) => _Body(
+          replacement: replacement,
+          doctor: doc,
+          prices: ref.watch(_pricesProvider(doctorId)).valueOrNull,
+          reviews: ref.watch(_reviewsProvider(doctorId)).valueOrNull,
+        ),
       ),
     );
   }
@@ -34,7 +53,10 @@ class DoctorProfileScreen extends ConsumerWidget {
 
 class _Body extends StatelessWidget {
   final Map<String, dynamic> doctor;
-  const _Body({required this.doctor});
+  final CharakPriceList? prices;
+  final CharakRatingSummary? reviews;
+  final Map<String, dynamic>? replacement;
+  const _Body({required this.doctor, required this.prices, required this.reviews, this.replacement});
 
   @override
   Widget build(BuildContext context) {
@@ -42,21 +64,17 @@ class _Body extends StatelessWidget {
     final photoUrl   = doctor['photo_url'] as String?;
     final bio        = doctor['bio'] as String?;
     final rating     = (doctor['rating_avg'] as num?)?.toDouble() ?? 0;
-    final reviews    = (doctor['rating_count'] as num?)?.toInt() ?? 0;
+    final reviewCount = (doctor['rating_count'] as num?)?.toInt() ?? 0;
     final category   = (doctor['categories'] as Map?)?['name'] as String? ?? '';
     final creds      = doctor['qualifications'] as String? ?? category;
-    final pricing    = List<Map<String,dynamic>>.from(doctor['doctor_pricing'] as List? ?? []);
     final procedures = List<Map<String,dynamic>>.from(doctor['doctor_procedures'] as List? ?? []);
     final threshold  = doctor['procedure_review_threshold'];
     final radius     = doctor['service_radius_km'];
     final verified   = doctor['verified'] as bool? ?? true;
 
-    final onlinePricing = pricing.where((p) => p['channel'] == 'online_consult').firstOrNull;
-    final homePricing   = pricing.where((p) => p['channel'] == 'home_visit').firstOrNull;
-    final onlineExtra   = (onlinePricing?['extra_rate_per_15min'] as num?)?.toDouble() ?? 0;
-    final homeExtra     = (homePricing?['extra_rate_per_15min'] as num?)?.toDouble() ?? 0;
-    int mins(Map<String, dynamic>? p) => (p?['base_duration_min'] as num?)?.toInt() ?? 15;
-    int extraMins(Map<String, dynamic>? p) => (p?['extra_duration_min'] as num?)?.toInt() ?? 15;
+    final online = prices?.optionsFor('online_consult') ?? const <CharakPriceOption>[];
+    final home   = prices?.optionsFor('home_visit') ?? const <CharakPriceOption>[];
+    final validity = prices?.followUpValidityDays;
 
     String money(Object? p) => CharakFormat.rupees(p as num);
 
@@ -103,8 +121,8 @@ class _Body extends StatelessWidget {
                 Text(
                   [
                     if (creds.isNotEmpty) creds,
-                    if (reviews > 0) '$reviews ratings',
-                    if (homePricing != null && radius != null) 'Home visits within $radius km',
+                    if (reviewCount > 0) '$reviewCount review${reviewCount == 1 ? '' : 's'}',
+                    if (home.isNotEmpty && radius != null) 'Home visits within $radius km',
                   ].join(' · '),
                   style: CharakText.body.copyWith(color: CharakColors.inkMuted),
                 ),
@@ -122,29 +140,38 @@ class _Body extends StatelessWidget {
             _Section(
               title: 'Consultation fee',
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                CharakFeeList(rows: [
-                  if (onlinePricing != null)
-                    CharakFeeRow('Online consult · ${mins(onlinePricing)} min', money(onlinePricing['price'])),
-                  if (homePricing != null)
-                    CharakFeeRow('Home visit · ${mins(homePricing)} min', money(homePricing['price'])),
-                  if (onlinePricing != null && onlineExtra > 0)
-                    CharakFeeRow('Online extra (per ${extraMins(onlinePricing)} min)',
-                        CharakFormat.rupees(onlineExtra), muted: true),
-                  if (homePricing != null && homeExtra > 0)
-                    CharakFeeRow('Home extra (per ${extraMins(homePricing)} min)',
-                        CharakFormat.rupees(homeExtra), muted: true),
-                ]),
-                const SizedBox(height: 10),
-                Text.rich(
-                  const TextSpan(children: [
-                    TextSpan(text: 'Price covers one session of the length shown. '),
-                    TextSpan(text: 'Extra time', style: TextStyle(fontWeight: FontWeight.w600)),
-                    TextSpan(text: " is charged per block at the doctor's extra-time rate."),
+                if (prices == null)
+                  const CharakSkeleton(height: 72, radius: 20)
+                else
+                  CharakFeeList(rows: [
+                    for (final o in online) CharakFeeRow('Online consult · ${o.durationMin} min', o.priceLabel),
+                    for (final o in home) CharakFeeRow('Home visit · ${o.durationMin} min', o.priceLabel),
                   ]),
+                const SizedBox(height: 10),
+                Text(
+                  'You choose the length when you book, and pay that price. Nothing is added for time.'
+                  '${prices?.offersFollowUpPrices == true && validity != null ? ' A follow-up for the same problem within $validity days costs less: book it from your prescription.' : ''}',
                   style: charakHintStyle,
                 ),
               ]),
             ),
+
+            // ── Reviews ──────────────────────────────────────────────────
+            if (reviews != null && reviews!.count > 0)
+              _Section(
+                title: 'Reviews',
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  CharakRatingSummaryCard(summary: reviews!, showExplanation: false),
+                  for (final (i, r) in reviews!.reviews.take(3).indexed)
+                    CharakReviewTile(review: r, last: i == reviews!.reviews.take(3).length - 1),
+                  const SizedBox(height: 6),
+                  Text(
+                    'From patients who completed a visit with this doctor. '
+                    '${reviews!.isNew ? 'An average is shown from ${reviews!.minReviewsShown} reviews.' : reviews!.explanation}',
+                    style: charakHintStyle,
+                  ),
+                ]),
+              ),
 
             // ── Procedure prices ─────────────────────────────────────────
             if (procedures.isNotEmpty)
@@ -185,8 +212,8 @@ class _Body extends StatelessWidget {
 
       CharakCtaBar.single(
         CharakButton(
-          label: 'Book a slot',
-          onPressed: () => context.push('/book/${doctor['id']}/slots'),
+          label: replacement != null ? 'Book with your earlier payment' : 'Book a consultation',
+          onPressed: () => context.push('/book/${doctor['id']}/channel', extra: replacement),
         ),
       ),
     ]);

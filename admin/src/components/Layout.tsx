@@ -1,20 +1,29 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { clearToken } from '@/lib/auth'
+import { ROLE_LABEL, useMe } from '@/lib/me'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import {
-  LayoutDashboard, ShieldCheck, BookOpen, MessageSquare, Users, ClipboardList, LogOut, UserX, Menu, X } from 'lucide-react'
+  LayoutDashboard, ShieldCheck, BookOpen, MessageSquare, Users, ClipboardList, LogOut, UserX, Menu, X, Undo2, Stethoscope, Star, ShieldAlert, Activity, ScrollText, Server } from 'lucide-react'
 
 const NAV = [
-  { to: '/',              icon: LayoutDashboard, label: 'Overview' },
-  { to: '/verification',  icon: ShieldCheck,   label: 'Verification' },
-  { to: '/bookings',      icon: BookOpen,      label: 'Bookings' },
-  { to: '/complaints',    icon: MessageSquare, label: 'Complaints' },
-  { to: '/directory',     icon: Users,         label: 'Directory' },
-  { to: '/senior-review', icon: ClipboardList, label: 'Senior Review' },
-  { to: '/deletion-requests', icon: UserX, label: 'Deletion Requests' },
+  { to: '/',              icon: LayoutDashboard, label: 'Overview',       perm: 'metrics.read' },
+  { to: '/health',        icon: Activity,      label: 'Health',            perm: 'metrics.read' },
+  { to: '/verification',  icon: ShieldCheck,   label: 'Verification',      perm: 'doctors.read' },
+  { to: '/bookings',      icon: BookOpen,      label: 'Bookings',          perm: 'bookings.read' },
+  { to: '/complaints',    icon: MessageSquare, label: 'Complaints',        perm: 'complaints.read' },
+  { to: '/visits',        icon: Stethoscope,   label: 'Visits',            perm: 'visits.read' },
+  { to: '/incidents',     icon: ShieldAlert,   label: 'Incidents',         perm: 'incidents.read' },
+  { to: '/reviews',       icon: Star,          label: 'Reviews',           perm: 'reviews.read' },
+  { to: '/refunds',       icon: Undo2,         label: 'Refunds',           perm: 'refunds.manage' },
+  { to: '/directory',     icon: Users,         label: 'Directory',         perm: 'doctors.read' },
+  { to: '/senior-review', icon: ClipboardList, label: 'Senior Review',     perm: 'procedure_bills.review' },
+  { to: '/deletion-requests', icon: UserX,     label: 'Deletion Requests', perm: 'deletions.fulfil' },
+  { to: '/policies',      icon: ScrollText,    label: 'Policies',          perm: 'policies.approve' },
+  { to: '/system',        icon: Server,        label: 'System',            perm: 'system.read' },
 ]
 
 function Wordmark() {
@@ -30,10 +39,12 @@ function Wordmark() {
 
 /** Nav + logout. The same list renders as the desktop sidebar and the phone drawer. */
 function NavPanel({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: () => void }) {
+  // Only what this admin's role allows (the API enforces it regardless).
+  const { me, can } = useMe()
   return (
     <>
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-        {NAV.map(({ to, icon: Icon, label }) => (
+        {NAV.filter(n => can(n.perm)).map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
@@ -55,6 +66,11 @@ function NavPanel({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout:
         ))}
       </nav>
       <div className="px-2 py-2 border-t border-sidebar-border">
+        {me && (
+          <p className="truncate px-3 pb-1 text-xs text-sidebar-foreground/50">
+            {me.email} · {ROLE_LABEL[me.role] ?? me.role}
+          </p>
+        )}
         <Button
           variant="ghost"
           onClick={onLogout}
@@ -71,7 +87,9 @@ export default function Layout() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
-  function logout() { clearToken(); navigate('/login') }
+  const queryClient = useQueryClient()
+  // Everything cached belongs to this admin's session (their role included).
+  function logout() { clearToken(); queryClient.clear(); navigate('/login') }
 
   // Close the drawer on Escape, and keep the page behind it from scrolling.
   useEffect(() => {

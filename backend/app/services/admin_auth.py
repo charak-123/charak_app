@@ -86,7 +86,9 @@ def _check_totp(admin: dict, code: str) -> None:
 def _get_admin(email: str) -> Optional[dict]:
     rows = (
         supabase.table("admin_users")
-        .select("id, email, password_hash, totp_secret, totp_enabled")
+        # "*", not a column list: `role` (migration 0029) is read when present,
+        # so sign-in keeps working on a database that doesn't have it yet.
+        .select("*")
         .eq("email", email.strip().lower())
         .execute()
         .data

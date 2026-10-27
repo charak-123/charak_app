@@ -7,6 +7,7 @@ import 'push_routes.dart';
 import 'screens/auth/phone_entry_screen.dart';
 import 'screens/auth/sign_in_screen.dart';
 import 'screens/notifications/notifications_screen.dart';
+import 'screens/profile/payments_screen.dart';
 import 'screens/auth/otp_screen.dart';
 import 'screens/auth/name_entry_screen.dart';
 import 'screens/home/home_shell.dart';
@@ -21,6 +22,8 @@ import 'screens/booking/booking_status_screen.dart';
 import 'screens/booking/payment_screen.dart';
 import 'screens/booking/booking_confirmed_screen.dart';
 import 'screens/booking/active_booking_screen.dart';
+import 'screens/booking/prescription_screen.dart';
+import 'screens/booking/help_screen.dart';
 import 'screens/booking/video_call_screen.dart';
 import 'screens/booking/visit_complete_screen.dart';
 import 'screens/booking/procedure_bill_screen.dart';
@@ -84,11 +87,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth     = ref.read(authProvider);
       final isAuth   = state.matchedLocation.startsWith('/auth');
       final isSplash = state.matchedLocation == '/';
-      if (!auth.isAuthenticated && !isAuth && !isSplash) return '/auth/sign-in';
+      // Reachable signed out: an old build must update before it can sign in.
+      final isUpdate = state.matchedLocation == '/update';
+      if (!auth.isAuthenticated && !isAuth && !isSplash && !isUpdate) return '/auth/sign-in';
       return null;
     },
     routes: [
       GoRoute(path: '/',                     pageBuilder: (_, __) => _rise(const SplashScreen())),
+      GoRoute(path: '/update',
+          redirect: (_, s) => s.extra is CharakUpdateInfo ? null : '/',
+          pageBuilder: (_, s) => _rise(CharakUpdateRequiredScreen(info: s.extra! as CharakUpdateInfo))),
       GoRoute(path: '/auth/sign-in',          pageBuilder: (_, __) => _push(const SignInScreen())),
       // Phone + OTP: back once DLT approval lets MSG91 deliver SMS.
       GoRoute(path: '/auth/phone',           pageBuilder: (_, __) => _push(const PhoneEntryScreen())),
@@ -106,17 +114,28 @@ final routerProvider = Provider<GoRouter>((ref) {
       // ── Main shell ───────────────────────────────────────────────────────
       GoRoute(path: '/home',                 pageBuilder: (_, __) => _rise(const HomeShell())),
       GoRoute(path: '/notifications',        pageBuilder: (_, __) => _push(const NotificationsScreen())),
+      GoRoute(path: '/payments',             pageBuilder: (_, __) => _push(const PaymentsScreen())),
 
       // ── Directory ────────────────────────────────────────────────────────
       GoRoute(path: '/directory',
-          pageBuilder: (_, s) =>
-              _card(s, DirectoryScreen(initialQuery: s.uri.queryParameters['q']))),
+          pageBuilder: (_, s) => _card(s, DirectoryScreen(
+                initialQuery: s.uri.queryParameters['q'],
+                replacement: s.extra is Map<String, dynamic> ? s.extra as Map<String, dynamic> : null,
+              ))),
       GoRoute(path: '/doctor/:id',
-          pageBuilder: (_, s) => _card(s, DoctorProfileScreen(doctorId: s.pathParameters['id']!))),
+          pageBuilder: (_, s) => _card(s, DoctorProfileScreen(
+                doctorId: s.pathParameters['id']!,
+                replacement: s.extra is Map<String, dynamic> ? s.extra as Map<String, dynamic> : null,
+              ))),
 
       // ── Booking flow ─────────────────────────────────────────────────────
-      GoRoute(path: '/book/:doctorId/slots',
-          pageBuilder: (_, s) => _push(SlotSelectionScreen(doctorId: s.pathParameters['doctorId']!))),
+      // Booking: channel and length first (so the price), then a time that
+      // fits that length. A follow-up starts with extra {'follow_up_of': id}.
+      GoRoute(path: '/book/:doctorId/channel',
+          pageBuilder: (_, s) => _push(ChannelConfirmScreen(
+            doctorId: s.pathParameters['doctorId']!,
+            extra: s.extra is Map<String, dynamic> ? s.extra as Map<String, dynamic> : const {},
+          ))),
       // These three carry a booking draft built up across the previous steps
       // (selected slot, channel, intake media the patient has already picked)
       // — state that cannot be reconstructed from a URL, unlike the string
@@ -125,10 +144,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       // restored app, a stray deep link), the draft is gone regardless of how
       // the route is written, so the honest fix is to send the patient back
       // to pick up the flow again rather than hand a bad cast to the screen.
-      GoRoute(path: '/book/:doctorId/channel',
+      GoRoute(path: '/book/:doctorId/slots',
           redirect: (_, s) => s.extra is Map<String, dynamic>
-              ? null : '/doctor/${s.pathParameters['doctorId']}',
-          pageBuilder: (_, s) => _push(ChannelConfirmScreen(
+              ? null : '/book/${s.pathParameters['doctorId']}/channel',
+          pageBuilder: (_, s) => _push(SlotSelectionScreen(
             doctorId: s.pathParameters['doctorId']!,
             extra: s.extra as Map<String, dynamic>,
           ))),
@@ -165,6 +184,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           pageBuilder: (_, s) => _push(ProcedureBillScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/rate',
           pageBuilder: (_, s) => _push(RateScreen(bookingId: s.pathParameters['id']!))),
+      GoRoute(path: '/booking/:id/help',
+          pageBuilder: (_, s) => _push(HelpScreen(bookingId: s.pathParameters['id']!))),
+      GoRoute(path: '/prescription/:id',
+          pageBuilder: (_, s) => _push(PrescriptionScreen(prescriptionId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/history-detail',
           pageBuilder: (_, s) => _card(s, HistoryDetailScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/complaint',

@@ -15,7 +15,7 @@ from ..config import AGORA_APP_CERTIFICATE, AGORA_APP_ID
 from ..db import fetch_one, supabase
 from ..deps import require_doctor, get_current_user
 from ..errors import AppError
-from ..services import notifications
+from ..services import notifications, visits
 
 router = APIRouter()
 
@@ -102,6 +102,7 @@ def initiate_call(
 
     channel_name = _channel_for(booking_id)
     token = _generate_agora_token(channel_name, 0)
+    visits.record_call_join({**b, "id": booking_id}, "doctor", user["sub"], "clarification")
 
     notifications.clarification_call_started(b, background)
 
@@ -133,7 +134,7 @@ def patient_join_token(
     app had no way to join the channel it was being called on.
     """
     booking = fetch_one(
-        supabase.table("bookings").select("patient_id, doctor_id").eq("id", booking_id)
+        supabase.table("bookings").select("id, patient_id, doctor_id").eq("id", booking_id)
     )
     if not booking:
         raise AppError("Booking not found", 404)
@@ -151,6 +152,8 @@ def patient_join_token(
 
     channel_name = _channel_for(booking_id)
     uid = (body or JoinRequest()).uid
+    role = "patient" if user["sub"] == booking["patient_id"] else "doctor"
+    visits.record_call_join({**booking, "id": booking_id}, role, user["sub"], "clarification")
     return {
         "agora_channel": channel_name,
         "agora_token": _generate_agora_token(channel_name, uid),
@@ -177,7 +180,7 @@ def join_active_call(
     """
     booking = fetch_one(
         supabase.table("bookings")
-        .select("patient_id, doctor_id, channel, status, doctors(name)")
+        .select("id, patient_id, doctor_id, channel, status, scheduled_start, doctors(name), users(name)")
         .eq("id", booking_id)
     )
     if not booking:
@@ -203,7 +206,7 @@ def join_active_call(
     # same place without any call record to coordinate them.
     is_paid_consult = (
         booking.get("channel") == "online_consult"
-        and booking.get("status") == "paid"
+        and booking.get("status") in ("paid", "in_progress")
     )
     if not active and not is_paid_consult:
         raise AppError("No call is in progress for this booking", 404)
@@ -211,6 +214,11 @@ def join_active_call(
     channel_name = _channel_for(booking_id)
     uid = (body or JoinRequest()).uid
     token = _generate_agora_token(channel_name, uid)
+    # Recorded for both sides (evidence if someone says the other never
+    # joined). The doctor joining a paid consult starts the consultation.
+    role = "patient" if user["sub"] == booking["patient_id"] else "doctor"
+    visits.record_call_join({**booking, "id": booking_id}, role, user["sub"],
+                            "consultation" if is_paid_consult else "clarification")
     return {
         # None for a scheduled consult — there is no clarification-call row to
         # report, and the app only uses this id to close a clarification call.
@@ -220,6 +228,7 @@ def join_active_call(
         "agora_app_id": AGORA_APP_ID,
         "token": token,                                    # legacy key
         "doctor_name": (booking.get("doctors") or {}).get("name"),
+        "patient_name": (booking.get("users") or {}).get("name"),
         "uid": uid,
         "live": agora_configured(),
         "expires_in": TOKEN_TTL_SECONDS,

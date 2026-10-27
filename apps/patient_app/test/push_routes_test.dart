@@ -2,14 +2,29 @@ import 'package:charak_core/charak_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patient_app/push_routes.dart';
 
-CharakPushMessage _msg(String event, {String? bookingId}) =>
-    CharakPushMessage(event: event, bookingId: bookingId);
+CharakPushMessage _msg(String event, {String? bookingId, Map<String, String> data = const {}}) =>
+    CharakPushMessage(event: event, bookingId: bookingId, data: data);
 
 /// The event names here are the backend's, from
 /// `backend/app/services/notifications.py`. A rename there that is not made
 /// here silently stops the notification routing anywhere.
 void main() {
   group('patientPushRoute', () {
+    test('a prescription notification opens the prescription itself', () {
+      for (final e in ['prescription.ready', 'prescription.updated', 'prescription.reminder']) {
+        expect(patientPushRoute(_msg(e, bookingId: 'bk-1', data: {'prescription_id': 'rx-1'})),
+            '/prescription/rx-1', reason: e);
+      }
+      // Without the id it still lands somewhere useful.
+      expect(patientPushRoute(_msg('prescription.ready', bookingId: 'bk-1')), '/booking/bk-1/active');
+    });
+
+    test('journey, reminders and follow-ups land on the booking', () {
+      for (final e in ['visit.journey_started', 'booking.reminder', 'follow_up.reminder']) {
+        expect(patientPushRoute(_msg(e, bookingId: 'bk-1')), '/booking/bk-1/active', reason: e);
+      }
+    });
+
     test('an incoming call goes straight to the call screen', () {
       // The doctor is ringing now — this is the one event where landing on the
       // wrong screen loses the call.

@@ -134,8 +134,5 @@ ACCOUNT_DELETION_GRACE_DAYS = int(os.getenv("ACCOUNT_DELETION_GRACE_DAYS", "30")
 # account. MUST be false in a public production deployment.
 DEMO_LOGIN_ENABLED = os.getenv("DEMO_LOGIN_ENABLED", "").lower() in ("1", "true", "yes")
 
-# Current versions of the user-facing legal documents. Bumping a version makes
-# the apps re-request consent and records a fresh row against the new version.
-LEGAL_TERMS_VERSION        = os.getenv("LEGAL_TERMS_VERSION", "2026-10-01")
-LEGAL_PRIVACY_VERSION      = os.getenv("LEGAL_PRIVACY_VERSION", "2026-10-01")
-LEGAL_TELEMEDICINE_VERSION = os.getenv("LEGAL_TELEMEDICINE_VERSION", "2026-10-01")
+# Legal document versions are no longer configured here: the published
+# versions live in the legal_documents table (migration 0024, runbook §6c).

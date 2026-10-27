@@ -57,6 +57,8 @@ class HomeTab extends ConsumerWidget {
             : 'You have ${upcoming.length} upcoming booking${upcoming.length == 1 ? '' : 's'}.';
 
     final unread = ref.watch(unreadNotificationsProvider).valueOrNull ?? 0;
+    final ready = bookings.where((b) => b['status'] == 'consulted').toList();
+    final followUps = ref.watch(followUpsProvider).valueOrNull ?? const [];
     return CharakLargeTitleScaffold(
       eyebrow: DateFormat('EEEE, d MMMM').format(DateTime.now()),
       title: '${_greeting()},\n$firstName',
@@ -93,7 +95,10 @@ class HomeTab extends ConsumerWidget {
           child: CharakAvatar(name: name.isEmpty ? '?' : name, radius: 22, circle: true, tone: 6),
         ),
       ],
-      onRefresh: () => ref.refresh(patientBookingsProvider.future),
+      onRefresh: () {
+        ref.invalidate(followUpsProvider);
+        return ref.refresh(patientBookingsProvider.future);
+      },
       floating: live == null ? null : _ConsultNowBar(booking: live),
       children: [
         CharakSearchBar(
@@ -103,6 +108,28 @@ class HomeTab extends ConsumerWidget {
         if (next != null) ...[
           const SizedBox(height: 16),
           _NextBookingHero(booking: next),
+        ],
+        if (ready.isNotEmpty || followUps.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          CharakGroupedList(label: 'For you', children: [
+            for (final (i, b) in ready.indexed)
+              CharakListRow(
+                icon: LucideIcons.fileText,
+                title: 'Your prescription is ready',
+                subtitle: '${CharakFormat.doctor((b['doctors'] as Map?)?['name'] as String?)} · '
+                    'open it to complete your visit',
+                last: i == ready.length - 1 && followUps.isEmpty,
+                onTap: () => context.push('/booking/${b['id']}/active'),
+              ),
+            for (final (i, f) in followUps.indexed)
+              CharakListRow(
+                icon: LucideIcons.calendarClock,
+                title: 'Follow-up with ${CharakFormat.doctor((f['doctors'] as Map?)?['name'] as String?)}',
+                subtitle: _followUpLine(f),
+                last: i == followUps.length - 1,
+                onTap: () => _followUpSheet(context, ref, f),
+              ),
+          ]),
         ],
         const SizedBox(height: 28),
         CharakSectionHeader(
@@ -136,6 +163,50 @@ class HomeTab extends ConsumerWidget {
     );
   }
 
+  static String _followUpLine(Map<String, dynamic> f) {
+    final when = DateTime.tryParse(f['recommended_date'] as String? ?? '');
+    final channel = CharakFollowUp.fromJson(f).channelLabel;
+    if (when == null) return channel;
+    final today = DateTime.now();
+    final past = when.isBefore(DateTime(today.year, today.month, today.day));
+    return '${past ? 'Was due' : 'Around'} ${DateFormat('EEE d MMM').format(when)} · $channel';
+  }
+
+  /// The recommendation, with Book (the doctor's profile, to pick a slot) and
+  /// Dismiss. Nothing was booked for the patient, and the sheet says so.
+  Future<void> _followUpSheet(BuildContext context, WidgetRef ref, Map<String, dynamic> f) async {
+    final followUp = CharakFollowUp.fromJson(f);
+    final action = await showCharakSheet<String>(
+      context,
+      title: 'Follow-up recommended',
+      child: Builder(
+        builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          CharakFollowUpLine(followUp: followUp),
+          const SizedBox(height: 12),
+          Text('Your doctor recommended this. Nothing has been booked: pick a slot if you need it.',
+              style: charakHintStyle),
+          const SizedBox(height: 16),
+          CharakButton(label: 'Book follow-up', onPressed: () => Navigator.pop(ctx, 'book')),
+          const SizedBox(height: 8),
+          CharakButton(label: 'Dismiss', variant: CharakButtonVariant.outline,
+              onPressed: () => Navigator.pop(ctx, 'dismiss')),
+        ]),
+      ),
+    );
+    if (!context.mounted || action == null) return;
+    if (action == 'book') {
+      // At the follow-up price, if this consultation still qualifies.
+      context.push('/book/${f['doctor_id']}/channel', extra: {'follow_up_of': f['booking_id']});
+      return;
+    }
+    try {
+      await ApiClient.instance.post('/me/follow-ups/${f['id']}/dismiss', {});
+      ref.invalidate(followUpsProvider);
+    } on ApiException catch (e) {
+      if (context.mounted) showCharakToast(context, message: e.message, isError: true);
+    }
+  }
+
   static DateTime? _start(Map<String, dynamic> b) {
     final s = b['scheduled_start'] as String?;
     return s == null ? null : DateTime.tryParse(s)?.toLocal();
@@ -147,7 +218,8 @@ class HomeTab extends ConsumerWidget {
     final list = all.where((b) {
       final st = b['status'];
       final at = _start(b);
-      return (st == 'requested' || st == 'accepted' || st == 'paid') && at != null && at.isAfter(now);
+      return (st == 'requested' || st == 'accepted' || st == 'paid' || st == 'in_progress') &&
+          at != null && at.isAfter(now);
     }).toList()
       ..sort((a, b) => _start(a)!.compareTo(_start(b)!));
     return list;
@@ -185,7 +257,7 @@ class _NextBookingHero extends StatelessWidget {
 
     final (actionLabel, route) = switch (status) {
       'accepted' => (price != null ? 'Pay ${CharakFormat.rupees(price)}' : 'Pay', '/booking/$id/pay'),
-      'paid' => ('View', '/booking/$id/active'),
+      'paid' || 'in_progress' => ('View', '/booking/$id/active'),
       _ => ('Status', '/booking/$id/status'),
     };
 

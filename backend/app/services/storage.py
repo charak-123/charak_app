@@ -36,8 +36,9 @@ logger = logging.getLogger(__name__)
 BUCKET_DOCTOR_PHOTOS = "doctor-photos"        # public: shown in the directory
 BUCKET_VERIFICATION  = "verification-docs"    # private: licences and IDs
 BUCKET_INTAKE        = "intake-media"         # private: patient health information
+BUCKET_PRESCRIPTIONS = "prescriptions"        # private: PDFs, handwritten uploads, signatures
 
-PRIVATE_BUCKETS = (BUCKET_VERIFICATION, BUCKET_INTAKE)
+PRIVATE_BUCKETS = (BUCKET_VERIFICATION, BUCKET_INTAKE, BUCKET_PRESCRIPTIONS)
 
 SIGNED_URL_TTL_SECONDS = 300   # 5 minutes — long enough to open, short enough
                                # that a leaked link is not a standing grant
@@ -78,6 +79,10 @@ LIMITS = {
     "intake_image": (IMAGE_TYPES,    10 * MB),
     "intake_audio": (AUDIO_TYPES,    25 * MB),
     "intake_video": (VIDEO_TYPES,    50 * MB),
+    # A handwritten prescription, photographed or scanned.
+    "prescription_upload": (DOCUMENT_TYPES, 15 * MB),
+    # The doctor's signature for prescription PDFs: a small PNG or JPEG.
+    "signature":    ({"image/png": "png", "image/jpeg": "jpg"}, 2 * MB),
 }
 
 
@@ -226,6 +231,16 @@ def signed_url(bucket: str, path: str, ttl: int = SIGNED_URL_TTL_SECONDS) -> str
     return url
 
 
+def download(bucket: str, path: str) -> Optional[bytes]:
+    """Read a private object's bytes (the backend's own use, such as a doctor's
+    signature for a PDF). None if it can't be read."""
+    try:
+        return supabase.storage.from_(bucket).download(path)
+    except Exception as exc:
+        logger.warning("could not read %s/%s: %s", bucket, path, exc)
+        return None
+
+
 def remove(bucket: str, path: str) -> None:
     """
     Delete an object. Best-effort: a failed cleanup of a replaced file is not
@@ -253,7 +268,7 @@ def ensure_buckets() -> dict:
         raise AppError(f"Could not list buckets: {str(exc)[:200]}", 502)
 
     created = []
-    for name in (BUCKET_DOCTOR_PHOTOS, BUCKET_VERIFICATION, BUCKET_INTAKE):
+    for name in (BUCKET_DOCTOR_PHOTOS, BUCKET_VERIFICATION, BUCKET_INTAKE, BUCKET_PRESCRIPTIONS):
         if name in existing:
             continue
         supabase.storage.create_bucket(

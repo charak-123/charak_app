@@ -78,3 +78,18 @@ def require_ops(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "ops":
         raise HTTPException(status_code=403, detail="Ops access required")
     return user
+
+
+def require_permission(permission: str):
+    """An admin endpoint's dependency: signed in as ops, with a role that
+    includes ``permission`` (services/admin_roles.py)."""
+    from .services import admin_roles
+
+    def check(user: dict = Depends(require_ops)) -> dict:
+        if not admin_roles.can(user, permission):
+            from .errors import AppError
+            raise AppError(f"Your role ({admin_roles.role_of(user)}) can't do this. Ask an admin.",
+                           403, permission=permission)
+        return user
+
+    return check

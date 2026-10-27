@@ -59,6 +59,26 @@ do $$ begin
 SQL
 }
 
+# Test-only: policy and legal-document versions are append-only, so a test
+# that publishes one (version 't-…' or '2099-…') would leave it current for
+# every later test. The suite's cleanup calls this to remove them, through the
+# same retention switch a real purge would use. Never part of a migration.
+test_helpers_sql() {
+  cat <<'SQL'
+create or replace function test_forget_test_versions() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform set_config('charak.retention_purge', 'on', true);
+  delete from policy_approvals where policy_id in (select id from policies where version like 't-%');
+  delete from policies where version like 't-%';
+  delete from legal_document_approvals
+   where document_id in (select id from legal_documents where version like 't-%' or version like '2099-%');
+  delete from legal_documents where version like 't-%' or version like '2099-%';
+end $$;
+grant execute on function test_forget_test_versions() to service_role;
+SQL
+}
+
 grants_sql() {
   cat <<'SQL'
 grant usage on schema public to anon, authenticated, service_role;
@@ -85,6 +105,7 @@ apply_migrations() {
     fi
   done
   grants_sql | psql_run
+  test_helpers_sql | psql_run
   # PostgREST caches the schema; without this every new table 404s.
   docker kill -s SIGUSR1 "$REST" >/dev/null 2>&1 || true
 }

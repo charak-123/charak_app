@@ -12,3 +12,10 @@ final patientBookingsProvider = FutureProvider.autoDispose<List<Map<String, dyna
 /// state's "Browse doctors" button) set this before navigating to `/home` so
 /// the shell opens on the right tab instead of wherever it was left.
 final homeTabIndexProvider = StateProvider<int>((ref) => 0);
+
+/// The doctor's open follow-up recommendations (GET /me/follow-ups), soonest
+/// first. Recommendations only: nothing is booked or charged from them.
+final followUpsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ApiClient.instance.get('/me/follow-ups') as List;
+  return res.cast<Map<String, dynamic>>();
+});

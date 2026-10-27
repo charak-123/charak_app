@@ -83,6 +83,19 @@ String _day(int offset) {
 
 MockClient doctorBackend() => MockClient((req) async {
       final p = req.url.path.replaceAll(RegExp(r'/$'), '');
+      if (p == '/legal/current') {
+        // A doctor mid-onboarding: Terms and Privacy still to accept. On home
+        // (already verified) this would raise the re-consent sheet, which is
+        // what a real doctor sees after a material update.
+        final docs = [
+          {'type': 'tos', 'version': '2026-10-01', 'title': 'Terms of Use',
+           'url': 'https://www.charak.care/terms', 'material': true, 'accepted': false},
+          {'type': 'privacy', 'version': '2026-10-01', 'title': 'Privacy Policy',
+           'url': 'https://www.charak.care/privacy', 'material': true, 'accepted': false},
+        ];
+        return http.Response(jsonEncode({'documents': docs, 'missing': docs}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      }
       if (p == '/doctors/me') {
         if (verificationOverride == null) return _json(me);
         return _json({

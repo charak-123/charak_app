@@ -1,14 +1,14 @@
 from typing import Optional
 from fastapi import APIRouter, Depends
 from postgrest.exceptions import APIError
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from ..config import PROCEDURE_REVIEW_THRESHOLD_MAX
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
 from ..phone import normalize_e164
-from ..services import erasure, geo, storage
+from ..services import erasure, geo, incidents, pricing, reviews, storage
 from .procedure_bills import effective_review_threshold
 
 router = APIRouter()
@@ -167,6 +167,15 @@ def get_pricing(user: dict = Depends(require_doctor)):
 
 @router.put("/me/pricing")
 def upsert_pricing(items: list[PricingItem], user: dict = Depends(require_doctor)):
+    """
+    Doctor app builds from before migration 0026: one price per channel. Saved
+    as that channel's first-visit price for its length (the nearest length the
+    matrix allows); follow-up prices are left as they are. Extra-time rates are
+    no longer used: lengths are priced individually instead.
+    """
+    current = pricing.my_prices(user["sub"])
+    rules = [r for r in current["rules"]
+             if not (r["visit_category"] == "initial" and r["channel"] in {i.channel for i in items})]
     for item in items:
         if item.channel not in ("online_consult", "home_visit"):
             raise AppError(f"Invalid channel: {item.channel}", 400)
@@ -175,11 +184,74 @@ def upsert_pricing(items: list[PricingItem], user: dict = Depends(require_doctor
             raise AppError("Session and extra-time lengths must be 5–60 min, in steps of 5", 400)
         if item.price <= 0 or item.extra_rate_per_15min < 0:
             raise AppError("Fees must be positive", 400)
-        supabase.table("doctor_pricing").upsert(
-            {"doctor_id": user["sub"], **item.model_dump()},
-            on_conflict="doctor_id,channel",
-        ).execute()
+        duration = min(pricing.DURATIONS, key=lambda d: (abs(d - item.base_duration_min), -d))
+        rules.append({"channel": item.channel, "visit_category": "initial",
+                      "duration_min": duration, "price_paise": int(round(item.price)) * 100})
+    pricing.save(user["sub"], rules, current["follow_up_validity_days"])
     return supabase.table("doctor_pricing").select("*").eq("doctor_id", user["sub"]).execute().data
+
+
+class PriceRule(BaseModel):
+    channel: str
+    visit_category: str
+    duration_min: int
+    price_paise: int
+
+
+class PriceMatrix(BaseModel):
+    rules: list[PriceRule] = Field(max_length=16)
+    # Days after a consultation that a follow-up can be booked at the
+    # follow-up price. Required when any follow-up price is set.
+    follow_up_validity_days: Optional[int] = None
+
+
+@router.get("/me/reliability")
+def my_reliability(user: dict = Depends(require_doctor)):
+    """Visits kept over the last 90 days, how it's worked out, and every case
+    about the doctor, with what they can do about each (respond, appeal)."""
+    return {**incidents.reliability(user["sub"]), "cases": incidents.doctor_cases(user["sub"])}
+
+
+@router.get("/me/reviews")
+def my_reviews(user: dict = Depends(require_doctor)):
+    """The doctor's rating, how it's worked out, and every published review
+    about them, without who wrote it."""
+    return reviews.doctor_view(user["sub"])
+
+
+class ReviewReport(BaseModel):
+    reason: str                      # abusive | irrelevant | privacy | other
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.post("/me/reviews/{review_id}/report", status_code=201)
+def report_review(review_id: str, body: ReviewReport, user: dict = Depends(require_doctor)):
+    """Flag a review that is abusive, off-topic or reveals private details.
+    It stays up until ops decides; being negative is not a reason."""
+    return reviews.report(review_id, user, body.reason, body.note)
+
+
+@router.get("/me/prices")
+def my_prices(user: dict = Depends(require_doctor)):
+    """The doctor's current price list: first-visit and follow-up prices for
+    each channel and length, and the follow-up window."""
+    return pricing.my_prices(user["sub"])
+
+
+@router.put("/me/prices")
+def save_prices(body: PriceMatrix, user: dict = Depends(require_doctor)):
+    """
+    Replace the price list. Applies to bookings made from now on; bookings
+    already made keep the price they were made at. Every change is kept
+    (GET /doctors/me/prices/history).
+    """
+    return pricing.save(user["sub"], [r.model_dump() for r in body.rules],
+                        body.follow_up_validity_days)
+
+
+@router.get("/me/prices/history")
+def my_price_history(user: dict = Depends(require_doctor)):
+    return pricing.history(user["sub"])
 
 
 # ── Procedures ────────────────────────────────────────────────────────────────
@@ -239,6 +311,7 @@ _PUBLIC_DOCTOR_FIELDS = (
     "category_id",
     "categories",
     "rating_avg",
+    "rating_count",
     "offers_online_consult",
     "offers_home_visit",
     "online_consult_mode",
@@ -255,6 +328,10 @@ _PUBLIC_DOCTOR_FIELDS = (
 def _public_doctor(doctor: dict) -> dict:
     """Keep only the public keys of a doctor row, adding a small photo thumbnail."""
     out = {k: doctor[k] for k in _PUBLIC_DOCTOR_FIELDS if k in doctor}
+    # A handful of reviews says little: below the minimum the doctor is "New"
+    # and no average is shown (D15). Older app builds hide a zero rating.
+    if "rating_avg" in out and int(doctor.get("rating_count") or 0) < reviews.MIN_REVIEWS_SHOWN:
+        out["rating_avg"] = None
     # What patients are told: bills above this amount go to senior review.
     out["procedure_review_threshold"] = effective_review_threshold(
         doctor.get("procedure_review_threshold")
@@ -484,8 +561,37 @@ def check_service_area(
     }
 
 
+@router.get("/{doctor_id}/reviews")
+def get_reviews(doctor_id: str, limit: int = 10):
+    """The doctor's rating (or "New" below 5 reviews), its count, the
+    sub-rating averages, and recent comments. Reviewers aren't named."""
+    if not 1 <= limit <= 50:
+        raise AppError("limit must be between 1 and 50", 400)
+    exists = fetch_one(supabase.table("doctors").select("id").eq("id", doctor_id)
+                       .eq("verification_status", "verified").eq("suspended", False))
+    if not exists:
+        raise AppError("Doctor not found or not verified", 404)
+    return reviews.public_reviews(doctor_id, limit)
+
+
+@router.get("/{doctor_id}/prices")
+def get_prices(doctor_id: str):
+    """What a patient can book with this doctor: each channel's first-visit
+    lengths and prices. Follow-up prices are offered against the consultation
+    they follow (GET /bookings/{id}/follow-up-options)."""
+    doctor = fetch_one(
+        supabase.table("doctors")
+        .select("offers_online_consult, offers_home_visit, follow_up_validity_days")
+        .eq("id", doctor_id).eq("verification_status", "verified").eq("suspended", False)
+    )
+    if not doctor:
+        raise AppError("Doctor not found or not verified", 404)
+    return pricing.price_list(doctor_id, doctor)
+
+
 @router.get("/{doctor_id}/slots")
-def get_slots(doctor_id: str, from_date: str = None, days: int = 14):
+def get_slots(doctor_id: str, from_date: str = None, days: int = 14,
+              duration_min: Optional[int] = None):
     """
     Open slots for a doctor, grouped by date.
 
@@ -502,7 +608,9 @@ def get_slots(doctor_id: str, from_date: str = None, days: int = 14):
         d = date.fromisoformat(from_date) if from_date else now_ist().date()
     except ValueError:
         raise AppError("from_date must be ISO format, e.g. 2026-10-01", 400)
-    return get_available_slots(doctor_id, d, days=days)
+    if duration_min is not None and duration_min not in pricing.DURATIONS:
+        raise AppError(f"duration_min must be one of {', '.join(map(str, pricing.DURATIONS))}", 400)
+    return get_available_slots(doctor_id, d, days=days, duration_min=duration_min)
 
 
 @router.delete("/me")

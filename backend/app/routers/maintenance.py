@@ -7,6 +7,8 @@ external pinger), not a person. When CRON_SECRET is unset these are ops-only, so
 a missing secret in development is inconvenient rather than dangerous.
 """
 import hmac
+import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header
@@ -15,7 +17,12 @@ from typing import Optional
 from ..config import CRON_SECRET
 from ..db import supabase
 from ..errors import AppError
-from ..services import erasure, notifications, otp_store
+from ..services import app_config, erasure, jobs, notifications, otp_store, refunds
+# Imported for their job handlers: a tick must be able to run every kind
+# that can be queued, whichever routes this instance has served.
+from ..services import prescriptions, remedies, reschedules, visits  # noqa: F401
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -38,61 +45,91 @@ def require_cron(x_cron_secret: Optional[str] = Header(None)) -> bool:
 @router.post("/release-expired-holds")
 def release_expired_holds(_: bool = Depends(require_cron)):
     """
-    Release accepted-but-unpaid bookings whose payment window has closed.
+    Release bookings that can no longer go ahead, through the state machine
+    (migration 0023), each in its own transaction with its own event:
 
-    Without this a patient who never pays holds a doctor's slot forever. The
-    booking is cancelled by ``system`` so it is distinguishable from a real
-    cancellation in reporting, and both parties are told.
+    * accepted but unpaid after the payment window: cancelled by ``system``;
+      any payment attempt still open is marked failed. A booking whose payment
+      is being confirmed at this moment is skipped (SKIP LOCKED) and left to the
+      payment, not cancelled under it.
+    * requested but never answered: cancelled by ``system`` once the slot has
+      started (it can never happen), or sooner if app_config
+      ``request_expiry_minutes`` is set (decision N4).
+
+    Both parties are told, and only after the row has actually moved.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    released = [str(r) for r in (supabase.rpc("expire_payment_holds", {}).execute().data or [])]
 
-    expired = (
-        supabase.table("bookings")
-        .select("*")
-        .eq("status", "accepted")
-        .lt("hold_expires_at", now)
-        .execute()
-        .data
-        or []
+    max_age = app_config.get("request_expiry_minutes")
+    expired = [str(r) for r in (supabase.rpc("expire_stale_requests", {
+        "p_max_age": f"{int(max_age)} minutes" if max_age else None,
+    }).execute().data or [])]
+
+    for booking in _bookings(released):
+        notifications.booking_hold_expired(booking)
+    for booking in _bookings(expired):
+        notifications.request_expired(booking)
+
+    return {
+        "released": len(released),
+        "booking_ids": released,
+        "expired_requests": len(expired),
+        "expired_request_ids": expired,
+    }
+
+
+def _bookings(ids: list[str]) -> list[dict]:
+    if not ids:
+        return []
+    return (
+        supabase.table("bookings").select("id, patient_id, doctor_id, channel, scheduled_start")
+        .in_("id", ids).execute().data or []
     )
 
-    if not expired:
-        return {"released": 0, "booking_ids": []}
 
-    # Two statements for the whole batch rather than two per booking. This runs
-    # on a timer with no user waiting on it, but a backlog (a queue stall, a
-    # missed run) is exactly when it is largest and least affordable.
-    #
-    # The status and expiry conditions are repeated on the write, not just the
-    # read: a payment confirmed (or a hold extended) between the two must not
-    # be cancelled out from under the patient who just paid.
-    released = (
-        supabase.table("bookings").update({
-            "status": "cancelled",
-            "cancelled_by": "system",
-            "hold_expires_at": None,
-        })
-        .in_("id", [b["id"] for b in expired])
-        .eq("status", "accepted")
-        .lt("hold_expires_at", now)
-        .execute()
-        .data
-        or []
-    )
-    booking_ids = [r["id"] for r in released]
-    if not booking_ids:
-        return {"released": 0, "booking_ids": []}
+@router.post("/tick")
+def tick(_: bool = Depends(require_cron)):
+    """
+    The every-minute heartbeat (Cloud Scheduler job ``charak-tick``):
+    delivers notifications still waiting in the outbox (retries, scheduled
+    sends, and inline attempts that never ran), then runs due jobs from the
+    queue. Each part has its own time budget so a backlog in one can't starve
+    the other, and the whole call stays well inside the scheduler's deadline.
+    """
+    started = time.monotonic()
+    outbox = notifications.sweep_outbox()
+    t_outbox = time.monotonic()
+    queue = jobs.run_due(budget_seconds=30.0)
+    t_jobs = time.monotonic()
+    # Backstop for the 72-hour completion: anything a lost job left waiting.
+    try:
+        completed = visits.complete_overdue()
+    except Exception as exc:                       # noqa: BLE001 — never fail the tick
+        logger.error("completion backstop failed: %r", exc)
+        completed = None
+    # Remedies left unchosen, replacements that fell through, reschedules
+    # nobody answered, and online no-shows due for confirmation.
+    try:
+        trust = {**remedies.sweep(), "reschedules_lapsed": reschedules.expire_due()}
+    except Exception as exc:                       # noqa: BLE001 — never fail the tick
+        logger.error("trust sweep failed: %r", exc)
+        trust = None
+    done = time.monotonic()
+    # One line per tick, so a slow part shows up in the logs by name.
+    logger.info("tick: outbox %.1fs, jobs %.1fs, sweeps %.1fs (total %.1fs)",
+                t_outbox - started, t_jobs - t_outbox, done - t_jobs, done - started)
+    return {"notifications": outbox, "jobs": queue, "completed_overdue": completed, "trust": trust}
 
-    supabase.table("payments").update({"status": "failed"}) \
-        .in_("booking_id", booking_ids).eq("status", "initiated").execute()
 
-    # Only once the rows are actually released — a notification about a hold
-    # that is still live would be a lie.
-    by_id = {b["id"]: b for b in expired}
-    for booking_id in booking_ids:
-        notifications.booking_hold_expired(by_id.get(booking_id) or {"id": booking_id})
-
-    return {"released": len(booking_ids), "booking_ids": booking_ids}
+@router.post("/retry-refunds")
+def retry_refunds(_: bool = Depends(require_cron)):
+    """
+    Finish refunds a request didn't: send queued ones whose backoff has passed,
+    reclaim attempts whose worker died mid-call, and ask Razorpay about refunds
+    it accepted but never confirmed by webhook. Retries that run out land in
+    the admin refunds queue. See services/refunds.py.
+    """
+    return refunds.sweep()
 
 
 @router.post("/purge-expired-otps")
@@ -118,7 +155,17 @@ def purge_old_rate_limit_hits(_: bool = Depends(require_cron)):
         .data
         or []
     )
-    return {"deleted": len(deleted)}
+    # Idempotency keys share the 24-hour horizon: a client retries within
+    # seconds or minutes, never a day later.
+    keys = (
+        supabase.table("idempotency_keys")
+        .delete()
+        .lt("created_at", cutoff)
+        .execute()
+        .data
+        or []
+    )
+    return {"deleted": len(deleted), "idempotency_keys_deleted": len(keys)}
 
 
 @router.post("/purge-deleted-accounts")

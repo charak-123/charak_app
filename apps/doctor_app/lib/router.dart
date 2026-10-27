@@ -21,6 +21,9 @@ import 'push_routes.dart';
 import 'screens/requests/request_detail_screen.dart';
 import 'screens/requests/clarification_call_screen.dart';
 import 'screens/requests/active_visit_screen.dart';
+import 'screens/requests/prescription_screen.dart';
+import 'screens/profile/reviews_screen.dart';
+import 'screens/profile/reliability_screen.dart';
 
 /// Wraps a screen in the wireframe's 280ms horizontal push
 /// (`.scr.entering` / `.scr.leaving`).
@@ -81,11 +84,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth     = ref.read(authProvider);
       final isAuth   = state.matchedLocation.startsWith('/auth');
       final isSplash = state.matchedLocation == '/';
-      if (!auth.isAuthenticated && !isAuth && !isSplash) return '/auth/sign-in';
+      // Reachable signed out: an old build must update before it can sign in.
+      final isUpdate = state.matchedLocation == '/update';
+      if (!auth.isAuthenticated && !isAuth && !isSplash && !isUpdate) return '/auth/sign-in';
       return null;
     },
     routes: [
       GoRoute(path: '/',                      pageBuilder: (_, __) => _rise(const SplashScreen())),
+      GoRoute(path: '/update',
+          redirect: (_, s) => s.extra is CharakUpdateInfo ? null : '/',
+          pageBuilder: (_, s) => _rise(CharakUpdateRequiredScreen(info: s.extra! as CharakUpdateInfo))),
       GoRoute(path: '/auth/sign-in',          pageBuilder: (_, __) => _push(const SignInScreen())),
       // Phone + OTP: back once DLT approval lets MSG91 deliver SMS.
       GoRoute(path: '/auth/phone',            pageBuilder: (_, __) => _push(const PhoneEntryScreen())),
@@ -101,6 +109,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           pageBuilder: (_, state) => _push(HomeVisitSetupScreen(fromSetup: state.extra as bool? ?? false))),
       GoRoute(path: '/setup/pricing',         pageBuilder: (_, __) => _push(const PricingSetupScreen())),
       GoRoute(path: '/setup/payout',          pageBuilder: (_, __) => _push(const PayoutDetailsScreen())),
+      GoRoute(path: '/reviews',               pageBuilder: (_, __) => _push(const ReviewsScreen())),
+      GoRoute(path: '/reliability',           pageBuilder: (_, __) => _push(const ReliabilityScreen())),
       GoRoute(path: '/home',                  pageBuilder: (_, __) => _rise(const HomeShell())),
 
       // ── Phase 2: Requests & Fulfillment ───────────────────────────────────
@@ -113,8 +123,17 @@ final routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (_, state) => _rise(ClarificationCallScreen(bookingId: state.pathParameters['bookingId']!)),
       ),
       GoRoute(
+        path: '/consult/:bookingId',
+        pageBuilder: (_, state) => _rise(ClarificationCallScreen(
+            bookingId: state.pathParameters['bookingId']!, consultation: true)),
+      ),
+      GoRoute(
         path: '/visit/:bookingId',
         pageBuilder: (_, state) => _card(state, ActiveVisitScreen(bookingId: state.pathParameters['bookingId']!)),
+      ),
+      GoRoute(
+        path: '/visit/:bookingId/prescription',
+        pageBuilder: (_, state) => _push(PrescriptionScreen(bookingId: state.pathParameters['bookingId']!)),
       ),
     ],
   );

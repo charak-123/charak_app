@@ -27,11 +27,31 @@ String? patientPushRoute(CharakPushMessage message) {
       return '/booking/$bookingId/status';
 
     case 'visit.running_late':
+    case 'visit.journey_started':
+    case 'booking.reminder':
+    case 'follow_up.reminder':
       return '/booking/$bookingId/active';
+
+    // Tapping it is the patient choosing to open it: the prescription screen
+    // records the view (and so completes the visit).
+    case 'prescription.ready':
+    case 'prescription.updated':
+    case 'prescription.reminder':
+      final rx = message.data['prescription_id'];
+      return rx == null ? '/booking/$bookingId/active' : '/prescription/$rx';
 
     case 'visit.completed':
     case 'booking.no_show':
       return '/booking/$bookingId/complete';
+
+    // When a visit goes wrong: the case, the choice, the new times.
+    case 'incident.decided':
+    case 'remedy.reopened':
+    case 'reschedule.proposed':
+      return '/booking/$bookingId/help';
+
+    case 'review.prompt':
+      return '/booking/$bookingId/rate';
 
     case 'bill.approved':
       return '/booking/$bookingId/bill';

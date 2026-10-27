@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
+import 'package:image_picker/image_picker.dart';
 import 'shell_providers.dart';
 
 final _doctorProfileProvider = FutureProvider<Map<String, dynamic>>((ref) async {
@@ -18,16 +19,26 @@ final _payoutAccountProvider = FutureProvider<Map<String, dynamic>?>((ref) async
   }
 });
 
-/// "₹500 / 30 min · +₹150 per extra 10" for one channel's pricing row.
-String? _rateLine(Map<String, dynamic>? row) {
-  final price = row?['price'] as num?;
-  if (price == null) return null;
-  final mins = (row?['base_duration_min'] as num?)?.toInt() ?? 15;
-  final extra = row?['extra_rate_per_15min'] as num? ?? 0;
-  final extraMins = (row?['extra_duration_min'] as num?)?.toInt() ?? 15;
+/// The doctor's price list (GET /doctors/me/prices).
+final _pricesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  return await ApiClient.instance.get('/doctors/me/prices') as Map<String, dynamic>;
+});
+
+/// "₹600 / 15 min · ₹1,000 / 30 min · follow-up from ₹300" for one channel.
+String? _rateLine(List rules, String channel) {
+  final mine = rules.whereType<Map>().where((r) => r['channel'] == channel).toList()
+    ..sort((a, b) => (a['duration_min'] as num).compareTo(b['duration_min'] as num));
+  String rupees(Map r) => CharakFormat.rupees((r['price_paise'] as num) / 100);
+  final first = mine.where((r) => r['visit_category'] == 'initial').toList();
+  if (first.isEmpty) return null;
+  final follow = mine.where((r) => r['visit_category'] == 'follow_up').toList();
+  final cheapestFollow = follow.isEmpty
+      ? null
+      : follow.reduce((a, b) => (a['price_paise'] as num) <= (b['price_paise'] as num) ? a : b);
   return [
-    '${CharakFormat.rupees(price.toDouble())} / $mins min',
-    if (extra > 0) '+${CharakFormat.rupees(extra.toDouble())} per extra $extraMins',
+    for (final r in first) '${rupees(r)} / ${r['duration_min']} min',
+    if (cheapestFollow != null)
+      (cheapestFollow['price_paise'] as num) == 0 ? 'free follow-up' : 'follow-up from ${rupees(cheapestFollow)}',
   ].join(' · ');
 }
 
@@ -68,9 +79,9 @@ class ProfileTab extends ConsumerWidget {
           final radius  = me['service_radius_km'];
           final spec    = (me['categories'] as Map<String, dynamic>?)?['name'] as String?;
           final phone   = me['phone'] as String? ?? '';
-          final pricing = List<Map<String, dynamic>>.from(me['doctor_pricing'] as List? ?? []);
-          final onlineLine = _rateLine(pricing.where((p) => p['channel'] == 'online_consult').firstOrNull);
-          final homeLine   = _rateLine(pricing.where((p) => p['channel'] == 'home_visit').firstOrNull);
+          final rules = (ref.watch(_pricesProvider).valueOrNull?['rules'] as List?) ?? const [];
+          final onlineLine = _rateLine(rules, 'online_consult');
+          final homeLine   = _rateLine(rules, 'home_visit');
           final acct       = payout.valueOrNull;
           final payoutLine = acct == null
               ? (payout.isLoading ? null : 'Add UPI or bank to get paid')
@@ -118,6 +129,7 @@ class ProfileTab extends ConsumerWidget {
                   onTap: () async {
                     await context.push('/setup/pricing');
                     ref.invalidate(_doctorProfileProvider);
+                    ref.invalidate(_pricesProvider);
                   },
                 ),
                 CharakListRow(
@@ -127,6 +139,18 @@ class ProfileTab extends ConsumerWidget {
                   onTap: () => context.push('/setup/home-visit'),
                 ),
                 CharakListRow(
+                  icon: LucideIcons.signature,
+                  title: 'Prescription signature',
+                  subtitle: (me['signature_path'] as String?)?.isNotEmpty == true
+                      ? 'Added · printed on your prescriptions'
+                      : 'Not added',
+                  onTap: () async {
+                    if (await uploadSignature(context) && context.mounted) {
+                      ref.invalidate(_doctorProfileProvider);
+                    }
+                  },
+                ),
+                CharakListRow(
                   icon: LucideIcons.ban,
                   title: 'Slot blocking',
                   last: true,
@@ -134,6 +158,27 @@ class ProfileTab extends ConsumerWidget {
                     ref.read(doctorTabIndexProvider.notifier).state = 1;
                     context.go('/home');
                   },
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            CharakGroupedList(
+              label: 'Patients',
+              children: [
+                CharakListRow(
+                  icon: LucideIcons.star,
+                  title: 'Ratings & reviews',
+                  subtitle: (me['rating_count'] as num? ?? 0) >= 5
+                      ? '${(me['rating_avg'] as num).toStringAsFixed(1)} · ${me['rating_count']} reviews'
+                      : 'New · ${me['rating_count'] ?? 0} reviews',
+                  onTap: () => context.push('/reviews'),
+                ),
+                CharakListRow(
+                  icon: LucideIcons.shieldCheck,
+                  title: 'Reliability',
+                  subtitle: 'Visits kept, and any cases about you',
+                  last: true,
+                  onTap: () => context.push('/reliability'),
                 ),
               ],
             ),
@@ -267,5 +312,37 @@ class _VerifCard extends StatelessWidget {
         ])),
       ]),
     );
+  }
+}
+
+
+/// The signature printed on this doctor's prescription PDFs: a photo of it
+/// signed on white paper. Stored privately; prescriptions already sent keep
+/// the signature they were made with. Returns whether one was saved.
+Future<bool> uploadSignature(BuildContext context) async {
+  final ok = await showCharakConfirm(
+    context,
+    title: 'Add your signature',
+    message: 'Sign on plain white paper and take a clear, close photo. '
+        'It is printed on the prescriptions you send from now on.',
+    confirmLabel: 'Take photo',
+  );
+  if (!ok) return false;
+  final photo = await ImagePicker().pickImage(
+      source: ImageSource.camera, imageQuality: 90, maxWidth: 1200);
+  if (photo == null) return false;
+  try {
+    final ext = photo.path.split('.').last.toLowerCase();
+    await ApiClient.instance.postFile(
+      '/uploads/doctor/signature',
+      bytes: await photo.readAsBytes(),
+      filename: photo.name,
+      contentType: ext == 'png' ? 'image/png' : 'image/jpeg',
+    );
+    if (context.mounted) showCharakToast(context, message: 'Signature saved');
+    return true;
+  } on ApiException catch (e) {
+    if (context.mounted) showCharakToast(context, message: e.message, isError: true);
+    return false;
   }
 }

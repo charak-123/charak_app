@@ -7,9 +7,85 @@ tested — switching one on is a config change, not a code change.
 This document is the checklist for that switch-on, plus what to verify after each
 step.
 
+Production runs on **Cloud Run** (service `charak-api`, region `asia-south1`,
+deployed with `gcloud run deploy charak-api --source backend`). Commands below use
+
+```bash
+export API_URL=$(gcloud run services describe charak-api --region asia-south1 --format 'value(status.url)')
+```
+
 ---
 
 ## 0. Apply the migrations (required first — nothing else works without this)
+
+> **Latest: `0029_ops_hardening.sql`.** Apply before deploying the backend that
+> uses it. It adds admin roles (every existing account becomes `admin`; new ones
+> start as `support`), the legal review gate (approvals for each policy and
+> legal document version; every version already in force is recorded as
+> approved), the ops override transitions, and `ops_metrics()`. Idempotent
+> (§7, §7a–7c).
+>
+> **Before it: `0028_incidents_remedies_reschedules.sql`** (applied 2026-10-27). Apply before deploying
+> the backend that uses it. It adds incidents (with CHK- case references, also
+> on complaints), the remedy functions (refund, or another doctor paid from the
+> same payment), reschedule requests, and makes refunds aware of a payment
+> moved to a replacement booking (`cancel_booking()` and the refund guard are
+> recreated). Idempotent. The tick (§6) runs the default refunds and the
+> automatic confirmations, so `charak-tick` must be running (§6g).
+>
+> **Before it: `0027_reviews.sql`** (applied with 6a). Apply before deploying the backend that uses
+> it. It adds `reviews` (overall + three optional sub-ratings + comment, one per
+> completed booking, 14-day window, 48-hour edits, never deleted) and
+> `review_reports`, keeps each doctor's average, count and sub-rating averages,
+> and copies the old one-star `ratings` into reviews. Idempotent (§6f).
+>
+> **Before it: `0026_pricing_matrix.sql`** (applied 2026-10-27). Apply before deploying the backend that
+> uses it. It adds `doctor_price_rules` (each price by channel, first visit or
+> follow-up, and length; never edited, so it is the price history), the
+> doctor's follow-up window, the price and length snapshot on bookings, and a
+> constraint that refuses two live bookings for one doctor whose times overlap.
+> Existing prices are copied into rules; existing bookings get their length and
+> end time. Needs the `btree_gist` extension, which the migration enables. If it
+> stops with "Two live bookings for one doctor start at the same time", run the
+> query in the message and resolve those by hand first. Idempotent. App builds
+> from before it keep working: they book at the doctor's shortest first-visit
+> price, which `doctor_pricing` keeps showing (§6e).
+>
+> **Before it: `0025_visit_prescriptions_followups.sql`** (applied 2026-10-27). Apply before deploying the
+> backend that uses it, and make sure `charak-tick` exists (§6) first: the
+> 72-hour completion, prescription and follow-up reminders and appointment
+> reminders all run from it. It adds the `in_progress` and `consulted`
+> statuses, Start Journey, prescriptions (drafts, sent versions, corrections;
+> sent ones can't be edited or deleted), completion when the patient opens the
+> prescription, follow-up recommendations, `call_joins`, and the doctor's
+> signature. Idempotent. Then create the `prescriptions` bucket (§3b). Old app
+> builds keep working: a doctor build without the prescription screen can still
+> mark a paid visit complete. Raise `min_app_version` (§6b) once the new builds
+> are in the stores, so every visit goes through a prescription.
+>
+> **Before it: `0024_cancellation_policy_and_consent.sql`** (applied 2026-10-26). Apply before deploying
+> the backend that uses it. It adds versioned cancellation policies (LD-005 for
+> home visits; online keeps a full refund until D3 is decided), the refund quote
+> the cancel uses, partial refunds, `legal_documents`, and consent records with
+> method and booking. Existing bookings keep their full-refund terms (the
+> `legacy` policy version). The two consent switches start off; see §6c.
+>
+> **Before it: `0023_booking_state_machine_and_platform.sql`.** Apply it in the SQL
+> Editor *before* deploying the backend that uses it. That backend calls
+> `transition_booking()`, `expire_payment_holds()` and the job functions, and
+> writes to `device_tokens`, `idempotency_keys` and `webhook_events`. The backend
+> already deployed keeps working once 0023 is in: `cancel_booking()` keeps its
+> parameters, and its direct status writes are still allowed, just recorded as
+> `status_changed_outside_state_machine` events. Idempotent. Its last block has
+> two verification queries.
+>
+> **Before it: `0022_refunds_and_ledger_recovery.sql`** (applied 2026-10-26). Apply it in the SQL Editor
+> *before* deploying the backend that uses it: the cancel endpoint calls the
+> `cancel_booking()` function it creates, so a backend deployed first returns a
+> 500 on every cancel until 0022 runs. It is idempotent. It adds the `refunds`
+> table, the `partially_refunded` payment status, ledger `reversal` entries, and
+> closes EXECUTE on functions to the client roles. Its last block is a query to
+> verify that.
 
 Two new migrations must be applied to the Supabase project. There is no Supabase
 CLI or direct Postgres connection string on the dev machine, so these are applied
@@ -26,7 +102,7 @@ so re-running them is harmless.
 **Verify:**
 
 ```bash
-curl -s https://charak-api.fly.dev/readyz | jq
+curl -s $API_URL/readyz | jq
 # database.ok must be true
 ```
 
@@ -100,26 +176,41 @@ RAZORPAY_WEBHOOK_SECRET=...          # from the Razorpay webhook settings page
 
 Then in the Razorpay dashboard, add the webhook:
 
-- URL: `https://charak-api.fly.dev/payments/webhook`
-- Events: `payment.captured`, `payment.failed`
+- URL: `$API_URL/payments/webhook`
+- Events: `payment.captured`, `payment.failed`, `refund.created`,
+  `refund.processed`, `refund.failed`
+
+The refund events matter: a refund is shown to the patient as completed, and the
+payment marked `refunded`, only when `refund.processed` arrives (or the sweep in
+§6 polls Razorpay and finds it processed).
 
 Notes:
 
-- `RAZORPAY_WEBHOOK_SECRET` is **not** the same string as the API key secret.
-  The code falls back to the key secret if the webhook secret is unset, but set
-  it properly.
+- `RAZORPAY_WEBHOOK_SECRET` is **not** the same string as the API key secret, and
+  there is no fallback: with live keys and no webhook secret, the webhook refuses
+  every delivery (503) and `/readyz` reports degraded.
 - Once `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are both present,
   `POST /payments/{id}/stub-complete` starts returning 403. The dev bypass cannot
   be reached in production.
-- `razorpay==1.4.2` is already in `requirements.txt`.
+- `razorpay==2.0.1` is in `requirements.txt`. The earlier 1.4.2 pin imported
+  `pkg_resources`, which `python:3.13-slim` does not have, so `import razorpay`
+  failed in the production image and every live order or refund was a 500.
+  Redeploy after pulling this change. `tests/test_dependencies.py` now catches it.
 
 **Verify:** take one real ₹1 payment end to end, then check that it credited the
 ledger:
 
 ```bash
 curl -s -H "Authorization: Bearer <doctor token>" \
-  https://charak-api.fly.dev/payouts/me/balance | jq
-# payable_net should be the amount minus commission
+  $API_URL/payouts/me/balance | jq
+# payable_net should be the amount paid (no platform fee: LD-003)
+```
+
+Then cancel a test booking you paid for and confirm the refund lands:
+
+```bash
+curl -s -H "Authorization: Bearer <ops token>" "$API_URL/admin/refunds?status=processed" | jq '.[0]'
+# status "processed", a razorpay_refund_id, and the payment now 'refunded'
 ```
 
 ---
@@ -179,13 +270,15 @@ never called `/push/register`.
 
 ## 3b. Storage buckets (one-time)
 
-Three buckets are needed: `doctor-photos` (public), `verification-docs` and
-`intake-media` (both private). All three now exist. To recreate them on a fresh
-project:
+Four buckets are needed: `doctor-photos` (public), `verification-docs`,
+`intake-media` and `prescriptions` (all private). `prescriptions` is new with
+migration 0025: prescription PDFs, handwritten uploads and doctors' signatures.
+The call below creates any that are missing (and is how to create them on a
+fresh project):
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer <ops token>" \
-  https://charak-api.fly.dev/uploads/buckets/ensure
+  $API_URL/uploads/buckets/ensure
 ```
 
 Uploads go **through the backend**, never from the app. The apps authenticate with
@@ -311,24 +404,252 @@ unauthenticated just because a deploy forgot a variable.
 | `POST /maintenance/purge-expired-otps` | hourly | Dead OTP rows accumulate as PII |
 | `POST /maintenance/purge-deleted-accounts` | daily | A self-deleted patient's data outlives its 30-day grace window |
 | `POST /maintenance/purge-old-rate-limit-hits` | daily | `rate_limit_hits` (admin login, bookings, uploads) grows forever — nothing reads a row older than an hour |
+| `POST /maintenance/tick` | **every minute** | Notifications whose first send didn't happen (Cloud Run throttles CPU after a response) or failed for a moment are never retried; scheduled jobs never run: no appointment, prescription or follow-up reminders, and a prescription nobody opens never completes its visit (so the doctor's fee is never released) |
+| `POST /maintenance/retry-refunds` | every 5 min | A refund whose Razorpay call failed (timeout, outage) is never sent; a refund whose webhook was lost never shows "Refunded" |
 
-Call with the header `X-Cron-Secret: <value>`. Any scheduler works — a Fly
-machine running cron, GitHub Actions on a schedule, or an external pinger:
+Call with the header `X-Cron-Secret: <value>`. Production uses Cloud Scheduler,
+one job per endpoint. As of 2026-10-26 these exist (schedules in UTC):
+
+| Job | Schedule |
+|---|---|
+| `charak-release-expired-holds` | `*/5 * * * *` |
+| `charak-purge-expired-otps` | `0 * * * *` |
+| `charak-purge-deleted-accounts` | `15 2 * * *` |
+| `charak-purge-old-rate-limit-hits` | `30 2 * * *` |
+
+`charak-tick` is new with migration 0023. Create it after that backend is
+deployed, the same way as the refund job below:
 
 ```bash
-curl -fsS -X POST -H "X-Cron-Secret: $CRON_SECRET" \
-  https://charak-api.fly.dev/maintenance/release-expired-holds
+gcloud scheduler jobs create http charak-tick --location asia-south1 \
+  --schedule "* * * * *" --time-zone "Etc/UTC" --http-method POST \
+  --uri "$API_URL/maintenance/tick" \
+  --headers "X-Cron-Secret=$CRON_SECRET" --attempt-deadline 90s
 ```
+
+`release-expired-holds` now also expires requests the doctor never answered
+(once their slot has started, or after `app_config.request_expiry_minutes` if
+ops sets it). No new job is needed for that.
+
+`charak-retry-refunds` is new with migration 0022 (created 2026-10-26). Create it **after** the backend
+that has the endpoint is deployed (before that it would only log 404s):
+
+```bash
+# CRON_SECRET: the same value the other jobs send (Cloud Run env / Secret Manager).
+gcloud scheduler jobs create http charak-retry-refunds --location asia-south1 \
+  --schedule "*/5 * * * *" --time-zone "Etc/UTC" --http-method POST \
+  --uri "$API_URL/maintenance/retry-refunds" \
+  --headers "X-Cron-Secret=$CRON_SECRET" --attempt-deadline 120s
+
+# Run it once by hand and check the response is {"reclaimed":…, "sent":…, "polled":…}:
+gcloud scheduler jobs run charak-retry-refunds --location asia-south1
+gcloud scheduler jobs list --location asia-south1
+```
+
+Check the list after any redeploy that changes the service URL.
+
+---
+
+## 6b. Forcing an app update
+
+`app_config.min_app_version` holds the oldest build each app may run. The apps
+read it at launch (`GET /config/app`). A build below it shows a full-screen
+"Update CHARAK" with a store link and can't go further. Raise it only after the
+new build is live in the stores:
+
+```sql
+update app_config set value = '{"patient": "1.1.0", "doctor": "1.1.0"}' where key = 'min_app_version';
+```
+
+Instances pick the change up within a minute. Set the iOS store links in
+`store_urls` once the apps are listed (they're null until then; the screen then
+names the App Store instead of linking).
+
+---
+
+## 6c. Cancellation policy and consent
+
+**Changing a cancellation policy.** A published version is never edited (the
+table refuses). Add a new version, and new bookings get it. Existing bookings
+keep theirs. For example, when the online late-cancellation rule (D3) is
+decided as "no refund inside 15 minutes":
+
+```sql
+insert into policies (kind, channel, version, rules, summary, decision_ref) values
+  ('cancellation', 'online_consult', '2026-11-01',
+   '[{"when": {"minutes_before_start_lt": 15}, "refund_pct": 0},
+     {"when": {}, "refund_pct": 100}]',
+   'Free cancellation up to 15 minutes before your consultation. After that the fee '
+   'isn''t refunded. If the doctor cancels or doesn''t join, you get a full refund.',
+   'LD-005 / D3');
+```
+
+Rules are checked in order and the first match wins. Conditions:
+`journey_started` (true/false) and `minutes_before_start_lt` (number).
+Refunds round down to the paisa. A doctor or ops cancellation is always a full
+refund.
+
+**Publishing a new legal document version.** Publish the text on the website
+first, then:
+
+```sql
+insert into legal_documents (type, version, title, url, audience, material)
+values ('tos', '2026-12-01', 'Terms of Use', 'https://www.charak.care/terms', '{patient,doctor}', true);
+```
+
+Apps ask everyone again on their next visit to home. With the switch below on,
+booking also refuses (428) until they have accepted.
+
+**Consent switches** (`app_config`). Turn them on once app builds with the new
+screens are in the stores, and raise `min_app_version` at the same time (§6b):
+
+```sql
+update app_config set value = 'true' where key = 'require_legal_acceptance';           -- Terms, Privacy, Telemedicine
+update app_config set value = 'true' where key = 'require_booking_policy_acceptance';  -- the ticked cancellation policy
+```
+
+---
+
+## 6d. The visit and prescriptions (migration 0025)
+
+- **Completion.** A visit completes when the patient opens the prescription,
+  or 72 hours after it was sent (`app_config.completion_fallback_hours`). The
+  tick also completes any visit whose timer job was lost.
+- **When the doctor's fee can be withdrawn (LD-006).** 48 hours after the
+  prescription was sent if the patient opened it within those 48 hours,
+  otherwise 72 hours after it. `GET /payouts/me/balance` shows `available_net`,
+  `waiting_net` and `next_available_at`; `/payouts/run` only takes entries
+  whose time has come.
+- **Ops queues.** Admin → Visits lists home visits with no journey near their
+  time, visits with nothing sent 2 hours after the start, and prescriptions not
+  opened after a day. Nothing there changes a booking by itself.
+- **Reading a prescription (break-glass).** Ops sees only whether a
+  prescription was sent and opened. Reading the content needs a written reason
+  in Admin → Visits → Prescription; the read is written to `audit_log`
+  (`break_glass_read`) before anything is shown, and refused if that write
+  fails. Review those rows regularly:
+
+  ```sql
+  select at, actor_id, reason, metadata from audit_log
+   where action = 'break_glass_read' order by at desc limit 50;
+  ```
+
+- **Retention.** Prescriptions are kept when a patient deletes their account,
+  like the intake transcript: a clinical record. The PDF carries the patient's
+  name. Confirm the retention period with counsel (D20).
+- **Settings** (`app_config`): `consultation_start_window_minutes` (how early
+  the doctor can start: online 15, home 120), `appointment_reminders` (minutes
+  before the start), `follow_up_reminders` (9:00 IST on the day, plus 2 days
+  before when it's at least 7 days away).
+
+---
+
+## 6e. Prices (migration 0026)
+
+- **The matrix.** Doctors set a price per channel and length (10, 15, 20, 30,
+  45 or 60 min, up to 4 each) for a first visit, and optionally a follow-up
+  price, with how many days after a visit it applies (1–60). A follow-up can be
+  free; a first visit can't. The patient picks the length first and is shown
+  times that fit it.
+- **Extra-time rates are gone.** The old screens advertised "+₹X per extra N
+  min", but nothing ever charged it. Lengths are priced individually instead.
+  Doctors who priced one length should check their prices in the new app.
+- **What a booking costs never changes.** Each booking keeps `price_paise`,
+  `duration_min` and the `price_rule_id` it was charged by. A trigger refuses
+  changes. If the doctor changes a price while a patient is booking, the
+  booking is refused with the new price, never charged at it.
+- **Follow-ups.** A follow-up price applies only to a booking that names a
+  consultation of the patient's own with the same doctor, after its
+  prescription was sent, starting within the doctor's window (or up to 3 days
+  after the follow-up date the doctor recommended, if that is later). One per
+  consultation. A free follow-up is confirmed when the doctor accepts it, with
+  no payment.
+- **Support.** Admin → Directory → Prices shows every price a doctor has had and
+  when each applied. Or:
+
+  ```sql
+  select channel, visit_category, duration_min, price_paise, effective_from, effective_until
+    from doctor_price_rules where doctor_id = '<uuid>' order by effective_from desc;
+  ```
+
+---
+
+## 6f. Reviews (migration 0027)
+
+- **Who and when.** The patient of a completed visit, once, within 14 days of
+  completion (D16). They can change it for 48 hours; the previous text is kept
+  in `audit_log` (`review_edited`). A review is never deleted.
+- **The rating.** The mean overall rating of the last 200 published reviews,
+  shown once a doctor has 5 (D15). Below that, apps show "New" and no average.
+  The count and three sub-rating averages (courtesy, explanation, punctuality)
+  are kept on `doctors`. Reviewers are never named to doctors or other patients.
+- **Moderation.** Admin → Reviews. A doctor's report doesn't hide anything.
+  Hide a review only for abuse, content unrelated to the visit, or someone's
+  private details, never for being negative, and always with a reason. Hidden
+  reviews can be restored. Every action is in `audit_log` (`review_hide`,
+  `review_restore`, `review_dismiss`).
+
+---
+
+## 6g. When a visit goes wrong (migration 0028)
+
+- **Reporting.** After the grace period (`app_config.no_show_grace_minutes`:
+  home 30, online 10 minutes past the start; D5, D6) the patient can report
+  "Doctor hasn't arrived/joined". Call problems and anything else can be
+  reported any time during the visit. Each report gets a case reference
+  (CHK-XXXXX) and the evidence at that moment: the slot, any journey start,
+  who joined the call.
+- **Remedies.** When the evidence already supports it (no journey on a home
+  visit; the doctor never joined online) the patient can choose at once:
+  - a full refund, or
+  - another doctor, paid from the same payment, up to what it covers. The
+    original booking is cancelled and its doctor's credit reversed. When the
+    new doctor accepts, the payment is re-pointed and anything left over is
+    refunded. If the new doctor declines, the patient chooses again.
+
+  With no choice within 24 hours, the patient is refunded. Conflicting
+  evidence goes to ops first: Admin → Incidents, "Offer the patient a refund
+  or another doctor".
+- **Deciding.** Admin → Incidents. Confirm (with a cause), dismiss, or mark
+  undetermined, always with a reason the doctor sees.
+  - An online no-show with clear evidence confirms itself after 48 hours
+    unless the doctor responds (D7).
+  - A doctor cancelling a paid visit within 2 hours is recorded as a confirmed
+    late cancellation.
+  - A doctor-proposed reschedule is recorded with the doctor's stated cause.
+- **Reliability** (doctor app → Reliability): visits that went ahead in the
+  last 90 days against those plus the incidents that count. Only incidents
+  that are confirmed, caused by the doctor and not reversed on appeal count.
+  Reports, undetermined cases and anything outside the doctor's control never
+  do. It is separate from the review rating (D8).
+- **Appeals.** Once, within 7 days of the decision (D10). Admin → Incidents →
+  Appeals: uphold or reverse, with a reason.
+- **Reschedules.** The doctor offers up to 3 open times. The patient picks one
+  (same booking, same price, reminders re-queued) or takes a full refund. With
+  no answer within 24 hours, they're refunded.
 
 ---
 
 ## 7. Ops and hardening
 
 Admin accounts are per-person with mandatory TOTP, not a shared password.
-Create the first one with `scripts/create_admin.py <email>` (needs
+Create one with `scripts/create_admin.py <email> --role <role>` (needs
 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — point it at `backend/.env` or
 export the production values first). It prints instructions for the one-time
 QR-code enrollment step done at `/admin/login` itself.
+
+**Roles** (migration 0029, `backend/app/services/admin_roles.py`). The console
+shows only what the role allows, and the API refuses the rest:
+
+| Role | Can |
+|---|---|
+| `support` (default for new accounts) | read bookings, cases, reviews, visit queues, complaints; reveal a patient's phone (audited); Health |
+| `ops_lead` | support, plus decide incidents and appeals, moderate reviews, refunds, verify and suspend doctors, overrides, prescription access with a reason, dead letters |
+| `finance` | refunds, payouts and adjustments, pricing history, Health, audit log |
+| `admin` | everything, plus approve policies and legal documents, manage admin roles |
+
+Change a role in Admin → System → Admins (recorded with a reason). It applies
+at that admin's next sign-in; revoke their sessions to apply it at once.
 
 ```
 ALLOWED_ORIGINS=https://charak.care          # the admin is served at charak.care/admin; default '*'
@@ -343,7 +664,85 @@ JWT_SECRET=<64 random hex chars>           # rotating this logs every user out
 ```
 
 CORS only governs the admin dashboard — the mobile apps send no `Origin` header —
-but `*` with credentials is worth closing regardless.
+but `*` with credentials is worth closing regardless. The admin is served from
+both `charak.care` and `www.charak.care`; list both (set 2026-10-27).
+
+### 7a. The legal review gate (D20)
+
+A cancellation policy or legal document version applies only once its approval
+is recorded. To publish one:
+
+1. Insert the new version in SQL (§6c). Nothing changes yet; patients and
+   doctors still see the current version.
+2. Have it reviewed (counsel for legal text; the founder for policy rules).
+3. Admin → Policies → enter who reviewed it → **Approve and publish**. From its
+   `effective_from`, new bookings get it (policies) or users are asked to
+   accept it (documents). Approvals can't be edited or withdrawn: to change
+   course, publish another version.
+
+### 7b. Correcting a stuck booking
+
+Admin → Bookings → a booking's timeline → **Correct the status** (ops_lead or
+admin):
+- **Mark completed:** the visit happened but nobody closed it. The fee is then
+  withdrawable 48 hours later.
+- **Undo start:** a consultation was started by mistake; it goes back to
+  confirmed.
+
+Both go through the state machine and need a reason, which is recorded on the
+booking (`ops_complete` / `ops_revert`) and in `audit_log` with the before
+and after. There is deliberately no free-form status edit. Cancellations,
+refunds and reschedules use their own flows.
+
+### 7c. Health and dead letters
+
+- **Admin → Health:** the §21 numbers for 7, 30 or 90 days (counts only). Look
+  first at unresolved cases, failed refunds, confirmed doctor no-shows, Start
+  journey coverage on home visits, and prescriptions waiting to be opened.
+- **Admin → System:**
+  - jobs that ran out of attempts (**Retry** runs one again from scratch;
+    handlers are idempotent);
+  - webhooks that keep failing (**Process again**);
+  - pushes that couldn't be delivered (the in-app notice still shows).
+
+  A non-zero dead count on Health means look here.
+
+---
+
+## 7d. Release checklist and rollback
+
+**Order for every release:**
+1. Apply the new migrations in order in the SQL Editor (each is idempotent).
+2. Deploy the backend.
+3. Deploy the admin from `admin/` (`vercel --prod`).
+4. Check:
+   - `/readyz` shows `database.ok`;
+   - the Cloud Scheduler jobs list (§6) includes `charak-tick`, and its
+     recent runs returned 200;
+   - Admin → Health and System open without errors.
+5. Ship app builds. Raise `min_app_version` (§6b) only once they're live in the
+   stores.
+
+**Rolling back the backend:** route traffic to the previous revision. Every
+migration in this release is additive and the backend before it keeps
+working on the new schema, so migrations are not reversed:
+
+```bash
+gcloud run revisions list --service charak-api --region asia-south1 --limit 5
+gcloud run services update-traffic charak-api --region asia-south1 \
+  --to-revisions <previous-revision>=100
+```
+
+Things to know when rolling back past a migration:
+- **Before 0026 (pricing):** the old backend writes bookings without a length
+  or price snapshot. A trigger fills them in, so the overlap check still holds.
+- **Before 0028:** open cases, remedies and reschedule requests stop
+  progressing (no sweep), but nothing is lost. They resume on roll-forward.
+- **Before 0029:** the old backend ignores roles (every admin can do
+  everything) and the review gate (the latest version applies even if
+  unapproved). Don't publish unapproved policy versions while rolled back.
+
+**Rolling back the admin:** in Vercel, promote the previous deployment.
 
 ---
 
@@ -355,15 +754,37 @@ through it, so development and production behave identically.
 
 ```
 patient pays ₹1000
-      ↓  doctor_ledger_entries: gross 1000, commission 150 (15%), net 850, status=payable
+      ↓  doctor_ledger_entries: gross 1000, commission 0 (LD-003), net 1000, status=payable
+visit happens, booking → completed            (only now is the entry payout-eligible)
 ops runs a payout   POST /payouts/run   {doctor_id, period_start, period_end}
-      ↓  payouts row: net 850, status=pending; entries → paid
-ops transfers in the bank portal
-      ↓  PATCH /payouts/{id}  {status: "paid", reference: "<bank UTR>"}
+      ↓  payouts row: net 1000, status=pending; entries → paid
+ops transfers (UPI or bank)
+      ↓  PATCH /payouts/{id}  {status: "paid", reference: "<UTR>"}
          a reference is mandatory — every rupee is traceable to a transaction
 ```
 
+Cancelling a paid booking (one transaction, `cancel_booking()` in 0022):
+
+```
+booking → cancelled; any open payment attempt → failed
+refunds row queued per completed payment (pending)  → Razorpay → processing → processed
+ledger: entry still payable  → reversed
+        entry already paid out → a negative 'reversal' entry, recovered from the next payout
+payment stays 'completed' until refund.processed, then 'refunded'
+```
+
 Safety properties, all covered by tests:
+
+- **A refund is never reported done before Razorpay confirms it.** Failed refunds
+  land in Admin → Refunds with a Retry button. Retries look for an earlier
+  Razorpay refund carrying our id before sending another, so a timeout never
+  refunds twice. The database also refuses refunds that add up to more than the
+  payment (`refunds_guard`).
+- **A payout only takes fees for completed visits.** A fee credited at payment
+  waits until the visit has happened.
+- **A payout only moves forward.** `paid` and `failed` are final; marking a paid
+  payout failed is refused (it used to put the entries back to payable and pay
+  the doctor twice).
 
 - **Crediting is idempotent** on `(booking_id, source)`. A Razorpay webhook
   replay cannot pay a doctor twice.
@@ -381,19 +802,19 @@ Safety properties, all covered by tests:
 ```bash
 # 1. Who is owed what
 curl -s -H "Authorization: Bearer <ops token>" \
-  https://charak-api.fly.dev/payouts/pending-summary | jq
+  $API_URL/payouts/pending-summary | jq
 
 # 2. Create the payout (refuses if there is no bank account on file)
 curl -s -X POST -H "Authorization: Bearer <ops token>" \
   -H 'content-type: application/json' \
   -d '{"doctor_id":"<uuid>"}' \
-  https://charak-api.fly.dev/payouts/run
+  $API_URL/payouts/run
 
 # 3. Transfer in the bank portal, then record it
 curl -s -X PATCH -H "Authorization: Bearer <ops token>" \
   -H 'content-type: application/json' \
   -d '{"status":"paid","reference":"<bank UTR>"}' \
-  https://charak-api.fly.dev/payouts/<payout_id>
+  $API_URL/payouts/<payout_id>
 ```
 
 If a transfer bounces, `{"status":"failed","failure_reason":"..."}` returns the
@@ -407,7 +828,7 @@ change.
 ## 10. Post-deploy smoke test
 
 ```bash
-curl -s https://charak-api.fly.dev/readyz | jq
+curl -s $API_URL/readyz | jq
 ```
 
 ```json

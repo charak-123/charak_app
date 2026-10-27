@@ -16,6 +16,7 @@ import {
 import { MetaChip, StatusPill } from '@/components/status'
 import { getInitials } from '@/lib/utils'
 import CompositionBar from '@/components/charts/CompositionBar'
+import PricingHistory from '@/components/PricingHistory'
 import { SERIES } from '@/lib/chart-theme'
 
 interface Doctor {
@@ -25,25 +26,29 @@ interface Doctor {
   category_id: string | null
   category_name?: string | null
   verification_status: 'pending' | 'verified' | 'rejected'
+  suspended?: boolean
   rating_avg: number | null
   offers_online_consult: boolean
   offers_home_visit: boolean
-  created_at: string
+  created_at: string | null
+}
+
+function since(iso: string | null) {
+  const d = iso ? new Date(iso) : null
+  return d && !Number.isNaN(d.getTime()) ? ` · since ${format(d, 'MMM yyyy')}` : ''
 }
 
 export default function DirectoryOversight() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [pricesFor, setPricesFor] = useState<{ id: string; name: string } | null>(null)
 
   const { data, isLoading, isError, error } = useQuery<Doctor[]>({
     queryKey: ['doctors-directory'],
-    // /doctors/search is the public patient-facing endpoint (paginated,
-    // default limit 20, server-capped at 100) — it returns {items, total,
-    // ...}, not a bare array. This page has no pagination UI, so ask for the
-    // server's max page size to be a real "whole directory" view for ops
-    // rather than silently showing only the first 20.
-    queryFn: () =>
-      api.get<{ items: Doctor[] }>('/doctors/search?limit=100').then(r => r.items),
+    // The admin list, not the public search: every doctor whatever their
+    // status, with the fields ops needs (phone masked). The public search
+    // only has verified doctors and none of these fields.
+    queryFn: () => api.get<Doctor[]>('/admin/doctors'),
   })
 
   const suspendMutation = useMutation({
@@ -176,8 +181,7 @@ export default function DirectoryOversight() {
                           <div>
                             <p className="text-sm font-medium">{doctor.name}</p>
                             <p className="text-xs text-muted-foreground">
-                              {doctor.category_name ?? 'Uncategorised'} · since{' '}
-                              {format(new Date(doctor.created_at), 'MMM yyyy')}
+                              {doctor.category_name ?? 'Uncategorised'}{since(doctor.created_at)}
                             </p>
                           </div>
                         </div>
@@ -207,7 +211,11 @@ export default function DirectoryOversight() {
                           <span className="text-sm text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="space-x-2 text-right">
+                        <Button variant="outline" size="sm"
+                          onClick={() => setPricesFor({ id: doctor.id, name: doctor.name ?? 'Doctor' })}>
+                          Prices
+                        </Button>
                         {doctor.verification_status === 'verified' && (
                           <Button
                             variant="outline" size="sm"
@@ -227,6 +235,7 @@ export default function DirectoryOversight() {
           )}
         </Section>
       </PageBody>
+      <PricingHistory doctor={pricesFor} onClose={() => setPricesFor(null)} />
     </div>
   )
 }

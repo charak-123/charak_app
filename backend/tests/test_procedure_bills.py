@@ -10,7 +10,7 @@ from tests.conftest import make_chain, make_supabase
 DOCTOR_TOKEN  = "Bearer doctor_token"
 OPS_TOKEN     = "Bearer ops_token"
 DOCTOR_PAYLOAD = {"sub": "doc-1", "role": "doctor"}
-OPS_PAYLOAD    = {"sub": "ops-1", "role": "ops"}
+OPS_PAYLOAD    = {"sub": "ops-1", "role": "ops", "admin_role": "admin"}
 
 BILLS_TARGET = "app.routers.procedure_bills.supabase"
 JWT_TARGET   = "app.deps.jwt"

@@ -1,7 +1,8 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
@@ -9,14 +10,24 @@ from ..config import PAYMENT_HOLD_MINUTES
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor, require_patient
 from ..errors import AppError
-from ..services import availability, geo, notifications
-from ..services.rate_limit import rate_limiter
+from ..services import (
+    app_config, availability, booking_state, cancellation, geo, incidents, legal, notifications,
+    pricing, refunds, remedies, reschedules, visits,
+)
+from ..services.rate_limit import client_ip, rate_limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 VALID_STATUSES = (
-    "requested", "accepted", "declined", "paid", "completed", "cancelled", "no_show",
+    "requested", "accepted", "declined", "paid", "in_progress", "consulted", "completed",
+    "cancelled", "no_show",
 )
+
+# Statuses a patient or doctor can still cancel from. Once the consultation has
+# started there is nothing left to cancel (cancel_booking() agrees).
+CANCELLABLE_STATUSES = ("requested", "accepted", "paid")
 
 # Statuses that occupy a slot — a new booking cannot take a time already held by
 # one of these. Derived from the availability service's list so the grid and the
@@ -46,15 +57,34 @@ class BookingCreate(BaseModel):
     # Required for home_visit: which of the patient's saved addresses to visit.
     # Ignored for online_consult, which has no destination.
     address_id: Optional[str]    = None
-    # Deliberately no price field. The consult fee is what the doctor published
-    # in doctor_pricing, resolved server-side by _resolve_price — a client that
-    # names its own price names what it will be charged.
+    # The cancellation policy version the patient ticked on the confirm screen
+    # (GET /legal/cancellation-policy). Recorded with the booking; refused if
+    # it is no longer the current version, so nobody books on terms they
+    # weren't shown.
+    accepted_policy_version: Optional[str] = Field(default=None, max_length=40)
+    # The price option the patient picked (GET /doctors/{id}/prices, or
+    # /bookings/{id}/follow-up-options), and the price it showed. The server
+    # resolves the price itself (services/pricing.py); expected_price_paise
+    # only stops a booking at a price the patient wasn't shown — if the doctor
+    # changed it since, nothing is booked and the new prices come back.
+    # All optional: app builds from before migration 0026 send none of them
+    # and get the first-visit price they were shown.
+    price_rule_id: Optional[str] = Field(default=None, max_length=40)
+    duration_min: Optional[int] = Field(default=None, ge=5, le=240)
+    expected_price_paise: Optional[int] = Field(default=None, ge=0)
+    # The consultation this follow-up continues, for the follow-up price.
+    follow_up_of: Optional[str] = Field(default=None, max_length=40)
+    # A doctor didn't attend and the patient chose another doctor instead of a
+    # refund (services/remedies.py): the case it remedies. Nothing is paid;
+    # the earlier payment covers it when the new doctor accepts.
+    replaces_incident_id: Optional[str] = Field(default=None, max_length=40)
 
 
 @router.post("/", status_code=201, dependencies=[rate_limiter("booking-create", 10, 600)])
 def create_booking(
     body: BookingCreate,
     background: BackgroundTasks,
+    request: Request,
     # require_patient, not get_current_user: this writes patient_id from the
     # token subject, so a doctor's token would have created a booking whose
     # patient is a doctor id — a row nothing downstream can make sense of.
@@ -81,6 +111,25 @@ def create_booking(
     if body.channel == "online_consult" and not doc.get("offers_online_consult"):
         raise AppError("This doctor does not offer online consults", 400)
 
+    # Terms, Privacy and (for an online consult) Telemedicine consent, at their
+    # current versions. Switched on once app builds with the consent screens
+    # are out (app_config); a 428 makes the app show the consent sheet.
+    if app_config.get("require_legal_acceptance") is True:
+        needed = legal.REQUIRED["patient"] + (
+            legal.ONLINE_EXTRA if body.channel == "online_consult" else ())
+        legal.require(user["sub"], "patient", needed)
+
+    policy = cancellation.current_policy(body.channel)
+    if body.accepted_policy_version is not None:
+        if body.accepted_policy_version != policy["version"]:
+            raise AppError(
+                "The cancellation policy has just changed. Please review it again.",
+                409, policy=cancellation.public_policy(policy),
+            )
+    elif app_config.get("require_booking_policy_acceptance") is True:
+        raise AppError("Please review and accept the cancellation policy.", 428,
+                       policy=cancellation.public_policy(policy))
+
     try:
         start = datetime.fromisoformat(body.scheduled_start.replace("Z", "+00:00"))
     except ValueError:
@@ -92,9 +141,24 @@ def create_booking(
     # radius the doctor agreed to cover.
     address_fields = _resolve_home_visit_address(body, doc, user["sub"])
 
-    # Snapshot the published fee onto the booking. Without this the whole payment
-    # path is dead: _amount_due refuses a booking with no price_confirmed.
-    price = _resolve_price(body.doctor_id, body.channel)
+    # The price rule this booking is charged by, snapshotted onto it: a doctor
+    # changing their prices later never changes what this patient pays.
+    rule = pricing.resolve(
+        body.doctor_id, body.channel, patient_id=user["sub"], start=start,
+        rule_id=body.price_rule_id, duration_min=body.duration_min,
+        follow_up_of=body.follow_up_of,
+    )
+    if body.expected_price_paise is not None and body.expected_price_paise != rule["price_paise"]:
+        raise AppError(
+            "This doctor has just changed their price. Please check it again.", 409,
+            code="price_changed", price_paise=rule["price_paise"],
+            prices=pricing.price_list(body.doctor_id, doc),
+        )
+    # A legacy request (no length chosen) was offered times on the legacy grid.
+    legacy_grid = body.price_rule_id is None and body.duration_min is None
+
+    if body.replaces_incident_id:
+        return _create_replacement(body, doc, rule, start, policy, user, background)
 
     existing = (
         supabase.table("bookings")
@@ -107,7 +171,7 @@ def create_booking(
     if existing.data:
         raise AppError("Slot already booked", 409)
 
-    _assert_bookable(body.doctor_id, start)
+    _assert_bookable(body.doctor_id, start, None if legacy_grid else rule["duration_min"])
 
     # The check above loses to a concurrent request that passed it a moment
     # earlier, so uq_booking_doctor_slot_active (migration 0010) is what actually
@@ -120,20 +184,39 @@ def create_booking(
             "channel": body.channel,
             "scheduled_start": body.scheduled_start,
             "category_id": body.category_id,
-            "price_confirmed": price,
+            "price_confirmed": rule["price_paise"] / 100,
+            "price_paise": rule["price_paise"],
+            "price_rule_id": rule["id"],
+            "duration_min": rule["duration_min"],
+            "scheduled_end": (start + timedelta(minutes=rule["duration_min"])).isoformat(),
+            "visit_category": rule["visit_category"],
+            "follow_up_of": body.follow_up_of,
             "status": "requested",
+            # The version shown and accepted, not whatever is current a moment
+            # later when the row lands.
+            "cancellation_policy_id": policy["id"],
             **address_fields,
         }).execute().data[0]
     except APIError as exc:
-        if getattr(exc, "code", None) == "23505":
+        code = getattr(exc, "code", None)
+        if code == "23505" and "uq_bookings_one_follow_up" in str(exc):
+            raise AppError("A follow-up for that consultation is already booked", 409)
+        # 23505: same start (0010). 23P01: overlapping times (0026).
+        if code in ("23505", "23P01"):
             raise AppError("Slot already booked", 409)
         raise
+
+    if body.accepted_policy_version is not None:
+        try:
+            legal.record_booking_policy(user["sub"], policy, row["id"], ip=client_ip(request))
+        except Exception as exc:                  # noqa: BLE001 — the booking stands
+            logger.error("could not record policy acceptance for %s: %r", row["id"], exc)
 
     patient = supabase.table("users").select("name").eq("id", user["sub"]).execute().data or []
     patient_name = (patient[0].get("name") if patient else None) or "A patient"
     notifications.booking_requested(row, patient_name, background)
 
-    return row
+    return {**row, "cancellation_policy": cancellation.public_policy(policy)}
 
 
 # ── Doctor lists ──────────────────────────────────────────────────────────────
@@ -181,12 +264,12 @@ def _with_issue(row: dict) -> dict:
 
 @router.get("/doctor/active")
 def list_active(user: dict = Depends(require_doctor)):
-    """Accepted/paid bookings — current queue."""
+    """The current queue: accepted, paid, and consultations under way."""
     rows = (
         supabase.table("bookings")
         .select("*, users(name)")
         .eq("doctor_id", user["sub"])
-        .in_("status", ["accepted", "paid"])
+        .in_("status", ["accepted", "paid", "in_progress"])
         .order("scheduled_start")
         .execute()
         .data
@@ -197,12 +280,13 @@ def list_active(user: dict = Depends(require_doctor)):
 
 @router.get("/doctor/history")
 def list_history(user: dict = Depends(require_doctor)):
-    """Terminal bookings — everything no longer actionable."""
+    """Everything past: finished, declined, cancelled, and consultations whose
+    prescription is with the patient ('consulted', waiting for them to open it)."""
     rows = (
         supabase.table("bookings")
         .select("*, users(name)")
         .eq("doctor_id", user["sub"])
-        .in_("status", ["completed", "declined", "cancelled", "no_show"])
+        .in_("status", ["consulted", "completed", "declined", "cancelled", "no_show"])
         .order("scheduled_start", desc=True)
         .execute()
         .data
@@ -232,18 +316,62 @@ def patient_bookings(user: dict = Depends(get_current_user)):
 def get_booking(booking_id: str, user: dict = Depends(get_current_user)):
     b = fetch_one(
         supabase.table("bookings")
-        .select("*, users(name), doctors(name, photo_url, categories(name))")
+        .select("*, users(name), doctors(name, photo_url, categories(name)), "
+                "policies(channel, version, summary, rules)")
         .eq("id", booking_id)
     )
     if not b:
         raise AppError("Booking not found", 404)
     if b["patient_id"] != user["sub"] and b["doctor_id"] != user["sub"]:
         raise AppError("Forbidden", 403)
+    policy = b.pop("policies", None)
+    b["cancellation_policy"] = cancellation.public_policy(policy) if policy else None
 
     # The patient always sees their own address; the doctor only after accepting.
     if b["doctor_id"] == user["sub"] and b["patient_id"] != user["sub"]:
         return _redact_address_for_doctor(b)
     return b
+
+
+# ── Follow-up prices ──────────────────────────────────────────────────────────
+
+@router.get("/{booking_id}/follow-up-options")
+def follow_up_options(booking_id: str, user: dict = Depends(require_patient)):
+    """
+    Booking a follow-up to this consultation: the doctor's follow-up prices
+    and until when they apply. 409 saying why when it doesn't qualify (the
+    window has passed, one is already booked, the doctor offers none).
+    """
+    return pricing.follow_up_options(booking_id, user["sub"])
+
+
+# ── Timeline ──────────────────────────────────────────────────────────────────
+
+# What the patient and doctor may see of an event's metadata. Payment ids and
+# who-did-what inside ops stay with ops (GET /admin/bookings/{id}/timeline).
+_PARTICIPANT_METADATA = ("cancelled_by", "minutes")
+
+
+@router.get("/{booking_id}/timeline")
+def booking_timeline(booking_id: str, user: dict = Depends(get_current_user)):
+    """The booking's history, oldest first: requested, accepted, paid …"""
+    b = fetch_one(supabase.table("bookings").select("patient_id, doctor_id").eq("id", booking_id))
+    if not b:
+        raise AppError("Booking not found", 404)
+    if user["sub"] not in (b["patient_id"], b["doctor_id"]):
+        raise AppError("Forbidden", 403)
+    return [
+        {
+            "event": e["event"],
+            "from_status": e["from_status"],
+            "to_status": e["to_status"],
+            "actor_role": e["actor_role"],
+            "occurred_at": e["occurred_at"],
+            "metadata": {k: v for k, v in (e.get("metadata") or {}).items()
+                         if k in _PARTICIPANT_METADATA},
+        }
+        for e in booking_state.timeline(booking_id)
+    ]
 
 
 # ── Accept / Decline ──────────────────────────────────────────────────────────
@@ -262,17 +390,36 @@ def accept_booking(
     if b["status"] != "requested":
         raise AppError(f"Cannot accept a booking with status '{b['status']}'", 400)
 
-    updated = _update_status(booking_id, "accepted", expected="requested", extra={
-        "hold_expires_at": (_now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)).isoformat(),
-        # Accepting is what entitles the doctor to the patient's full address.
-        # Until now they saw only the area and distance.
-        "address_released_at": _now_iso() if b["channel"] == "home_visit" else None,
-    })
+    updated = booking_state.transition(
+        booking_id, "accept", actor_role="doctor", actor_id=user["sub"], expected="requested",
+        patch={
+            "hold_expires_at": (_now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)).isoformat(),
+            # Accepting is what entitles the doctor to the patient's full
+            # address. Until now they saw only the area and distance.
+            "address_released_at": _now_iso() if b["channel"] == "home_visit" else None,
+        },
+    )
 
     doctor = supabase.table("doctors").select("name").eq("id", user["sub"]).execute().data or []
     doctor_name = (doctor[0].get("name") if doctor else None) or "Your doctor"
-    notifications.booking_accepted({**b, **updated}, doctor_name, background)
 
+    if b.get("prepaid_from_payment_id"):
+        # A replacement for a doctor who didn't attend: paid from the earlier
+        # booking's payment, with anything left over refunded.
+        return remedies.settle({**b, **updated}, doctor_name, background)
+
+    if b.get("price_paise") == 0:
+        # A free follow-up (the doctor priced it at ₹0): nothing to pay, so
+        # accepting confirms it. Same transition a captured payment makes.
+        updated = booking_state.transition(
+            booking_id, "pay", actor_role="system", expected="accepted",
+            patch={"hold_expires_at": None}, metadata={"free": True},
+        )
+        visits.schedule_reminders({**b, **updated})
+        notifications.free_booking_confirmed({**b, **updated}, doctor_name, background)
+        return updated
+
+    notifications.booking_accepted({**b, **updated}, doctor_name, background)
     return updated
 
 
@@ -286,8 +433,10 @@ def decline_booking(
     if b["status"] not in ("requested", "accepted"):
         raise AppError(f"Cannot decline a booking with status '{b['status']}'", 400)
 
-    updated = _update_status(booking_id, "declined", {"hold_expires_at": None},
-                             expected=b["status"])
+    updated = booking_state.transition(
+        booking_id, "decline", actor_role="doctor", actor_id=user["sub"],
+        expected=b["status"], patch={"hold_expires_at": None},
+    )
 
     doctor = supabase.table("doctors").select("name").eq("id", user["sub"]).execute().data or []
     doctor_name = (doctor[0].get("name") if doctor else None) or "The doctor"
@@ -318,8 +467,12 @@ def complete_booking(
             409,
         )
 
-    updated = _update_status(booking_id, "completed", {"hold_expires_at": None},
-                             expected="paid")
+    # Doctor app builds from before migration 0025. Newer builds send the
+    # prescription instead, and the booking completes when the patient opens it.
+    updated = booking_state.transition(
+        booking_id, "complete", actor_role="doctor", actor_id=user["sub"],
+        expected="paid", patch={"hold_expires_at": None, "completion_source": "doctor"},
+    )
     notifications.visit_completed({**b, **updated}, background)
     return updated
 
@@ -367,21 +520,61 @@ def mark_no_show(
             400,
         )
 
-    updated = _update_status(booking_id, "no_show", expected="accepted", extra={
-        "no_show_marked_by": user["sub"],
-        "no_show_at": _now_iso(),
-        "hold_expires_at": None,
-    })
+    updated = booking_state.transition(
+        booking_id, "no_show", actor_role="doctor", actor_id=user["sub"], expected="accepted",
+        patch={
+            "no_show_marked_by": user["sub"],
+            "no_show_at": _now_iso(),
+            "hold_expires_at": None,
+        },
+    )
     notifications.marked_no_show({**b, **updated}, background)
     return updated
 
 
 # ── Cancel ────────────────────────────────────────────────────────────────────
 
+@router.get("/{booking_id}/cancellation-quote")
+def cancellation_quote(booking_id: str, user: dict = Depends(get_current_user)):
+    """
+    What cancelling now would refund, under this booking's policy version. The
+    app shows it in the confirm sheet and sends ``refund_paise`` back as
+    ``expected_refund_paise``, so the cancel refunds exactly what was shown.
+    """
+    b = fetch_one(supabase.table("bookings").select("patient_id, doctor_id, status, "
+                                                     "cancellation_policy_id").eq("id", booking_id))
+    if not b:
+        raise AppError("Booking not found", 404)
+    if user["sub"] not in (b["patient_id"], b["doctor_id"]):
+        raise AppError("Forbidden", 403)
+    by = "patient" if b["patient_id"] == user["sub"] else "doctor"
+    policy = cancellation.policy_by_id(b.get("cancellation_policy_id"))
+    return {
+        **_quote_view(cancellation.quote(booking_id, by)),
+        "cancellable": b["status"] in CANCELLABLE_STATUSES,
+        "reason_codes": list(cancellation.REASON_CODES[by]),
+        "policy": cancellation.public_policy(policy) if policy else None,
+    }
+
+
+def _quote_view(q: dict) -> dict:
+    return {k: q.get(k) for k in ("paid_paise", "refund_paise", "kept_paise", "refund_pct",
+                                  "free_until", "reason", "policy_version")}
+
+
+class CancelRequest(BaseModel):
+    # The refund the patient was shown (GET .../cancellation-quote). If the
+    # outcome has moved since, nothing is cancelled and the new quote comes
+    # back with a 409. Optional, for app builds that predate the quote.
+    expected_refund_paise: Optional[int] = Field(default=None, ge=0)
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+
+
 @router.patch("/{booking_id}/cancel")
 def cancel_booking(
     booking_id: str,
     background: BackgroundTasks,
+    body: Optional[CancelRequest] = None,
     user: dict = Depends(get_current_user),
 ):
     b = fetch_one(supabase.table("bookings").select("*").eq("id", booking_id))
@@ -389,34 +582,117 @@ def cancel_booking(
         raise AppError("Booking not found", 404)
     if b["patient_id"] != user["sub"] and b["doctor_id"] != user["sub"]:
         raise AppError("Forbidden", 403)
-    if b["status"] in ("completed", "cancelled", "declined", "no_show"):
+    if b["status"] not in CANCELLABLE_STATUSES:
         raise AppError(f"Cannot cancel a booking with status '{b['status']}'", 400)
 
     by = "patient" if b["patient_id"] == user["sub"] else "doctor"
-    updated = _update_status(booking_id, "cancelled", expected=b["status"], extra={
-        "cancelled_by": by,
-        "hold_expires_at": None,
-    })
+    body = body or CancelRequest()
+    reason_code = cancellation.validate_reason(by, body.reason_code)
 
-    # If the booking was already paid for, cancelling must return the patient's
-    # money and reverse the doctor's ledger credit — otherwise the doctor is paid
-    # out for a visit that will not happen. Only a paid booking can carry a
-    # completed payment, so an unpaid cancel skips the payments lookup entirely.
-    # Imported locally to keep the payments/bookings modules free of a cycle.
-    refunded = 0
-    if b["status"] == "paid":
-        from . import payments
-        refunded = payments.refund_completed_payments(
-            {**b, **updated}, note=f"booking cancelled by {by}", background=background
+    # One transaction (migrations 0022–0024): lock the booking, check it's
+    # still in the status read above and the refund is still what the patient
+    # was shown, cancel it, queue the refund the booking's policy allows, and
+    # reverse the doctor's credit for the refunded part (or recover it, if it
+    # was already paid out). Doing these as separate calls is what used to
+    # leave a cancel half-applied.
+    result = supabase.rpc("cancel_booking", {
+        "p_booking_id": booking_id,
+        "p_expected_status": b["status"],
+        "p_cancelled_by": by,
+        "p_actor_id": user["sub"],
+        "p_expected_refund_paise": body.expected_refund_paise,
+        "p_reason_code": reason_code,
+    }).execute().data or {}
+
+    outcome = result.get("outcome")
+    if outcome == "not_found":
+        raise AppError("Booking not found", 404)
+    if outcome == "forbidden":
+        raise AppError("Forbidden", 403)
+    if outcome == "not_cancellable":
+        raise AppError(f"Cannot cancel a booking with status '{result.get('status')}'", 400)
+    if outcome == "quote_changed":
+        raise AppError(
+            "The refund for cancelling has just changed. Please check the new amount.",
+            409, quote=_quote_view(result.get("quote") or {}),
         )
+    if outcome != "cancelled":
+        raise AppError(booking_state.CONFLICT_MESSAGE, 409)
 
-    notifications.booking_cancelled({**b, **updated}, by, background)
-    return {**updated, "refunded_payments": refunded}
+    updated = result["booking"]
+    booking = {**b, **updated}
+
+    # Razorpay is called only now, after the decision is committed. Inline
+    # rather than as a background task, so the patient's "Refund started"
+    # reflects a refund Razorpay has accepted. Anything that fails here is
+    # retried by /maintenance/retry-refunds.
+    queued = result.get("refunds") or []
+    sent = []
+    for refund in queued:
+        try:
+            sent.append(refunds.execute(refund, background))
+        except Exception as exc:                  # noqa: BLE001 — the cancel has committed
+            # The refund is queued; the sweep sends it. Failing the request now
+            # would tell the patient their cancel didn't happen when it did.
+            logger.error("refund %s not sent inline: %r", refund.get("id"), exc)
+            sent.append(refund)
+        notifications.refund_started(booking, refund["amount_paise"], background,
+                                     refund_id=refund.get("id"))
+
+    quote = result.get("quote") or {}
+    notifications.booking_cancelled(booking, by, background,
+                                    kept_paise=int(quote.get("kept_paise") or 0))
+    # Times the doctor had proposed no longer apply.
+    supabase.table("reschedule_requests").update({"status": "withdrawn"}) \
+        .eq("booking_id", booking_id).eq("status", "proposed").execute()
+    # A doctor cancelling a paid visit close to its time is recorded (they
+    # can appeal it, for an emergency say).
+    if by == "doctor" and b["status"] == "paid":
+        try:
+            incidents.record_late_cancel(booking, background)
+        except Exception as exc:                  # noqa: BLE001 — the cancel stands
+            logger.error("could not record late cancel for %s: %r", booking_id, exc)
+    return {
+        **updated,
+        "quote": _quote_view(quote),
+        "refunded_payments": len(queued),
+        "refunds": [
+            {"id": r["id"], "amount_paise": r["amount_paise"], "status": r["status"]}
+            for r in sent
+        ],
+    }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _assert_bookable(doctor_id: str, start: datetime) -> None:
+def _create_replacement(body: "BookingCreate", doc: dict, rule: dict, start: datetime,
+                        policy: dict, user: dict, background) -> dict:
+    """The patient's replacement for a doctor who didn't attend: priced like
+    any booking, checked against the slot grid, and created in one
+    transaction with cancelling the original (services/remedies.py)."""
+    if body.follow_up_of:
+        raise AppError("A replacement is a new consultation, not a follow-up", 400)
+    inc = incidents.get(body.replaces_incident_id)
+    if not inc or inc["patient_id"] != user["sub"]:
+        raise AppError("Case not found", 404)
+    if inc["doctor_id"] == body.doctor_id:
+        raise AppError("Choose a different doctor", 400)
+    _assert_bookable(body.doctor_id, start, rule["duration_min"])
+    fields = {
+        "doctor_id": body.doctor_id, "channel": body.channel, "scheduled_start": start.isoformat(),
+        "duration_min": rule["duration_min"], "price_paise": rule["price_paise"],
+        "price_rule_id": rule["id"], "category_id": body.category_id,
+        "cancellation_policy_id": policy["id"],
+        **_resolve_home_visit_address(body, doc, user["sub"]),
+    }
+    row = remedies.start_replacement(body.replaces_incident_id, user["sub"], fields)
+    patient = supabase.table("users").select("name").eq("id", user["sub"]).execute().data or []
+    notifications.booking_requested(row, (patient[0].get("name") if patient else None) or "A patient",
+                                    background)
+    return {**row, "cancellation_policy": cancellation.public_policy(policy)}
+
+
+def _assert_bookable(doctor_id: str, start: datetime, duration_min: Optional[int] = None) -> None:
     """
     Refuse a time the patient could not have picked from the slot grid.
 
@@ -430,7 +706,8 @@ def _assert_bookable(doctor_id: str, start: datetime) -> None:
     if local <= availability.now_ist():
         raise AppError("That time has already passed. Pick another slot.", 409)
 
-    open_slots = availability.get_available_slots(doctor_id, local.date(), days=1)
+    open_slots = availability.get_available_slots(doctor_id, local.date(), days=1,
+                                                  duration_min=duration_min)
     starts = {s["start"] for s in open_slots.get(str(local.date()), [])}
     if local.second or local.microsecond or local.strftime("%H:%M") not in starts:
         raise AppError(
@@ -497,29 +774,6 @@ def _format_address(address: dict) -> str:
     return ", ".join(p for p in parts if p)
 
 
-def _resolve_price(doctor_id: str, channel: str) -> float:
-    """
-    The fee for this doctor on this channel, as published in doctor_pricing.
-
-    Snapshotted onto the booking rather than looked up at payment time, so that
-    a doctor editing their pricing mid-booking cannot change what a patient was
-    quoted. doctor_pricing is unique on (doctor_id, channel), so there is exactly
-    one row to find.
-    """
-    row = fetch_one(
-        supabase.table("doctor_pricing")
-        .select("price")
-        .eq("doctor_id", doctor_id)
-        .eq("channel", channel)
-    )
-    if not row or row.get("price") is None:
-        raise AppError(
-            "This doctor has not published a price for this consultation type yet",
-            409,
-        )
-    return float(row["price"])
-
-
 def _redact_address_for_doctor(booking: dict) -> dict:
     """
     Hide the street address from the doctor until they have accepted.
@@ -548,31 +802,3 @@ def _get_booking_for_doctor(booking_id: str, doctor_id: str) -> dict:
     if booking["doctor_id"] != doctor_id:
         raise AppError("Forbidden", 403)
     return booking
-
-
-def _update_status(booking_id: str, status: str, extra: Optional[dict] = None, *,
-                   expected: str) -> dict:
-    """
-    Move a booking to `status` only if it is still in `expected` — the status
-    the caller read and based its decision on.
-
-    Without the condition, two writers racing on one booking both won: a
-    patient's cancel landing just after the doctor accepted, or two cancels
-    each deciding to refund. Now the second writer changes nothing and is told
-    the booking moved under it.
-    """
-    data: dict = {"status": status}
-    if status in ("accepted", "declined"):
-        data["decision_at"] = _now_iso()
-    if extra:
-        data.update(extra)
-    rows = (
-        supabase.table("bookings").update(data)
-        .eq("id", booking_id).eq("status", expected)
-        .execute().data
-    )
-    if not rows:
-        raise AppError(
-            "This booking was just updated. Refresh to see where it stands.", 409
-        )
-    return rows[0]

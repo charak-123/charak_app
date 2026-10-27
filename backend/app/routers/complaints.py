@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
 
 from ..db import fetch_one, supabase
-from ..deps import get_current_user, require_ops
+from ..deps import get_current_user, require_permission
 from ..errors import AppError
 from ..services import audit, notifications
 
@@ -66,7 +66,7 @@ def get_complaints(booking_id: str, user: dict = Depends(get_current_user)):
 def update_complaint_status(
     complaint_id: str,
     body: ComplaintStatusUpdate,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("complaints.update")),
 ):
     if body.status not in VALID_STATUSES:
         raise AppError(f"Invalid status '{body.status}'", 400)

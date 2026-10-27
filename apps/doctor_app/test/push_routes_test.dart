@@ -11,6 +11,13 @@ CharakPushMessage _msg(String event, {String? bookingId}) =>
 /// that catches that.
 void main() {
   group('doctorPushDestination', () {
+    test('visit reminders and completion open the visit', () {
+      for (final e in ['booking.reminder', 'visit.completed']) {
+        expect(doctorPushDestination(_msg(e, bookingId: 'bk-1')),
+            const DoctorPushDestination('/visit/bk-1'), reason: e);
+      }
+    });
+
     test('a new request opens that request, not the requests list', () {
       expect(
         doctorPushDestination(_msg('booking.requested', bookingId: 'bk-1')),
@@ -61,10 +68,10 @@ void main() {
       }
     });
 
-    test('a new rating opens the profile tab', () {
+    test('a new rating opens ratings and reviews', () {
       expect(
         doctorPushDestination(_msg('rating.received')),
-        const DoctorPushDestination('/home', tabIndex: kProfileTab),
+        const DoctorPushDestination('/reviews'),
       );
     });
 

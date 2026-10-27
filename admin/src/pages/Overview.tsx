@@ -3,8 +3,7 @@ import { Link } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
 import {
   ShieldCheck, BookOpen, MessageSquare, ClipboardList,
-  ArrowRight, Ban, ScrollText, Activity,
-} from 'lucide-react'
+  ArrowRight, Ban, ScrollText, Activity, Undo2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -33,6 +32,8 @@ interface Metrics {
     bills_under_review: number
     complaints_open: number
     complaints_in_review: number
+    refunds_failed: number
+    refunds_in_flight: number
   }
 }
 
@@ -83,7 +84,7 @@ export default function Overview() {
         <section className="space-y-3">
           <SectionHeading hint="Click through to act">Needs attention</SectionHeading>
           <StatGrid>
-            {metrics.isLoading && [0, 1, 2, 3].map(i => <Pulse key={i} className="h-[116px]" />)}
+            {metrics.isLoading && [0, 1, 2, 3, 4].map(i => <Pulse key={i} className="h-[116px]" />)}
             {m && (
               <>
                 <StatTile
@@ -97,6 +98,11 @@ export default function Overview() {
                 <StatTile
                   to="/complaints" icon={MessageSquare} tone="critical"
                   label="Complaints open" value={m.queues.complaints_open}
+                />
+                <StatTile
+                  to="/refunds" icon={Undo2} tone="critical"
+                  label="Refunds needing attention" value={m.queues.refunds_failed}
+                  hint={m.queues.refunds_in_flight ? `${m.queues.refunds_in_flight} more in flight` : undefined}
                 />
                 <StatTile
                   to="/bookings" icon={BookOpen} tone="neutral"

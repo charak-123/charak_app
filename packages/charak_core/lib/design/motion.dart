@@ -110,6 +110,11 @@ Widget charakRiseTransition(
 
 /// Tab root: replays "Screen enter" (every [CharakRiseIn] cascades in again)
 /// whenever [tabIndex] changes to this tab's [index].
+///
+/// Also pauses the tab's animations while another tab is showing. An
+/// [IndexedStack] keeps hidden tabs alive with their tickers running, so a
+/// looping pulse (a refund in progress, the Now Bar) or a loading skeleton on
+/// a tab nobody can see kept the app drawing every frame.
 class CharakTabTransition extends StatefulWidget {
   final int index;
   final int tabIndex;
@@ -137,8 +142,10 @@ class _CharakTabTransitionState extends State<CharakTabTransition> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      CharakEntranceScope(generation: _generation, child: widget.child);
+  Widget build(BuildContext context) => TickerMode(
+        enabled: widget.tabIndex == widget.index,
+        child: CharakEntranceScope(generation: _generation, child: widget.child),
+      );
 }
 
 /// `.pulse` — flashes `primarySoft` behind its child and fades back to

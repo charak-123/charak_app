@@ -43,7 +43,12 @@ final _screens = <(String, String, Object?)>[
   ('03_home', '/home', null),
   ('04_directory', '/directory', null),
   ('05_doctor_profile', '/doctor/doc-1', null),
-  ('06_slots', '/book/doc-1/slots', null),
+  ('06_channel_and_length', '/book/doc-2/channel', null),
+  ('06b_slots', '/book/doc-1/slots', {
+    'doctor_id': 'doc-1', 'channel': 'online_consult', 'price_rule_id': 'r-on-30',
+    'duration_min': 30, 'price_paise': 104000, 'visit_category': 'initial',
+  }),
+  ('06c_follow_up_prices', '/book/doc-1/channel', {'follow_up_of': 'bk-done'}),
   ('07_booking_status_requested', '/booking/bk-requested/status', null),
   ('08_booking_status_accepted', '/booking/bk-accepted/status', null),
   ('09_payment', '/booking/bk-accepted/pay', null),
@@ -52,6 +57,25 @@ final _screens = <(String, String, Object?)>[
   ('12_rate', '/booking/bk-done/rate', null),
   ('13_complaint', '/booking/bk-done/complaint', null),
   ('14_notifications', '/notifications', null),
+  ('15_booking_status_cancelled_refund', '/booking/bk-cancelled/status', null),
+  ('16_history_detail_refunded', '/booking/bk-refunded/history-detail', null),
+  ('18_signup_consent', '/auth/name', null),
+  ('19_review_confirm_online', '/book/review', {
+    'doctor_id': 'doc-1', 'channel': 'online_consult', 'price_rule_id': 'r-on-30',
+    'duration_min': 30, 'price_paise': 104000, 'visit_category': 'initial',
+    'scheduled_start': DateTime.now().add(const Duration(days: 1, hours: 3)).toUtc().toIso8601String(),
+    'text': 'Fever for two days, around 101°F, with a mild cough at night.',
+  }),
+  ('20_review_confirm_home', '/book/review', {
+    'doctor_id': 'doc-2', 'channel': 'home_visit', 'address_id': 'addr-1',
+    'scheduled_start': DateTime.now().add(const Duration(days: 1, hours: 3)).toUtc().toIso8601String(),
+    'text': 'Knee pain after a fall yesterday.',
+  }),
+  ('21_payments', '/payments', null),
+  ('22_get_help', '/booking/bk-paid/help', null),
+  ('23_get_help_reschedule', '/booking/bk-accepted/help', null),
+  ('17_update_required', '/update',
+      const CharakUpdateInfo(minVersion: '1.2.0', storeUrl: 'https://play.google.com/store/apps/details?id=com.charak.patient_app')),
 ];
 
 void main() {
@@ -84,7 +108,7 @@ void main() {
       addTearDown(tester.view.reset);
 
       CharakColors.useScheme(CharakScheme.patient);
-      ApiClient.debugClient = patientBackend();
+      ApiClient.debugClient = patientBackend(newPatient: name.contains('consent'));
       FlutterSecureStorage.setMockInitialValues({'auth_token': 'fixture-token'});
       SharedPreferences.setMockInitialValues({'user_id': patientId, 'user_name': 'Aarav Kulkarni'});
 

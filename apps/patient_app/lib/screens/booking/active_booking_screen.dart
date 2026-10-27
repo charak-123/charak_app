@@ -4,10 +4,19 @@ import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
 
+import 'help_screen.dart';
+
+/// The booking, plus (once the doctor has sent one) the id and timestamps of
+/// the prescription. Its content is fetched only when the patient opens it,
+/// because opening it is what completes the visit.
 final _activeBookingProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
-  final res = await ApiClient.instance.get('/bookings/$id');
-  return res as Map<String, dynamic>;
+  final res = await ApiClient.instance.get('/bookings/$id') as Map<String, dynamic>;
+  if (res['prescription_sent_at'] != null) {
+    final rx = await ApiClient.instance.get('/bookings/$id/prescription') as Map<String, dynamic>;
+    res['prescription'] = rx['prescription'];
+  }
+  return res;
 });
 
 class ActiveBookingScreen extends ConsumerWidget {
@@ -24,7 +33,11 @@ class ActiveBookingScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const SingleChildScrollView(child: CharakSkeletonDetail()),
         error: (e, _) => CharakErrorState(error: e, onRetry: () => ref.invalidate(_activeBookingProvider(bookingId))),
-        data: (booking) => _Body(booking: booking, bookingId: bookingId),
+        data: (booking) => _Body(
+          booking: booking,
+          bookingId: bookingId,
+          help: ref.watch(bookingHelpProvider(bookingId)).valueOrNull,
+        ),
       ),
     );
   }
@@ -33,25 +46,51 @@ class ActiveBookingScreen extends ConsumerWidget {
 class _Body extends StatelessWidget {
   final Map<String, dynamic> booking;
   final String bookingId;
-  const _Body({required this.booking, required this.bookingId});
 
-  Future<void> _cancel(BuildContext context, bool paid) async {
+  /// GET /bookings/{id}/help: an open case, new times proposed, what can be reported.
+  final Map<String, dynamic>? help;
+  const _Body({required this.booking, required this.bookingId, this.help});
+
+  /// Fetch what cancelling now would refund, say exactly that, and cancel
+  /// against that amount. If the outcome moved in between (the doctor just
+  /// started travelling), the server refuses with the new quote and the
+  /// patient sees it before anything is cancelled.
+  Future<void> _cancel(BuildContext context) async {
+    Map<String, dynamic> quote;
+    try {
+      quote = await ApiClient.instance.get('/bookings/$bookingId/cancellation-quote')
+          as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      if (context.mounted) showCharakToast(context, message: e.message, isError: true);
+      return;
+    }
+    if (context.mounted) await _confirmAndCancel(context, quote);
+  }
+
+  Future<void> _confirmAndCancel(BuildContext context, Map<String, dynamic> quote,
+      {bool changed = false}) async {
     final ok = await showCharakConfirm(
       context,
-      title: 'Cancel this booking?',
-      message: paid
-          ? 'The doctor is told straight away and your payment is refunded to the original method.'
-          : 'The doctor is told straight away. You have not been charged.',
+      title: changed ? 'The refund has changed' : 'Cancel this booking?',
+      message: cancellationMessage(quote),
       confirmLabel: 'Cancel booking',
       cancelLabel: 'Keep it',
       destructive: true,
     );
     if (!ok || !context.mounted) return;
     try {
-      await ApiClient.instance.patch('/bookings/$bookingId/cancel', {});
+      await ApiClient.instance.patch('/bookings/$bookingId/cancel', {
+        'expected_refund_paise': (quote['refund_paise'] as num?)?.toInt() ?? 0,
+      });
       if (context.mounted) context.go('/booking/$bookingId/status');
     } on ApiException catch (e) {
-      if (context.mounted) showCharakToast(context, message: e.message, isError: true);
+      if (!context.mounted) return;
+      final fresh = e.body?['quote'];
+      if (e.statusCode == 409 && fresh is Map<String, dynamic>) {
+        await _confirmAndCancel(context, fresh, changed: true);
+      } else {
+        showCharakToast(context, message: e.message, isError: true);
+      }
     }
   }
 
@@ -81,7 +120,11 @@ class _Body extends StatelessWidget {
         ? '${two(remaining.inMinutes)}:${two(remaining.inSeconds % 60)}'
         : null;
 
-    final canJoin = status == 'paid' && isOnline;
+    final canJoin = (status == 'paid' || status == 'in_progress') && isOnline;
+    final cancellable = status == 'requested' || status == 'accepted' || status == 'paid';
+    final journeyAt = DateTime.tryParse(booking['journey_started_at'] as String? ?? '')?.toLocal();
+    final rx = booking['prescription'] as Map<String, dynamic>?;
+    void openRx() => context.push('/prescription/${rx!['id']}');
 
     return Column(children: [
       Expanded(child: ListView(
@@ -110,9 +153,18 @@ class _Body extends StatelessWidget {
                 value: countdown ?? (startDt != null ? CharakFormat.dayTime(startDt) : '—'),
                 tabularValue: countdown != null,
               )
+            else if (journeyAt != null && status == 'paid')
+              // No arrival time is promised: there's no live ETA (spec §7.2).
+              CharakInfoStrip(
+                icon: LucideIcons.navigation,
+                label: 'Your doctor is on the way',
+                value: 'Left ${DateFormat('h:mm a').format(journeyAt)}',
+                tone: CharakStatusTone.active,
+                tabularValue: true,
+              )
             else
               CharakInfoStrip(
-                label: 'Doctor arrives',
+                label: 'Visit time',
                 value: startDt != null ? CharakFormat.dayTime(startDt) : '—',
               ),
           ])),
@@ -148,6 +200,14 @@ class _Body extends StatelessWidget {
             ],
           ])),
 
+          if (_attention(help) case final String message) ...[
+            const SizedBox(height: 12),
+            CharakPressable(
+              onTap: () => context.push('/booking/$bookingId/help'),
+              child: CharakNoteBanner(icon: LucideIcons.lifeBuoy, message: message, tone: CharakStatusTone.review),
+            ),
+          ],
+
           if (canJoin) ...[
             const SizedBox(height: 6),
             CharakButton(
@@ -160,6 +220,40 @@ class _Body extends StatelessWidget {
                 style: charakHintStyle, textAlign: TextAlign.center),
           ],
 
+          if (status == 'in_progress') ...[
+            const SizedBox(height: 12),
+            const CharakNoteBanner(
+              icon: LucideIcons.stethoscope,
+              tone: CharakStatusTone.active,
+              message: 'Your consultation is under way. Your doctor sends the prescription here when it ends.',
+            ),
+          ],
+
+          if (rx != null) ...[
+            const SizedBox(height: 12),
+            CharakCard(
+              tone: status == 'consulted' ? CharakCardTone.tint : CharakCardTone.plain,
+              onTap: openRx,
+              child: Row(children: [
+                Icon(LucideIcons.fileText, size: 22, color: CharakColors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(rx['kind'] == 'notes' ? 'Consultation notes' : 'Prescription',
+                        style: CharakText.body.weight(600).copyWith(color: CharakColors.ink)),
+                    Text(
+                      rx['first_viewed_at'] == null
+                          ? 'Ready. Open it to complete your visit'
+                          : 'From ${docName.replaceFirst('Dr. ', 'Dr ')}',
+                      style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
+                    ),
+                  ]),
+                ),
+                Icon(LucideIcons.chevronRight, size: 18, color: CharakColors.inkMuted),
+              ]),
+            ),
+          ],
+
           if (status == 'completed') ...[
             const SizedBox(height: 12),
             const CharakNoteBanner(
@@ -168,10 +262,31 @@ class _Body extends StatelessWidget {
               message: 'Visit completed. Your receipt is in History.',
             ),
           ],
+
+          if (const {'paid', 'in_progress', 'consulted', 'completed', 'cancelled'}.contains(status)) ...[
+            const SizedBox(height: 14),
+            CharakGhostButton(
+              label: _helpLabel(help, booking),
+              icon: LucideIcons.lifeBuoy,
+              onPressed: () => context.push('/booking/$bookingId/help'),
+            ),
+          ],
+
+          if (cancellable && freeUntilLine(booking) != null) ...[
+            const SizedBox(height: 14),
+            Text(freeUntilLine(booking)!, style: charakHintStyle, textAlign: TextAlign.center),
+          ],
         ],
       )),
 
       // ── `.cta-bar` ─────────────────────────────────────────────────
+      if (status == 'consulted' && rx != null)
+        CharakCtaBar.single(CharakButton(
+          label: 'Open prescription',
+          icon: LucideIcons.fileText,
+          onPressed: openRx,
+        ))
+      else if (status == 'completed' || cancellable)
       CharakCtaBar(children: [
         if (status == 'completed') ...[
           Expanded(
@@ -192,7 +307,7 @@ class _Body extends StatelessWidget {
             child: CharakButton(
               label: 'Cancel booking',
               variant: CharakButtonVariant.danger,
-              onPressed: () => _cancel(context, status == 'paid'),
+              onPressed: () => _cancel(context),
             ),
           ),
         ],
@@ -258,4 +373,69 @@ class _ActRow extends StatelessWidget {
       ),
     ]),
   );
+}
+
+
+/// The confirm-sheet sentence for a cancellation quote (backend
+/// GET /bookings/{id}/cancellation-quote). Says exactly what comes back.
+String cancellationMessage(Map<String, dynamic> quote) {
+  final paid = (quote['paid_paise'] as num?)?.toInt() ?? 0;
+  final refund = (quote['refund_paise'] as num?)?.toInt() ?? 0;
+  final pct = (quote['refund_pct'] as num?)?.toInt() ?? 100;
+  String rupees(int paise) => CharakFormat.rupees(paise / 100);
+  const lead = 'The doctor is told straight away.';
+  const timing = 'Refunds go back to your original payment method; banks usually take '
+      '5–7 working days.';
+
+  if (paid <= 0) return '$lead You have not been charged.';
+  if (pct >= 100) return '$lead Your full payment of ${rupees(paid)} is refunded. $timing';
+  if (quote['reason'] == 'journey_started') {
+    return 'Your doctor has already started travelling to you, so under the '
+        'cancellation policy the ${rupees(paid)} fee isn\'t refunded.';
+  }
+  if (refund <= 0) {
+    return 'Under the cancellation policy, cancelling now refunds nothing of the '
+        '${rupees(paid)} you paid.';
+  }
+  return 'It\'s close to your appointment, so under the cancellation policy you get '
+      '${rupees(refund)} back ($pct%). The rest goes to the doctor. $timing';
+}
+
+/// "Free cancellation until Today, 4:00 PM", from the booking's own policy
+/// version. Null when the policy has no cut-off or it has passed.
+String? freeUntilLine(Map<String, dynamic> booking, {DateTime? now}) {
+  final policy = booking['cancellation_policy'] as Map<String, dynamic>?;
+  final minutes = (policy?['free_cancellation_minutes'] as num?)?.toInt();
+  final start = DateTime.tryParse(booking['scheduled_start'] as String? ?? '');
+  if (policy == null || start == null) return null;
+  if (minutes == null) return 'Free cancellation until the appointment starts.';
+  final until = start.subtract(Duration(minutes: minutes));
+  if (until.isBefore(now ?? DateTime.now())) return null;
+  return 'Free cancellation until ${CharakFormat.dayTime(until)}.';
+}
+
+
+/// A line that needs the patient now: new times to answer, or a remedy to
+/// choose. Null when there's nothing waiting on them.
+String? _attention(Map<String, dynamic>? help) {
+  if (help == null) return null;
+  if (help['reschedule_request'] != null) {
+    return 'Your doctor asked to move this visit. Pick a new time or get a refund.';
+  }
+  final inc = help['incident'] as Map<String, dynamic>?;
+  if (inc != null && (inc['remedies'] as Map?)?['available'] == true) {
+    return 'Case ${inc['case_ref']}: choose a full refund or another doctor.';
+  }
+  if (inc != null && (inc['status'] == 'reported' || inc['status'] == 'under_review')) {
+    return 'Case ${inc['case_ref']}: we\'re looking into the problem you reported.';
+  }
+  return null;
+}
+
+/// After the grace period, the help link says exactly what it's for.
+String _helpLabel(Map<String, dynamic>? help, Map<String, dynamic> booking) {
+  final can = List<String>.from(help?['can_report'] as List? ?? const []);
+  if (can.contains('doctor_not_arrived')) return "Doctor hasn't arrived?";
+  if (can.contains('doctor_not_joined')) return "Doctor hasn't joined?";
+  return 'Get help with this visit';
 }

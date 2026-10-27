@@ -304,6 +304,7 @@ export default function VerificationQueue() {
   const { data, isLoading, isError, error } = useQuery<PendingDoctor[]>({
     queryKey: ['pending-doctors'],
     queryFn: () => api.get('/admin/doctors/pending'),
+    refetchInterval: 60_000,
   })
 
   const rows = data ?? []

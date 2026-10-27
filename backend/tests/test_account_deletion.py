@@ -14,7 +14,7 @@ from tests.conftest import make_chain, make_supabase, patch_all_supabase
 JWT = "app.deps.jwt"
 PATIENT = {"sub": "pat-1", "role": "patient"}
 DOCTOR = {"sub": "doc-1", "role": "doctor"}
-OPS = {"sub": "admin", "role": "ops"}
+OPS = {"sub": "admin", "role": "ops", "admin_role": "admin"}
 AUTH = {"Authorization": "Bearer t"}
 
 

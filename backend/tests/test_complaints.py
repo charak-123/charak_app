@@ -7,7 +7,7 @@ from app.main import app
 from tests.conftest import make_chain, make_supabase
 
 PATIENT_PAYLOAD = {"sub": "patient-1", "role": "patient"}
-OPS_PAYLOAD     = {"sub": "ops-1",     "role": "ops"}
+OPS_PAYLOAD     = {"sub": "ops-1",     "role": "ops", "admin_role": "admin"}
 BOOKING_ID   = "booking-abc"
 COMPLAINT_ID = "complaint-1"
 

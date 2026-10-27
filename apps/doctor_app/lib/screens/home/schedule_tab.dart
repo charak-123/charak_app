@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 // intl is a direct dependency; don't rely on shadcn_ui re-exporting DateFormat.
 // ignore: unnecessary_import
@@ -12,9 +13,21 @@ final _slotsProvider = FutureProvider.family<Map<String, dynamic>, String>((ref,
   return res as Map<String, dynamic>;
 });
 
+/// The day's visits: upcoming and under way, plus past ones whose prescription
+/// is with the patient or that have completed, so a visit can be reopened to
+/// see or correct what was sent.
 final _activeBookingsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final res = await ApiClient.instance.get('/bookings/doctor/active');
-  return List<Map<String, dynamic>>.from(res as List);
+  final results = await Future.wait([
+    ApiClient.instance.get('/bookings/doctor/active'),
+    ApiClient.instance.get('/bookings/doctor/history'),
+  ]);
+  final active = results[0] as List;
+  final past = results[1] as List;
+  return [
+    ...List<Map<String, dynamic>>.from(active),
+    ...List<Map<String, dynamic>>.from(past)
+        .where((b) => b['status'] == 'consulted' || b['status'] == 'completed'),
+  ];
 });
 
 final _blocksProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -31,7 +44,11 @@ class _AgendaRow {
   final _RowKind kind;
   final String title;
   final String subtitle;
-  _AgendaRow({required this.time, required this.kind, required this.title, required this.subtitle});
+  /// Set for a booked row: tapping it opens the visit.
+  final String? bookingId;
+  final String? status;
+  _AgendaRow({required this.time, required this.kind, required this.title, required this.subtitle,
+      this.bookingId, this.status});
 }
 
 class ScheduleTab extends ConsumerStatefulWidget {
@@ -213,6 +230,8 @@ class _ScheduleTabState extends ConsumerState<ScheduleTab> {
         kind: isHome ? _RowKind.home : _RowKind.booked,
         title: CharakFormat.channel(isHome ? 'home_visit' : 'online_consult'),
         subtitle: price != null ? '$patient · ₹$price' : patient,
+        bookingId: b['id'] as String?,
+        status: b['status'] as String?,
       ));
     }
 
@@ -350,7 +369,12 @@ class _SlotRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final status = row.status;
     final (tone, statusLabel) = switch (row.kind) {
+      // Once the visit is under way the row says where it stands.
+      _RowKind.booked || _RowKind.home
+          when status == 'in_progress' || status == 'consulted' || status == 'completed' =>
+        charakStatusFor(status!),
       _RowKind.booked => (CharakStatusTone.accepted, 'Booked'),
       _RowKind.home => (CharakStatusTone.confirmed, 'Home visit'),
       _RowKind.open => (CharakStatusTone.muted, 'Open'),
@@ -412,6 +436,15 @@ class _SlotRow extends StatelessWidget {
             ),
     );
 
-    return row.kind == _RowKind.blocked ? Opacity(opacity: 0.5, child: framed) : framed;
+    if (row.kind == _RowKind.blocked) return Opacity(opacity: 0.5, child: framed);
+    final id = row.bookingId;
+    if (id == null) return framed;
+    return CharakPressable(
+      onTap: () {
+        CharakCardOrigin.recordFrom(context);
+        context.push('/visit/$id');
+      },
+      child: framed,
+    );
   }
 }

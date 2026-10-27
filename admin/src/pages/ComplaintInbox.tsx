@@ -45,6 +45,7 @@ export default function ComplaintInbox() {
   const all = useQuery<Complaint[]>({
     queryKey: ['admin-complaints', 'all'],
     queryFn: () => api.get<Complaint[]>('/admin/complaints'),
+    refetchInterval: 60_000,
   })
 
   const { data: complaints = [], isLoading, isError, error } = useQuery<Complaint[]>({

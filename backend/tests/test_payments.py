@@ -10,6 +10,8 @@ import hmac
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -302,7 +304,7 @@ def test_a_failed_payment_event_marks_the_payment_failed_only():
 
 def test_an_unrelated_event_is_ignored():
     db = make_supabase({"payments": make_chain(list_data=[])})
-    event = {"event": "refund.created",
+    event = {"event": "order.paid",
              "payload": {"payment": {"entity": {"order_id": "order_1"}}}}
     with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
          patch("app.routers.payments._WEBHOOK_SECRET", ""), patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
@@ -418,22 +420,50 @@ def _post_captured(db):
         )
 
 
+def _refunds_mock():
+    """Stands in for services/refunds.py; queue() hands back a pending refund."""
+    m = MagicMock()
+    m.queue.return_value = {"id": "rf-1", "amount_paise": 80000, "status": "pending"}
+    return m
+
+
 def test_capture_on_a_cancelled_booking_refunds_instead_of_confirming():
     db = _released_db("cancelled")
-    with patch("app.routers.payments._razorpay_refund") as refund:
+    rf = _refunds_mock()
+    with patch("app.routers.payments.refunds", rf):
         res = _post_captured(db)
 
     assert res.status_code == 200
     assert res.json() == {"ok": True, "refunded": True}
-    # Refunded for the full amount, against the id from the webhook entity —
-    # the payments row has no payment id of its own at this point.
-    refund.assert_called_once_with("pay_live_1", 80000)
+    # Queued against the payment with the id from the webhook entity (the
+    # payments row has none of its own yet), then sent.
+    payment_arg = rf.queue.call_args.args[0]
+    assert payment_arg["id"] == "p-1"
+    assert payment_arg["razorpay_payment_id"] == "pay_live_1"
+    assert rf.queue.call_args.kwargs == {"reason": "late_capture", "requested_by_role": "system"}
+    rf.execute.assert_called_once()
+
+
+def test_a_late_capture_is_recorded_as_captured_not_as_refunded():
+    """
+    The payment is money Razorpay took. It becomes 'refunded' only when Razorpay
+    confirms the refund (services/refunds.py). Writing 'refunded' up front is
+    how a failed refund used to go unnoticed.
+    """
+    db = _released_db("cancelled")
+    with patch("app.routers.payments.refunds", _refunds_mock()):
+        _post_captured(db)
+
+    written = [c.args[0] for c in db.table("payments").update.call_args_list]
+    assert {"status": "refunded"} not in written
+    assert any(w.get("status") == "completed" and w.get("razorpay_payment_id") == "pay_live_1"
+               for w in written)
 
 
 def test_capture_on_a_cancelled_booking_does_not_credit_the_doctor():
     """The slot is gone; crediting here would pay a doctor for nothing."""
     db = _released_db("cancelled")
-    with patch("app.routers.payments._razorpay_refund"), \
+    with patch("app.routers.payments.refunds", _refunds_mock()), \
          patch("app.services.payouts.credit") as credit:
         _post_captured(db)
     credit.assert_not_called()
@@ -441,19 +471,79 @@ def test_capture_on_a_cancelled_booking_does_not_credit_the_doctor():
 
 def test_capture_on_a_declined_booking_is_also_refunded():
     db = _released_db("declined")
-    with patch("app.routers.payments._razorpay_refund") as refund:
+    rf = _refunds_mock()
+    with patch("app.routers.payments.refunds", rf):
         res = _post_captured(db)
     assert res.json() == {"ok": True, "refunded": True}
-    refund.assert_called_once()
+    rf.execute.assert_called_once()
 
 
 def test_capture_on_a_live_booking_still_confirms():
     """The guard must not block the ordinary path."""
     db = _released_db("accepted")
-    with patch("app.routers.payments._razorpay_refund") as refund:
+    rf = _refunds_mock()
+    with patch("app.routers.payments.refunds", rf):
         res = _post_captured(db)
     assert res.json() == {"ok": True}
-    refund.assert_not_called()
+    rf.queue.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["completed", "refunded", "partially_refunded"])
+def test_a_replayed_capture_never_queues_a_second_refund(status):
+    """A payment already past 'initiated' is a redelivery, whatever happened since."""
+    db = make_supabase({
+        "payments": make_chain(list_data=[{
+            "id": "p-1", "booking_id": "bk-1", "type": "consult_fee",
+            "amount": 800.0, "status": status,
+        }]),
+    })
+    rf = _refunds_mock()
+    with patch("app.routers.payments.refunds", rf):
+        res = _post_captured(db)
+    assert res.json() == {"ok": True, "idempotent": True}
+    rf.queue.assert_not_called()
+
+
+def test_a_late_failed_event_cannot_overwrite_a_captured_payment():
+    """
+    UPI: one order, a failed attempt then a captured one, delivered in either
+    order. The 'failed' write is conditional on the attempt still being open.
+    """
+    payments = make_chain(list_data=[])
+    db = make_supabase({"payments": payments})
+    event = {"event": "payment.failed",
+             "payload": {"payment": {"entity": {"id": "pay_1", "order_id": "order_1"}}}}
+    with patch(PAY_DB, db), patch(PAYOUTS_DB, db), patch(NOTIF_DB, db), \
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), \
+         patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
+        TestClient(app).post("/payments/webhook", json=event)
+    payments.eq.assert_any_call("status", "initiated")
+
+
+def test_refund_events_go_to_the_refund_service():
+    db = make_supabase({})
+    event = {"event": "refund.processed", "payload": {
+        "refund": {"entity": {"id": "rfnd_1", "payment_id": "pay_1", "status": "processed"}},
+        "payment": {"entity": {"id": "pay_1", "order_id": "order_1"}},
+    }}
+    with patch(PAY_DB, db), patch(NOTIF_DB, db), \
+         patch("app.routers.payments._WEBHOOK_SECRET", ""), \
+         patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True), \
+         patch("app.routers.payments.refunds.apply_webhook",
+               return_value={"ok": True, "refund_status": "processed"}) as apply:
+        res = TestClient(app).post("/payments/webhook", json=event)
+    assert res.json() == {"ok": True, "refund_status": "processed"}
+    assert apply.call_args.args[0] == "refund.processed"
+    assert apply.call_args.args[1]["id"] == "rfnd_1"
+    # Not mistaken for a payment event because it carries a payment entity.
+    db.table.assert_not_called()
+
+
+def test_a_non_object_webhook_body_is_rejected():
+    with patch("app.routers.payments._WEBHOOK_SECRET", ""), \
+         patch("app.routers.payments.ALLOW_INSECURE_PAYMENTS", True):
+        res = TestClient(app).post("/payments/webhook", json=["not", "an", "event"])
+    assert res.status_code == 400
 
 
 # ── webhook secret is mandatory once keys are live ────────────────────────────

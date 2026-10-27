@@ -1,0 +1,14 @@
+# Build context for `docker build backend` (and Cloud Build, which uses the
+# same Dockerfile). Mirrors .gcloudignore: secrets and the local venv never
+# enter a build context.
+.gcloudignore
+.git
+.gitignore
+.env
+*.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/

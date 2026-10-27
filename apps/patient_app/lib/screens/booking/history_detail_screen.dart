@@ -9,37 +9,75 @@ class _HistoryDetail {
   final Map<String, dynamic>? procedureBill;
   final Map<String, dynamic>? rating;
   final String? paymentRef;
-  const _HistoryDetail({required this.booking, this.procedureBill, this.rating, this.paymentRef});
+  final CharakRefundSummary? refund;
+  const _HistoryDetail({
+    required this.booking,
+    this.procedureBill,
+    this.rating,
+    this.paymentRef,
+    this.refund,
+  });
 }
 
 final _historyDetailProvider =
     FutureProvider.autoDispose.family<_HistoryDetail, String>((ref, bookingId) async {
-  final booking = await ApiClient.instance.get('/bookings/$bookingId') as Map<String, dynamic>;
-
-  Map<String, dynamic>? procedureBill;
-  try {
-    procedureBill = await ApiClient.instance.get('/bookings/$bookingId/procedure-bill') as Map<String, dynamic>;
-  } on ApiException catch (e) {
-    if (e.statusCode != 404) rethrow;
+  Future<Map<String, dynamic>?> procedureBill() async {
+    try {
+      return await ApiClient.instance.get('/bookings/$bookingId/procedure-bill') as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      if (e.statusCode != 404) rethrow;
+      return null;
+    }
   }
 
-  Map<String, dynamic>? rating;
-  try {
-    rating = await ApiClient.instance.get('/bookings/$bookingId/rate') as Map<String, dynamic>?;
-  } on ApiException catch (e) {
-    if (e.statusCode != 404) rethrow;
+  Future<Map<String, dynamic>?> rating() async {
+    try {
+      return await ApiClient.instance.get('/bookings/$bookingId/rate') as Map<String, dynamic>?;
+    } on ApiException catch (e) {
+      if (e.statusCode != 404) rethrow;
+      return null;
+    }
   }
+
+  Future<List?> payments() async {
+    try {
+      return await ApiClient.instance.get('/payments/$bookingId') as List;
+    } on ApiException {
+      // Payment lookup is best-effort — the receipt rows just won't show.
+      return null;
+    }
+  }
+
+  // None of the four depends on another, so they go out together.
+  final results = await Future.wait<Object?>([
+    ApiClient.instance.get('/bookings/$bookingId'),
+    procedureBill(),
+    rating(),
+    payments(),
+  ]);
+  final booking = results[0] as Map<String, dynamic>;
 
   String? paymentRef;
-  try {
-    final payments = await ApiClient.instance.get('/payments/$bookingId') as List;
-    final completed = payments.cast<Map<String, dynamic>>().where((p) => p['status'] == 'completed').firstOrNull;
-    paymentRef = completed?['razorpay_payment_id'] as String?;
-  } on ApiException {
-    // Payment lookup is best-effort — the receipt row just won't show a reference.
+  CharakRefundSummary? refund;
+  final paymentRows = results[3] as List?;
+  if (paymentRows != null) {
+    // A refunded payment was still paid: its reference stays on the receipt.
+    const captured = {'completed', 'refunded', 'partially_refunded'};
+    final paid = paymentRows
+        .cast<Map<String, dynamic>>()
+        .where((p) => captured.contains(p['status']))
+        .firstOrNull;
+    paymentRef = paid?['razorpay_payment_id'] as String?;
+    refund = CharakRefundSummary.fromPayments(paymentRows);
   }
 
-  return _HistoryDetail(booking: booking, procedureBill: procedureBill, rating: rating, paymentRef: paymentRef);
+  return _HistoryDetail(
+    booking: booking,
+    procedureBill: results[1] as Map<String, dynamic>?,
+    rating: results[2] as Map<String, dynamic>?,
+    paymentRef: paymentRef,
+    refund: refund,
+  );
 });
 
 class HistoryDetailScreen extends ConsumerWidget {
@@ -127,7 +165,23 @@ class _Body extends StatelessWidget {
             label: 'Status',
             child: CharakStatusPill.forStatus(status),
           ),
+          if (detail.refund != null) ...[
+            const CharakSummaryDivider(),
+            CharakSummaryRow(
+              label: 'Refund',
+              value: CharakFormat.rupees(detail.refund!.rupees),
+              tabular: true,
+            ),
+            CharakSummaryRow(
+              label: 'Refund status',
+              child: CharakStatusPill.forRefund(detail.refund!.state),
+            ),
+          ],
         ]),
+        if (detail.refund != null) ...[
+          const SizedBox(height: 10),
+          Text(detail.refund!.message, style: charakHintStyle, textAlign: TextAlign.center),
+        ],
 
         if (stars != null) ...[
           const SizedBox(height: 12),

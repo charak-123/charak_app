@@ -16,8 +16,15 @@ review the text and confirm the retention periods, grievance-officer details and
 any state-specific medical-record rules. Fill in the `ENTITY` placeholders at
 the top of `Legal.jsx` before launch.
 
-The apps link to these URLs through `CharakLegal` in
-`packages/charak_core/lib/legal.dart` (overridable with `--dart-define`).
-When a document changes materially, bump its version there and in
-`backend/app/config.py` (`LEGAL_*_VERSION`); the apps then re-request consent
-and record the new version.
+The published versions live in the `legal_documents` table (migration 0024),
+and consent is recorded against them in `consents` (append-only, with how it
+was given and for which booking). When a document changes materially, publish
+the new text on the website, then add a row for the new version
+(docs/runbooks/backend_go_live.md §6c). The apps ask everyone again on their
+next visit to home, and booking refuses until they accept once the
+`require_legal_acceptance` switch is on. The versions are no longer hard-coded
+in the apps.
+
+**Decisions** behind these documents (jurisdiction, fees, refunds, retention, and so
+on) are recorded in [`DECISIONS.md`](DECISIONS.md). Read it before you change any
+legal text.

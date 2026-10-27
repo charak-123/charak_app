@@ -5,7 +5,7 @@ import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
 import 'booking_providers.dart';
 
-const _activeStatuses = {'requested', 'accepted', 'paid'};
+const _activeStatuses = {'requested', 'accepted', 'paid', 'in_progress', 'consulted'};
 
 class BookingsTab extends ConsumerWidget {
   const BookingsTab({super.key});
@@ -159,6 +159,8 @@ class _BookingCard extends StatelessWidget {
       case 'accepted':
         context.push('/booking/$id/pay');
       case 'paid':
+      case 'in_progress':
+      case 'consulted':
       case 'completed':
         context.push('/booking/$id/active');
       default:

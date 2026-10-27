@@ -45,7 +45,8 @@ from app.db import supabase                     # noqa: E402 — after the skip 
 # Every table the suite writes to, ordered children-before-parents so plain
 # DELETEs satisfy the foreign keys without needing superuser TRUNCATE CASCADE.
 _TABLES = [
-    "doctor_ledger_entries", "payments", "procedure_bills", "ratings",
+    "device_tokens", "refunds", "doctor_ledger_entries", "payouts", "payments",
+    "procedure_bills", "ratings",
     "complaints", "clarification_calls", "intake_media", "notifications",
     "bookings", "patient_addresses", "doctor_slot_blocks", "doctor_schedules",
     "doctor_pricing", "doctor_procedures", "doctors", "users", "categories",
@@ -63,6 +64,22 @@ def clean_db():
         except Exception:
             # A table this migration set does not have yet is not a failure here.
             pass
+    # Tables keyed by something other than a uuid id (0023). booking_events and
+    # audit_log are append-only; booking_events goes with its bookings.
+    for table, column, value in (("jobs", "id", 0), ("webhook_events", "id", 0)):
+        try:
+            supabase.table(table).delete().gte(column, value).execute()
+        except Exception:
+            pass
+    try:
+        supabase.table("idempotency_keys").delete().neq("key", "").execute()
+    except Exception:
+        pass
+    # Policy and document versions a test published (stack.sh helper).
+    try:
+        supabase.rpc("test_forget_test_versions").execute()
+    except Exception:
+        pass
     yield
 
 
@@ -134,35 +151,44 @@ def seed():
     return _seed
 
 
+# Sessions in this suite are real HS256 tokens signed with a test-only secret,
+# so two clients in one test really are two different people. (The suite used
+# to patch the JWT decoder globally, so the second client created silently
+# took over the first one's identity.)
+TEST_JWT_SECRET = "integration-suite-jwt-secret-0123456789abcdef"
+
+
 @pytest.fixture
 def client_for():
     """
-    TestClient authenticated as a given user id and role.
-
-    Only the JWT decode is faked; every database call underneath is real.
+    A TestClient signed in as ``user_id`` with ``role``, through the real
+    authentication path: the token is verified by app.deps exactly as in
+    production, with the suite's own secret. Every database call is real.
     """
+    import time
+
+    import jwt
     from unittest.mock import patch
     from fastapi.testclient import TestClient
     from app.main import app
 
-    class _Ctx:
-        def __init__(self):
-            self._stack = []
+    patches = [patch("app.deps.JWT_SECRET", TEST_JWT_SECRET),
+               patch("app.services.idempotency.JWT_SECRET", TEST_JWT_SECRET)]
+    for p in patches:
+        p.start()
 
-        def __call__(self, user_id, role="patient"):
-            p = patch("app.deps.jwt")
-            jw = p.start()
-            jw.decode.return_value = {"sub": user_id, "role": role}
-            self._stack.append(p)
-            return TestClient(app)
+    def make(user_id, role="patient", admin_role="admin"):
+        claims = {"sub": user_id, "role": role, "iat": int(time.time()) - 5}
+        if role == "ops":
+            claims["admin_role"] = admin_role
+        token = jwt.encode(claims, TEST_JWT_SECRET, algorithm="HS256")
+        return TestClient(app, headers={"Authorization": f"Bearer {token}"})
 
-        def close(self):
-            for p in self._stack:
-                p.stop()
-
-    ctx = _Ctx()
-    yield ctx
-    ctx.close()
+    yield make
+    for p in patches:
+        p.stop()
 
 
-AUTH = {"Authorization": "Bearer test-token"}
+# Kept for the call sites: each client already carries its own token, and an
+# explicit Authorization header would override it.
+AUTH: dict = {}

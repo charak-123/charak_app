@@ -353,6 +353,7 @@ abstract final class CharakRadii {
   static const double tile = 20.0;
   static const double field = 20.0;
   static const double avatar = 16.0;
+  static const double check = 8.0;
 }
 
 abstract final class CharakSizes {
@@ -360,6 +361,7 @@ abstract final class CharakSizes {
   static const double buttonCompact = 44.0;
   static const double chipHeight = 40.0;
   static const double touchMin = 44.0;
+  static const double checkBox = 24.0;
   static const double bottomBarHeight = 68.0;
   static const double navPillWidth = 56.0;
   static const double navPillHeight = 32.0;

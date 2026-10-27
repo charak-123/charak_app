@@ -16,7 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from ..db import supabase
-from ..deps import require_doctor, require_ops
+from ..deps import require_doctor, require_permission
 from ..errors import AppError
 from ..services import audit, notifications, payouts as engine
 
@@ -168,7 +168,7 @@ class PayoutRunRequest(BaseModel):
 
 
 @router.post("/run", status_code=201)
-def run_payout(body: PayoutRunRequest, user: dict = Depends(require_ops)):
+def run_payout(body: PayoutRunRequest, user: dict = Depends(require_permission("payouts.manage"))):
     """Sweep a doctor's payable ledger entries for the period into one payout."""
     end = body.period_end or _now().isoformat()
     start = body.period_start or (_now() - timedelta(days=30)).isoformat()
@@ -190,7 +190,7 @@ def update_payout(
     payout_id: str,
     body: PayoutStatusUpdate,
     background: BackgroundTasks,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("payouts.manage")),
 ):
     """
     Advance a payout.
@@ -215,7 +215,7 @@ def update_payout(
 def list_payouts(
     status: Optional[str] = None,
     doctor_id: Optional[str] = None,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("payouts.read")),
 ):
     query = (
         supabase.table("payouts")
@@ -230,7 +230,7 @@ def list_payouts(
 
 
 @router.get("/pending-summary")
-def pending_summary(user: dict = Depends(require_ops)):
+def pending_summary(user: dict = Depends(require_permission("payouts.read"))):
     """
     Every doctor with unpaid earnings — the ops worklist for a payout cycle.
 
@@ -239,13 +239,16 @@ def pending_summary(user: dict = Depends(require_ops)):
     """
     entries = (
         supabase.table("doctor_ledger_entries")
-        .select("doctor_id, net_amount, gross_amount, commission_amount, doctors(name, phone)")
+        .select("doctor_id, source, net_amount, gross_amount, commission_amount, "
+                f"bookings({engine.BOOKING_RELEASE_COLUMNS}), doctors(name, phone)")
         .eq("status", "payable")
         .execute()
         .data
         or []
     )
 
+    # Same rule as a payout run (engine.is_payout_eligible): a fee for a visit
+    # that hasn't happened yet is shown, but not as payable.
     by_doctor: dict[str, dict] = {}
     for e in entries:
         bucket = by_doctor.setdefault(e["doctor_id"], {
@@ -256,7 +259,11 @@ def pending_summary(user: dict = Depends(require_ops)):
             "gross": 0.0,
             "commission": 0.0,
             "net": 0.0,
+            "awaiting_visit_net": 0.0,
         })
+        if not engine.is_payout_eligible(e):
+            bucket["awaiting_visit_net"] += float(e["net_amount"] or 0)
+            continue
         bucket["entry_count"] += 1
         bucket["gross"] += float(e["gross_amount"] or 0)
         bucket["commission"] += float(e["commission_amount"] or 0)
@@ -267,6 +274,7 @@ def pending_summary(user: dict = Depends(require_ops)):
         "doctors": rows,
         "total_net": round(sum(r["net"] for r in rows), 2),
         "total_commission": round(sum(r["commission"] for r in rows), 2),
+        "total_awaiting_visit_net": round(sum(r["awaiting_visit_net"] for r in rows), 2),
     }
 
 
@@ -279,7 +287,7 @@ class AdjustmentRequest(BaseModel):
 
 
 @router.post("/adjustments", status_code=201)
-def create_adjustment(body: AdjustmentRequest, user: dict = Depends(require_ops)):
+def create_adjustment(body: AdjustmentRequest, user: dict = Depends(require_permission("payouts.manage"))):
     """
     Credit a doctor outside the booking flow — a goodwill payment, or correcting
     a settled payout that can no longer be reversed. Commission does not apply to

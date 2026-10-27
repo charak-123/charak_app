@@ -29,6 +29,7 @@ dependencies:
   geolocator: ^13.0.2
   lucide_icons_flutter: ^3.1.22
   intl: ^0.20.3
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:

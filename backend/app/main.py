@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 from .errors import AppError, app_error_handler, db_error_handler
 from .routers import (
-    addresses, admin, auth, bookings, calls, categories, complaints, consents, doctors,
-    earnings, intake, maintenance, notifications, payments, payouts,
-    procedure_bills, push, ratings, schedules, slot_blocks, uploads, users,
+    account, addresses, admin, admin_ops, app_config, auth, bookings, calls, categories, complaints, consents, doctors,
+    earnings, intake, legal, maintenance, notifications, payments, payouts,
+    procedure_bills, push, ratings, schedules, slot_blocks, trust, uploads, users, visit,
 )
+from .services.idempotency import IdempotencyMiddleware
 from .services.notifications import push_enabled
 
 # The interactive docs publish a complete map of every route and payload. Useful
@@ -46,12 +47,20 @@ if _origins == ["*"]:
         "development; set it to the admin dashboard's domain in production."
     )
 
+# Innermost of the middleware (Starlette wraps later additions around earlier
+# ones): CORS and GZip sit outside it, so a replayed response still gets CORS
+# headers and is stored as plain, uncompressed JSON.
+app.add_middleware(IdempotencyMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
     allow_credentials="*" not in _origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Browsers may reuse a preflight this long (Chrome caps it at 2 hours):
+    # without it the admin sent an OPTIONS before nearly every request.
+    max_age=7200,
 )
 
 @app.middleware("http")
@@ -92,10 +101,20 @@ app.include_router(payments.router,         prefix="/payments",         tags=["p
 app.include_router(ratings.router,          prefix="/bookings",         tags=["ratings"])
 app.include_router(complaints.router,       prefix="/bookings",         tags=["complaints"])
 app.include_router(admin.router,            prefix="/admin",            tags=["admin"])
+app.include_router(admin_ops.router,        prefix="/admin",            tags=["admin"])
 app.include_router(users.router,            prefix="/users",            tags=["users"])
 app.include_router(addresses.router,        prefix="/addresses",        tags=["addresses"])
 app.include_router(uploads.router,          prefix="/uploads",          tags=["uploads"])
 app.include_router(maintenance.router,      prefix="/maintenance",      tags=["maintenance"])
+app.include_router(app_config.router,       prefix="/config",           tags=["config"])
+app.include_router(legal.router,            prefix="/legal",            tags=["legal"])
+app.include_router(account.router,          prefix="/me",               tags=["account"])
+app.include_router(visit.router,            prefix="/bookings",         tags=["visit"])
+app.include_router(visit.rx_router,         prefix="/prescriptions",    tags=["visit"])
+app.include_router(visit.me_router,         prefix="/me",               tags=["visit"])
+app.include_router(trust.router,            prefix="/bookings",         tags=["trust"])
+app.include_router(trust.incidents_router,  prefix="/incidents",        tags=["trust"])
+app.include_router(trust.reschedule_router, prefix="/reschedule-requests", tags=["trust"])
 
 
 @app.get("/healthz", tags=["meta"])
