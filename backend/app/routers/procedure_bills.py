@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from ..config import PROCEDURE_REVIEW_THRESHOLD_MAX
 from ..db import fetch_one, supabase
-from ..deps import require_doctor, require_ops, get_current_user
+from ..deps import get_current_user, require_doctor, require_permission
 from ..errors import AppError
 from ..services import audit, notifications
 
@@ -109,7 +109,7 @@ def get_bill(booking_id: str, user: dict = Depends(get_current_user)):
 def approve_bill(
     booking_id: str,
     background: BackgroundTasks,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("procedure_bills.review")),
 ):
     """Ops approves a bill that was under senior review — it becomes payable."""
     bill = _get_bill_for_booking(booking_id)
@@ -133,7 +133,7 @@ def approve_bill(
 
 
 @router.patch("/{booking_id}/procedure-bill/flag")
-def flag_bill(booking_id: str, user: dict = Depends(require_ops)):
+def flag_bill(booking_id: str, user: dict = Depends(require_permission("procedure_bills.review"))):
     """Ops flags a bill — keeps it under_review, logs reviewer."""
     bill = _get_bill_for_booking(booking_id)
     if bill["status"] != "under_review":

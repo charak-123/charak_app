@@ -269,6 +269,50 @@ export async function mockRequest(path: string, method: string, body: unknown): 
         ],
       }
     }
+    if (bare === '/admin/me') {
+      return { email: 'ops@charak.care', role: 'admin', permissions: [
+        'admins.manage', 'audit.read', 'bookings.override', 'bookings.read', 'complaints.read', 'complaints.update',
+        'deletions.fulfil', 'doctors.read', 'doctors.suspend', 'doctors.verify', 'incidents.decide', 'incidents.read',
+        'metrics.read', 'patient_phone.reveal', 'payouts.manage', 'payouts.read', 'policies.approve', 'prescriptions.break_glass',
+        'pricing.read', 'procedure_bills.review', 'refunds.manage', 'reviews.moderate', 'reviews.read', 'sessions.revoke',
+        'storage.manage', 'system.read', 'system.retry', 'visits.read'] }
+    }
+    if (bare === '/admin/health') {
+      return {
+        window_days: 30,
+        bookings: { requested: 142, confirmed: 118, patient_cancelled_free: 9, patient_cancelled_late: 3, doctor_cancelled: 2, requests_expired: 6, patient_no_shows: 1 },
+        attendance: { visits_held: 96, home_visits_held: 41, home_visits_with_journey: 37, doctor_no_shows_confirmed: 1, call_problems_reported: 4, reschedules: { doctor_device: 2, mutual: 1 } },
+        incidents: { reported: 7, unresolved: 2, appeals_open: 1, appeals_reversed: 0, remedies: { refund: 2, replacement: 1 }, replacements_paid: 1 },
+        refunds: { count: 15, processed: 13, failed: 0, open: 2, median_minutes_to_processed: 42.5, by_reason: { booking_cancelled: 12, doctor_no_show: 2, replacement_difference: 1 } },
+        prescriptions: { sent: 88, median_minutes_after_start: 26, opened_within_48h: 71, awaiting_view: 9, completed_by_fallback: 6, follow_ups_recommended: 22, follow_ups_booked: 9 },
+        reviews: { count: 54, completed_visits: 79, distribution: { 5: 38, 4: 11, 3: 3, 2: 1, 1: 1 }, avg_professionalism: 4.7, avg_communication: 4.5, avg_punctuality: 4.2, reported_open: 1, hidden: 0 },
+        money: { payouts: { paid: 12, processing: 1 }, ledger_reversals: 11 },
+        system: { dead_jobs: 0, failed_webhooks: 0, failed_notifications: 3 },
+      }
+    }
+    if (bare === '/admin/policies') {
+      const at = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString()
+      return {
+        policies: [
+          { id: 'p3', channel: 'online_consult', version: '2026-11-01', summary: 'Free until 15 minutes before; no refund after.', decision_ref: 'D3', effective_from: at(-4), created_at: at(0), policy_approvals: null },
+          { id: 'p2', channel: 'home_visit', version: '2026-10-26', summary: 'Free cancellation up to 2 hours before your visit.', decision_ref: 'LD-005', effective_from: at(1), created_at: at(1), policy_approvals: { approved_by: 'In force before the review gate (migration 0029)', note: null, approved_at: at(1) } },
+        ],
+        documents: [
+          { id: 'd1', type: 'tos', version: '2026-10-01', title: 'Terms of Use', url: 'https://www.charak.care/terms', material: true, published_at: at(26), legal_document_approvals: { approved_by: 'In force before the review gate (migration 0029)', note: null, approved_at: at(26) } },
+        ],
+      }
+    }
+    if (bare === '/admin/system/dead-letters') {
+      return { jobs: [], webhooks: [], notifications: [
+        { id: 'n1', event: 'prescription.ready', recipient_role: 'patient', delivery_error: 'FCM: UNREGISTERED', created_at: new Date(Date.now() - 7_200_000).toISOString() },
+      ] }
+    }
+    if (bare === '/admin/admins') {
+      return [
+        { id: 'a1', email: 'ops@charak.care', role: 'admin', totp_enabled: true, last_login_at: new Date().toISOString() },
+        { id: 'a2', email: 'support@charak.care', role: 'support', totp_enabled: false, last_login_at: null },
+      ]
+    }
     if (bare === '/admin/incidents') {
       const at = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString()
       return query(path, 'view') === 'appealed' ? [] : [{

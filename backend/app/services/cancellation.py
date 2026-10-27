@@ -28,8 +28,11 @@ REASON_CODES = {
 
 def current_policy(channel: str) -> dict:
     """The version a booking made now would get."""
+    # Only a version someone has approved (the legal review gate, migration
+    # 0029) is ever offered.
     rows = (
-        supabase.table("policies").select("id, channel, version, rules, summary, effective_from")
+        supabase.table("policies")
+        .select("id, channel, version, rules, summary, effective_from, policy_approvals!inner(id)")
         .eq("kind", "cancellation").eq("channel", channel)
         .lte("effective_from", datetime.now(timezone.utc).isoformat())
         .order("effective_from", desc=True).limit(1)
@@ -37,6 +40,7 @@ def current_policy(channel: str) -> dict:
     )
     if not rows:
         raise AppError("No cancellation policy is published for this kind of booking", 503)
+    rows[0].pop("policy_approvals", None)
     return rows[0]
 
 

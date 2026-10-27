@@ -13,7 +13,7 @@ write one, and splitting it across modules is how those two drift apart.
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 
 from ..db import fetch_one, supabase
-from ..deps import get_current_user, require_doctor, require_ops
+from ..deps import get_current_user, require_doctor, require_permission
 from ..errors import AppError
 from ..services import storage, transcription
 from ..services.rate_limit import rate_limiter
@@ -282,7 +282,7 @@ def read_intake_media(media_id: str, user: dict = Depends(get_current_user)):
 # ── Ops bootstrap ────────────────────────────────────────────────────────────
 
 @router.post("/buckets/ensure")
-def ensure_buckets(user: dict = Depends(require_ops)):
+def ensure_buckets(user: dict = Depends(require_permission("storage.manage"))):
     """
     Create any missing Storage bucket.
 

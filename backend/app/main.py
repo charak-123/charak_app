@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 from .errors import AppError, app_error_handler, db_error_handler
 from .routers import (
-    account, addresses, admin, app_config, auth, bookings, calls, categories, complaints, consents, doctors,
+    account, addresses, admin, admin_ops, app_config, auth, bookings, calls, categories, complaints, consents, doctors,
     earnings, intake, legal, maintenance, notifications, payments, payouts,
     procedure_bills, push, ratings, schedules, slot_blocks, trust, uploads, users, visit,
 )
@@ -98,6 +98,7 @@ app.include_router(payments.router,         prefix="/payments",         tags=["p
 app.include_router(ratings.router,          prefix="/bookings",         tags=["ratings"])
 app.include_router(complaints.router,       prefix="/bookings",         tags=["complaints"])
 app.include_router(admin.router,            prefix="/admin",            tags=["admin"])
+app.include_router(admin_ops.router,        prefix="/admin",            tags=["admin"])
 app.include_router(users.router,            prefix="/users",            tags=["users"])
 app.include_router(addresses.router,        prefix="/addresses",        tags=["addresses"])
 app.include_router(uploads.router,          prefix="/uploads",          tags=["uploads"])

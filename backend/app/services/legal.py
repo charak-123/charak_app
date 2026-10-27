@@ -29,14 +29,18 @@ ONLINE_EXTRA = ("telemedicine",)
 
 def current_documents(role: Optional[str] = None) -> dict[str, dict]:
     """The latest published version of each document type, for ``role``."""
+    # Only an approved version (the legal review gate, migration 0029) is
+    # ever current: a document added but not yet reviewed isn't shown.
     rows = (
         supabase.table("legal_documents")
-        .select("type, version, title, url, audience, material, published_at")
+        .select("type, version, title, url, audience, material, published_at, "
+                "legal_document_approvals!inner(id)")
         .order("published_at", desc=True)
         .execute().data or []
     )
     current: dict[str, dict] = {}
     for row in rows:
+        row.pop("legal_document_approvals", None)
         if role and role not in (row.get("audience") or []):
             continue
         current.setdefault(row["type"], row)

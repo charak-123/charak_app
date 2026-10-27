@@ -49,6 +49,9 @@ const STATUS_MAP: Record<string, { label: string; tone: Tone }> = {
   sent:       { label: 'Sent',          tone: 'good' },
   superseded: { label: 'Replaced',      tone: 'neutral' },
   draft:      { label: 'Draft',         tone: 'neutral' },
+  // policy and legal document reviews
+  approved:        { label: 'Approved',        tone: 'good' },
+  awaiting_review: { label: 'Awaiting review', tone: 'warning' },
 }
 
 export function statusLabel(status: string) {

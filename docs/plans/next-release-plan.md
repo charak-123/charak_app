@@ -843,6 +843,28 @@ starts. Sizes are relative: S, M, L.
 
 ### Phase 7: Operations hardening (M)
 
+> **Status: built 2026-10-27, not yet deployed.**
+>
+> Built: migration 0029, plus:
+> - **Admin roles:** support, ops_lead, finance and admin, mapped to permissions. Every admin
+>   endpoint names a permission; old tokens get the least. The console shows only what the
+>   role allows. Roles are changed with a reason, and `create_admin.py --role`.
+> - **The legal review gate (D20):** approvals for each policy and legal-document version,
+>   append-only. Only approved versions are current, in SQL and in the API. Versions already
+>   in force are recorded as approved.
+> - **Audited overrides:** "mark completed" and "undo start" through the state machine, with a
+>   reason, a booking event, and the audit before and after.
+> - **Health:** `ops_metrics()` and the Admin Health page, the §21 numbers that drive action.
+> - **System:** dead jobs and webhooks with retry, undelivered pushes, admin roles.
+> - **A route-access test:** all 185 routes are signed in or explicitly public, and every
+>   /admin route names a permission.
+> - **Runbook:** roles, the gate, overrides, Health/System, the release checklist and rollback.
+>
+> Not done here, needing people or devices:
+> - an end-to-end run on phones with release builds;
+> - D18 (GST, with a CA);
+> - D20's actual counsel review of the policy text.
+
 - **Build:**
   - admin roles
   - the spec's §21 metrics, the ones that drive action first

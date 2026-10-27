@@ -42,7 +42,7 @@ OPS_TOKEN     = "Bearer ops_token"
 
 DOC_PAYLOAD = {"sub": "doc-1", "role": "doctor"}
 PAT_PAYLOAD = {"sub": "pat-1", "role": "patient"}
-OPS_PAYLOAD = {"sub": "admin", "role": "ops"}
+OPS_PAYLOAD = {"sub": "admin", "role": "ops", "admin_role": "admin"}
 
 JWT = "app.deps.jwt"
 

@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
@@ -14,6 +15,7 @@ type Step =
 
 export default function Login() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
@@ -29,6 +31,7 @@ export default function Login() {
       if (totpCode) body.totp_code = totpCode
       const { token } = await api.post<{ token: string }>('/admin/login', body)
       setToken(token)
+      queryClient.clear()
       navigate('/', { replace: true })
     } catch (err: unknown) {
       if (err instanceof ApiStepError) {

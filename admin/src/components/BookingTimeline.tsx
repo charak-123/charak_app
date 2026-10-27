@@ -1,4 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMe } from '@/lib/me'
+import { Button } from '@/components/ui/button'
 import { format } from 'date-fns'
 import { api } from '@/lib/api'
 import {
@@ -37,6 +40,8 @@ const EVENT_LABEL: Record<string, string> = {
   end_consultation: 'Consultation ended',
   prescription_sent: 'Prescription sent',
   rescheduled: 'Moved to a new time',
+  ops_complete: 'Completed by ops',
+  ops_revert: 'Start undone by ops',
   hold_expire: 'Payment window closed',
   request_expire: 'Request expired',
   status_changed_outside_state_machine: 'Changed outside the app',
@@ -57,6 +62,7 @@ function details(m: Record<string, unknown>): string[] {
   if (typeof m.reason_code === 'string') out.push(`reason: ${m.reason_code.replace(/_/g, ' ')}`)
   if (typeof m.method === 'string') out.push(`paid by ${m.method}`)
   if (typeof m.db_user === 'string') out.push(`as ${m.db_user}`)
+  if (typeof m.reason === 'string') out.push(`reason: ${m.reason}`)
   if (typeof m.version === 'number') out.push(`version ${m.version}${m.corrects ? ' (correction)' : ''}`)
   if (m.kind === 'notes') out.push('consultation notes')
   if (typeof m.from === 'string' && typeof m.to === 'string') {
@@ -76,6 +82,27 @@ export default function BookingTimeline({
     queryFn: () => api.get<Event[]>(`/admin/bookings/${bookingId}/timeline`),
     enabled: bookingId != null,
   })
+  const { can } = useMe()
+  const qc = useQueryClient()
+  const [reason, setReason] = useState('')
+  const [overrideError, setOverrideError] = useState<string | null>(null)
+  const status = data.length ? data[data.length - 1].to_status : null
+  const actions: { action: 'complete' | 'revert'; label: string }[] = [
+    ...(status && ['paid', 'in_progress', 'consulted'].includes(status)
+      ? [{ action: 'complete' as const, label: 'Mark completed' }] : []),
+    ...(status === 'in_progress' ? [{ action: 'revert' as const, label: 'Undo start' }] : []),
+  ]
+
+  async function override(action: 'complete' | 'revert') {
+    setOverrideError(null)
+    try {
+      await api.post(`/admin/bookings/${bookingId}/override`, { action, expected_status: status, reason: reason.trim() })
+      setReason('')
+      qc.invalidateQueries({ queryKey: ['admin-booking-timeline', bookingId] })
+    } catch (e) {
+      setOverrideError((e as Error).message)
+    }
+  }
 
   return (
     <Dialog open={bookingId != null} onOpenChange={open => { if (!open) onClose() }}>
@@ -116,6 +143,23 @@ export default function BookingTimeline({
               </li>
             ))}
           </ol>
+        )}
+
+        {/* An audited correction through the state machine (no "edit anything"). */}
+        {can('bookings.override') && actions.length > 0 && (
+          <div className="space-y-2 border-t pt-3">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Correct the status</p>
+            <input className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+              placeholder="Why (at least 10 characters; recorded on the booking and in the audit log)"
+              value={reason} onChange={e => setReason(e.target.value)} />
+            <div className="flex gap-2">
+              {actions.map(a => (
+                <Button key={a.action} size="sm" variant="outline" disabled={reason.trim().length < 10}
+                  onClick={() => override(a.action)}>{a.label}</Button>
+              ))}
+            </div>
+            {overrideError && <p className="text-xs text-destructive">{overrideError}</p>}
+          </div>
         )}
       </DialogContent>
     </Dialog>

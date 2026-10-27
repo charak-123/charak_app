@@ -18,7 +18,14 @@ export API_URL=$(gcloud run services describe charak-api --region asia-south1 --
 
 ## 0. Apply the migrations (required first — nothing else works without this)
 
-> **Latest: `0028_incidents_remedies_reschedules.sql`.** Apply before deploying
+> **Latest: `0029_ops_hardening.sql`.** Apply before deploying the backend that
+> uses it. It adds admin roles (every existing account becomes `admin`; new ones
+> start as `support`), the legal review gate (approvals for each policy and
+> legal document version; every version already in force is recorded as
+> approved), the ops override transitions, and `ops_metrics()`. Idempotent
+> (§7, §7a–7c).
+>
+> **Before it: `0028_incidents_remedies_reschedules.sql`** (applied 2026-10-27). Apply before deploying
 > the backend that uses it. It adds incidents (with CHK- case references, also
 > on complaints), the remedy functions (refund, or another doctor paid from the
 > same payment), reschedule requests, and makes refunds aware of a payment
@@ -626,10 +633,23 @@ update app_config set value = 'true' where key = 'require_booking_policy_accepta
 ## 7. Ops and hardening
 
 Admin accounts are per-person with mandatory TOTP, not a shared password.
-Create the first one with `scripts/create_admin.py <email>` (needs
+Create one with `scripts/create_admin.py <email> --role <role>` (needs
 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — point it at `backend/.env` or
 export the production values first). It prints instructions for the one-time
 QR-code enrollment step done at `/admin/login` itself.
+
+**Roles** (migration 0029, `backend/app/services/admin_roles.py`). The console
+shows only what the role allows, and the API refuses the rest:
+
+| Role | Can |
+|---|---|
+| `support` (default for new accounts) | read bookings, cases, reviews, visit queues, complaints; reveal a patient's phone (audited); Health |
+| `ops_lead` | support, plus decide incidents and appeals, moderate reviews, refunds, verify and suspend doctors, overrides, prescription access with a reason, dead letters |
+| `finance` | refunds, payouts and adjustments, pricing history, Health, audit log |
+| `admin` | everything, plus approve policies and legal documents, manage admin roles |
+
+Change a role in Admin → System → Admins (recorded with a reason). It applies
+at that admin's next sign-in; revoke their sessions to apply it at once.
 
 ```
 ALLOWED_ORIGINS=https://charak.care          # the admin is served at charak.care/admin; default '*'
@@ -644,7 +664,85 @@ JWT_SECRET=<64 random hex chars>           # rotating this logs every user out
 ```
 
 CORS only governs the admin dashboard — the mobile apps send no `Origin` header —
-but `*` with credentials is worth closing regardless.
+but `*` with credentials is worth closing regardless. The admin is served from
+both `charak.care` and `www.charak.care`; list both (set 2026-10-27).
+
+### 7a. The legal review gate (D20)
+
+A cancellation policy or legal document version applies only once its approval
+is recorded. To publish one:
+
+1. Insert the new version in SQL (§6c). Nothing changes yet; patients and
+   doctors still see the current version.
+2. Have it reviewed (counsel for legal text; the founder for policy rules).
+3. Admin → Policies → enter who reviewed it → **Approve and publish**. From its
+   `effective_from`, new bookings get it (policies) or users are asked to
+   accept it (documents). Approvals can't be edited or withdrawn: to change
+   course, publish another version.
+
+### 7b. Correcting a stuck booking
+
+Admin → Bookings → a booking's timeline → **Correct the status** (ops_lead or
+admin):
+- **Mark completed:** the visit happened but nobody closed it. The fee is then
+  withdrawable 48 hours later.
+- **Undo start:** a consultation was started by mistake; it goes back to
+  confirmed.
+
+Both go through the state machine and need a reason, which is recorded on the
+booking (`ops_complete` / `ops_revert`) and in `audit_log` with the before
+and after. There is deliberately no free-form status edit. Cancellations,
+refunds and reschedules use their own flows.
+
+### 7c. Health and dead letters
+
+- **Admin → Health:** the §21 numbers for 7, 30 or 90 days (counts only). Look
+  first at unresolved cases, failed refunds, confirmed doctor no-shows, Start
+  journey coverage on home visits, and prescriptions waiting to be opened.
+- **Admin → System:**
+  - jobs that ran out of attempts (**Retry** runs one again from scratch;
+    handlers are idempotent);
+  - webhooks that keep failing (**Process again**);
+  - pushes that couldn't be delivered (the in-app notice still shows).
+
+  A non-zero dead count on Health means look here.
+
+---
+
+## 7d. Release checklist and rollback
+
+**Order for every release:**
+1. Apply the new migrations in order in the SQL Editor (each is idempotent).
+2. Deploy the backend.
+3. Deploy the admin from `admin/` (`vercel --prod`).
+4. Check:
+   - `/readyz` shows `database.ok`;
+   - the Cloud Scheduler jobs list (§6) includes `charak-tick`, and its
+     recent runs returned 200;
+   - Admin → Health and System open without errors.
+5. Ship app builds. Raise `min_app_version` (§6b) only once they're live in the
+   stores.
+
+**Rolling back the backend:** route traffic to the previous revision. Every
+migration in this release is additive and the backend before it keeps
+working on the new schema, so migrations are not reversed:
+
+```bash
+gcloud run revisions list --service charak-api --region asia-south1 --limit 5
+gcloud run services update-traffic charak-api --region asia-south1 \
+  --to-revisions <previous-revision>=100
+```
+
+Things to know when rolling back past a migration:
+- **Before 0026 (pricing):** the old backend writes bookings without a length
+  or price snapshot. A trigger fills them in, so the overlap check still holds.
+- **Before 0028:** open cases, remedies and reschedule requests stop
+  progressing (no sweep), but nothing is lost. They resume on roll-forward.
+- **Before 0029:** the old backend ignores roles (every admin can do
+  everything) and the review gate (the latest version applies even if
+  unapproved). Don't publish unapproved policy versions while rolled back.
+
+**Rolling back the admin:** in Vercel, promote the previous deployment.
 
 ---
 

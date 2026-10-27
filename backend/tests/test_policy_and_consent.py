@@ -90,7 +90,7 @@ def test_the_quote_is_for_the_booking_s_own_participants_only():
 
 
 def test_ops_does_not_accept_patient_documents():
-    p = _as({"sub": "admin", "role": "ops"})
+    p = _as({"sub": "admin", "role": "ops", "admin_role": "admin"})
     try:
         res = TestClient(app).get("/legal/current", headers=AUTH)
     finally:

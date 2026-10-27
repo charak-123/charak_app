@@ -17,7 +17,7 @@ from app.services import payouts as engine
 from tests.conftest import make_chain, make_supabase
 
 DOCTOR_PAYLOAD = {"sub": "doc-1", "role": "doctor"}
-OPS_PAYLOAD    = {"sub": "admin", "role": "ops"}
+OPS_PAYLOAD    = {"sub": "admin", "role": "ops", "admin_role": "admin"}
 AUTH           = {"Authorization": "Bearer t"}
 
 ENGINE_DB = "app.services.payouts.supabase"

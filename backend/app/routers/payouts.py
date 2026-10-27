@@ -16,7 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from ..db import supabase
-from ..deps import require_doctor, require_ops
+from ..deps import require_doctor, require_permission
 from ..errors import AppError
 from ..services import audit, notifications, payouts as engine
 
@@ -168,7 +168,7 @@ class PayoutRunRequest(BaseModel):
 
 
 @router.post("/run", status_code=201)
-def run_payout(body: PayoutRunRequest, user: dict = Depends(require_ops)):
+def run_payout(body: PayoutRunRequest, user: dict = Depends(require_permission("payouts.manage"))):
     """Sweep a doctor's payable ledger entries for the period into one payout."""
     end = body.period_end or _now().isoformat()
     start = body.period_start or (_now() - timedelta(days=30)).isoformat()
@@ -190,7 +190,7 @@ def update_payout(
     payout_id: str,
     body: PayoutStatusUpdate,
     background: BackgroundTasks,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("payouts.manage")),
 ):
     """
     Advance a payout.
@@ -215,7 +215,7 @@ def update_payout(
 def list_payouts(
     status: Optional[str] = None,
     doctor_id: Optional[str] = None,
-    user: dict = Depends(require_ops),
+    user: dict = Depends(require_permission("payouts.read")),
 ):
     query = (
         supabase.table("payouts")
@@ -230,7 +230,7 @@ def list_payouts(
 
 
 @router.get("/pending-summary")
-def pending_summary(user: dict = Depends(require_ops)):
+def pending_summary(user: dict = Depends(require_permission("payouts.read"))):
     """
     Every doctor with unpaid earnings — the ops worklist for a payout cycle.
 
@@ -287,7 +287,7 @@ class AdjustmentRequest(BaseModel):
 
 
 @router.post("/adjustments", status_code=201)
-def create_adjustment(body: AdjustmentRequest, user: dict = Depends(require_ops)):
+def create_adjustment(body: AdjustmentRequest, user: dict = Depends(require_permission("payouts.manage"))):
     """
     Credit a doctor outside the booking flow — a goodwill payment, or correcting
     a settled payout that can no longer be reversed. Commission does not apply to

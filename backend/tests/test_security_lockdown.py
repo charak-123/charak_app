@@ -442,7 +442,7 @@ def test_a_call_channel_is_the_whole_booking_id():
 
 
 def test_ledger_adjustments_are_audited():
-    OPS = {"sub": "00000000-0000-0000-0000-0000000000a1", "role": "ops"}
+    OPS = {"sub": "00000000-0000-0000-0000-0000000000a1", "role": "ops", "admin_role": "admin"}
     ledger = make_chain(list_data=[{"id": "00000000-0000-0000-0000-00000000e001"}])
     audit_db = make_supabase({"audit_log": make_chain()})
     jw = _as(OPS)

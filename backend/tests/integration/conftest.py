@@ -75,6 +75,11 @@ def clean_db():
         supabase.table("idempotency_keys").delete().neq("key", "").execute()
     except Exception:
         pass
+    # Policy and document versions a test published (stack.sh helper).
+    try:
+        supabase.rpc("test_forget_test_versions").execute()
+    except Exception:
+        pass
     yield
 
 
@@ -172,9 +177,11 @@ def client_for():
     for p in patches:
         p.start()
 
-    def make(user_id, role="patient"):
-        token = jwt.encode({"sub": user_id, "role": role, "iat": int(time.time()) - 5},
-                           TEST_JWT_SECRET, algorithm="HS256")
+    def make(user_id, role="patient", admin_role="admin"):
+        claims = {"sub": user_id, "role": role, "iat": int(time.time()) - 5}
+        if role == "ops":
+            claims["admin_role"] = admin_role
+        token = jwt.encode(claims, TEST_JWT_SECRET, algorithm="HS256")
         return TestClient(app, headers={"Authorization": f"Bearer {token}"})
 
     yield make

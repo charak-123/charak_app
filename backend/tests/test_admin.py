@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from tests.conftest import make_chain, make_chain_seq, make_supabase
 
-OPS     = {"sub": "admin-1", "role": "ops"}
+OPS     = {"sub": "admin-1", "role": "ops", "admin_role": "admin"}
 DOCTOR  = {"sub": "doc-1", "role": "doctor"}
 AUTH    = {"Authorization": "Bearer t"}
 
