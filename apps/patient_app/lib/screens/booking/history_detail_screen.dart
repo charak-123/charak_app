@@ -21,42 +21,60 @@ class _HistoryDetail {
 
 final _historyDetailProvider =
     FutureProvider.autoDispose.family<_HistoryDetail, String>((ref, bookingId) async {
-  final booking = await ApiClient.instance.get('/bookings/$bookingId') as Map<String, dynamic>;
-
-  Map<String, dynamic>? procedureBill;
-  try {
-    procedureBill = await ApiClient.instance.get('/bookings/$bookingId/procedure-bill') as Map<String, dynamic>;
-  } on ApiException catch (e) {
-    if (e.statusCode != 404) rethrow;
+  Future<Map<String, dynamic>?> procedureBill() async {
+    try {
+      return await ApiClient.instance.get('/bookings/$bookingId/procedure-bill') as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      if (e.statusCode != 404) rethrow;
+      return null;
+    }
   }
 
-  Map<String, dynamic>? rating;
-  try {
-    rating = await ApiClient.instance.get('/bookings/$bookingId/rate') as Map<String, dynamic>?;
-  } on ApiException catch (e) {
-    if (e.statusCode != 404) rethrow;
+  Future<Map<String, dynamic>?> rating() async {
+    try {
+      return await ApiClient.instance.get('/bookings/$bookingId/rate') as Map<String, dynamic>?;
+    } on ApiException catch (e) {
+      if (e.statusCode != 404) rethrow;
+      return null;
+    }
   }
+
+  Future<List?> payments() async {
+    try {
+      return await ApiClient.instance.get('/payments/$bookingId') as List;
+    } on ApiException {
+      // Payment lookup is best-effort — the receipt rows just won't show.
+      return null;
+    }
+  }
+
+  // None of the four depends on another, so they go out together.
+  final results = await Future.wait<Object?>([
+    ApiClient.instance.get('/bookings/$bookingId'),
+    procedureBill(),
+    rating(),
+    payments(),
+  ]);
+  final booking = results[0] as Map<String, dynamic>;
 
   String? paymentRef;
   CharakRefundSummary? refund;
-  try {
-    final payments = await ApiClient.instance.get('/payments/$bookingId') as List;
+  final paymentRows = results[3] as List?;
+  if (paymentRows != null) {
     // A refunded payment was still paid: its reference stays on the receipt.
     const captured = {'completed', 'refunded', 'partially_refunded'};
-    final paid = payments
+    final paid = paymentRows
         .cast<Map<String, dynamic>>()
         .where((p) => captured.contains(p['status']))
         .firstOrNull;
     paymentRef = paid?['razorpay_payment_id'] as String?;
-    refund = CharakRefundSummary.fromPayments(payments);
-  } on ApiException {
-    // Payment lookup is best-effort — the receipt rows just won't show.
+    refund = CharakRefundSummary.fromPayments(paymentRows);
   }
 
   return _HistoryDetail(
     booking: booking,
-    procedureBill: procedureBill,
-    rating: rating,
+    procedureBill: results[1] as Map<String, dynamic>?,
+    rating: results[2] as Map<String, dynamic>?,
     paymentRef: paymentRef,
     refund: refund,
   );

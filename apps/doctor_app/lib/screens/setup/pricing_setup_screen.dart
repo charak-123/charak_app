@@ -114,8 +114,12 @@ class _PricingSetupScreenState extends ConsumerState<PricingSetupScreen> {
 
   Future<void> _loadDoctorInfo() async {
     try {
-      final me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
-      final prices = await ApiClient.instance.get('/doctors/me/prices') as Map<String, dynamic>;
+      final results = await Future.wait([
+        ApiClient.instance.get('/doctors/me'),
+        ApiClient.instance.get('/doctors/me/prices'),
+      ]);
+      final me = results[0] as Map<String, dynamic>;
+      final prices = results[1] as Map<String, dynamic>;
       final rules = List<Map<String, dynamic>>.from(prices['rules'] as List? ?? []);
       final procs = List<Map<String, dynamic>>.from(me['doctor_procedures'] as List? ?? [])
           .where((p) => p['active'] != false)

@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
@@ -53,8 +56,11 @@ class CharakAvatar extends StatelessWidget {
       decoration: ShapeDecoration(color: _toneBg[t], shape: shape),
       alignment: Alignment.center,
       child: (imageUrl != null && imageUrl!.isNotEmpty)
-          ? Image.network(
-              imageUrl!,
+          ? Image(
+              image: CharakCoverResizeImage(
+                NetworkImage(imageUrl!),
+                (side * (MediaQuery.maybeDevicePixelRatioOf(context) ?? View.of(context).devicePixelRatio)).ceil(),
+              ),
               width: side,
               height: side,
               fit: BoxFit.cover,
@@ -72,6 +78,64 @@ class CharakAvatar extends StatelessWidget {
   // Expose for callers that want the tone colours for overlaid content.
   static Color fgForTone(int tone) => _toneFg[(tone - 1).clamp(0, 5)];
   static Color bgForTone(int tone) => _toneBg[(tone - 1).clamp(0, 5)];
+}
+
+/// Decodes a photo at the size the avatar shows it, not the size it was
+/// uploaded: the shorter side comes out at [side] device pixels (never larger
+/// than the original), which is all `BoxFit.cover` in a square needs. An
+/// 800px doctor photo in a 52px avatar otherwise sits in memory as ~2.5MB of
+/// pixels instead of ~50KB, once per row of the directory.
+///
+/// [ResizeImage] can't do this: its policies size to a fixed box or fit
+/// inside one, and either would soften a landscape photo once cover crops it.
+@immutable
+@visibleForTesting
+class CharakCoverResizeImage extends ImageProvider<CharakCoverResizeKey> {
+  final ImageProvider<Object> image;
+  final int side;
+
+  const CharakCoverResizeImage(this.image, this.side);
+
+  @override
+  Future<CharakCoverResizeKey> obtainKey(ImageConfiguration configuration) =>
+      // NetworkImage answers synchronously; `then` on a SynchronousFuture stays
+      // synchronous, so a cached photo still paints on the first frame.
+      image.obtainKey(configuration).then((key) => CharakCoverResizeKey(key, side));
+
+  @override
+  ImageStreamCompleter loadImage(CharakCoverResizeKey key, ImageDecoderCallback decode) =>
+      image.loadImage(
+        key.inner,
+        (buffer, {getTargetSize}) => decode(buffer, getTargetSize: (w, h) {
+          final shorter = math.min(w, h);
+          if (shorter <= side) return ui.TargetImageSize(width: w, height: h);
+          final scale = side / shorter;
+          return ui.TargetImageSize(width: (w * scale).round(), height: (h * scale).round());
+        }),
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is CharakCoverResizeImage && other.image == image && other.side == side;
+
+  @override
+  int get hashCode => Object.hash(image, side);
+}
+
+@immutable
+@visibleForTesting
+class CharakCoverResizeKey {
+  final Object inner;
+  final int side;
+
+  const CharakCoverResizeKey(this.inner, this.side);
+
+  @override
+  bool operator ==(Object other) =>
+      other is CharakCoverResizeKey && other.inner == inner && other.side == side;
+
+  @override
+  int get hashCode => Object.hash(inner, side);
 }
 
 class _Initials extends StatelessWidget {

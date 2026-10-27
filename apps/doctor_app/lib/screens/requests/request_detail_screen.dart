@@ -8,11 +8,13 @@ import 'package:intl/intl.dart';
 
 final _bookingDetailProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
-  final booking = await ApiClient.instance.get('/bookings/$id');
-  final intake  = await ApiClient.instance.get('/bookings/$id/intake');
+  final results = await Future.wait([
+    ApiClient.instance.get('/bookings/$id'),
+    ApiClient.instance.get('/bookings/$id/intake'),
+  ]);
   return {
-    'booking': booking as Map<String, dynamic>,
-    'intake': intake as List,
+    'booking': results[0] as Map<String, dynamic>,
+    'intake': results[1] as List,
   };
 });
 

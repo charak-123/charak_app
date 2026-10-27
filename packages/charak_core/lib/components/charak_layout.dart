@@ -78,20 +78,24 @@ class CharakLargeTitleScaffold extends StatefulWidget {
 
 class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
   final _scroll = ScrollController();
-  double _offset = 0;
+
+  /// The scroll offset, for the header and bar alone: scrolling rebuilds
+  /// those two, not the scroll view and everything in it.
+  final _offset = ValueNotifier<double>(0);
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(() {
       final o = _scroll.hasClients ? _scroll.offset : 0.0;
-      if ((o - _offset).abs() > 0.5) setState(() => _offset = o);
+      if ((o - _offset.value).abs() > 0.5) _offset.value = o;
     });
   }
 
   @override
   void dispose() {
     _scroll.dispose();
+    _offset.dispose();
     super.dispose();
   }
 
@@ -99,25 +103,25 @@ class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
   Widget build(BuildContext context) {
     final top = MediaQuery.paddingOf(context).top;
     const barH = 56.0;
-    final bar = ((_offset - CharakMotion.headerFadeStart) /
-            (CharakMotion.headerFadeEnd - CharakMotion.headerFadeStart))
-        .clamp(0.0, 1.0);
-    final headerFade = (1 - _offset / CharakMotion.headerFadeEnd).clamp(0.0, 1.0);
 
-    final header = Opacity(
-      opacity: headerFade,
-      child: Transform.translate(
-        offset: Offset(0, -_offset.clamp(0.0, 400.0) * CharakMotion.headerParallax),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(CharakSpacing.gutter, 36, CharakSpacing.gutter, 20),
-          child: CharakScreenHeader(
-            title: widget.title,
-            eyebrow: widget.eyebrow,
-            eyebrowColor: widget.eyebrowColor,
-            subtitle: widget.subtitle,
-            subtitleColor: widget.subtitleColor,
-            display: widget.display,
-          ),
+    final header = ValueListenableBuilder<double>(
+      valueListenable: _offset,
+      builder: (_, offset, child) => Opacity(
+        opacity: (1 - offset / CharakMotion.headerFadeEnd).clamp(0.0, 1.0),
+        child: Transform.translate(
+          offset: Offset(0, -offset.clamp(0.0, 400.0) * CharakMotion.headerParallax),
+          child: child,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(CharakSpacing.gutter, 36, CharakSpacing.gutter, 20),
+        child: CharakScreenHeader(
+          title: widget.title,
+          eyebrow: widget.eyebrow,
+          eyebrowColor: widget.eyebrowColor,
+          subtitle: widget.subtitle,
+          subtitleColor: widget.subtitleColor,
+          display: widget.display,
         ),
       ),
     );
@@ -147,41 +151,52 @@ class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
       );
     }
 
-    final topBar = ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20 * bar, sigmaY: 20 * bar),
-        child: Container(
-          height: top + barH,
-          padding: EdgeInsets.fromLTRB(12, top, 12, 0),
-          color: CharakColors.ground.withValues(alpha: 0.85 * bar),
-          child: Row(
-            children: [
-              if (widget.showBack)
-                CharakRoundIconButton(
-                  icon: LucideIcons.arrowLeft,
-                  semanticLabel: 'Back',
-                  onTap: () => Navigator.of(context).maybePop(),
-                ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Opacity(
-                  opacity: bar,
-                  child: Transform.translate(
-                    offset: Offset(0, 8 * (1 - bar)),
-                    child: Text(
-                      widget.barTitle ?? widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: CharakText.titleSmall.copyWith(fontSize: 18, color: CharakColors.ink),
+    final topBar = ValueListenableBuilder<double>(
+      valueListenable: _offset,
+      builder: (context, offset, _) {
+        final bar = ((offset - CharakMotion.headerFadeStart) /
+                (CharakMotion.headerFadeEnd - CharakMotion.headerFadeStart))
+            .clamp(0.0, 1.0);
+        return ClipRect(
+          child: BackdropFilter(
+            // A zero blur still costs a backdrop layer every frame; with the
+            // bar fully transparent there is nothing to frost.
+            enabled: bar > 0,
+            filter: ImageFilter.blur(sigmaX: 20 * bar, sigmaY: 20 * bar),
+            child: Container(
+              height: top + barH,
+              padding: EdgeInsets.fromLTRB(12, top, 12, 0),
+              color: CharakColors.ground.withValues(alpha: 0.85 * bar),
+              child: Row(
+                children: [
+                  if (widget.showBack)
+                    CharakRoundIconButton(
+                      icon: LucideIcons.arrowLeft,
+                      semanticLabel: 'Back',
+                      onTap: () => Navigator.of(context).maybePop(),
+                    ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Opacity(
+                      opacity: bar,
+                      child: Transform.translate(
+                        offset: Offset(0, 8 * (1 - bar)),
+                        child: Text(
+                          widget.barTitle ?? widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: CharakText.titleSmall.copyWith(fontSize: 18, color: CharakColors.ink),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  for (final a in widget.actions) ...[const SizedBox(width: 8), a],
+                ],
               ),
-              for (final a in widget.actions) ...[const SizedBox(width: 8), a],
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
 
     return Scaffold(
@@ -247,20 +262,24 @@ class CharakScreen extends StatefulWidget {
 class _CharakScreenState extends State<CharakScreen> {
   static const _barH = 56.0;
   final _outer = ScrollController();
-  double _offset = 0;
+
+  /// The outer scroll offset, for the header and bar alone (see
+  /// [_CharakLargeTitleScaffoldState._offset]).
+  final _offset = ValueNotifier<double>(0);
 
   @override
   void initState() {
     super.initState();
     _outer.addListener(() {
       final o = _outer.offset;
-      if ((o - _offset).abs() > 0.5 || o <= 0) setState(() => _offset = o);
+      if ((o - _offset.value).abs() > 0.5 || o <= 0) _offset.value = o;
     });
   }
 
   @override
   void dispose() {
     _outer.dispose();
+    _offset.dispose();
     super.dispose();
   }
 
@@ -268,9 +287,6 @@ class _CharakScreenState extends State<CharakScreen> {
   Widget build(BuildContext context) {
     final top = MediaQuery.paddingOf(context).top;
     final hasTitle = widget.title != null && widget.title!.isNotEmpty;
-    // Pushed headers are shorter than tab roots', so the fold happens sooner.
-    final bar = hasTitle ? ((_offset - 24) / 48).clamp(0.0, 1.0) : 0.0;
-    final headerFade = (1 - _offset / 72).clamp(0.0, 1.0);
 
     final scroll = NestedScrollView(
       controller: _outer,
@@ -279,17 +295,21 @@ class _CharakScreenState extends State<CharakScreen> {
         SliverToBoxAdapter(child: SizedBox(height: top + _barH)),
         if (hasTitle)
           SliverToBoxAdapter(
-            child: Opacity(
-              opacity: headerFade,
-              child: Transform.translate(
-                offset: Offset(0, -_offset.clamp(0.0, 200.0) * CharakMotion.headerParallax),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(CharakSpacing.gutter, 12, CharakSpacing.gutter, 18),
-                  child: CharakScreenHeader(
-                    title: widget.title!,
-                    eyebrow: widget.eyebrow,
-                    subtitle: widget.subtitle,
-                  ),
+            child: ValueListenableBuilder<double>(
+              valueListenable: _offset,
+              builder: (_, offset, child) => Opacity(
+                opacity: (1 - offset / 72).clamp(0.0, 1.0),
+                child: Transform.translate(
+                  offset: Offset(0, -offset.clamp(0.0, 200.0) * CharakMotion.headerParallax),
+                  child: child,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(CharakSpacing.gutter, 12, CharakSpacing.gutter, 18),
+                child: CharakScreenHeader(
+                  title: widget.title!,
+                  eyebrow: widget.eyebrow,
+                  subtitle: widget.subtitle,
                 ),
               ),
             ),
@@ -298,40 +318,50 @@ class _CharakScreenState extends State<CharakScreen> {
       body: widget.body,
     );
 
-    final topBar = ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20 * bar, sigmaY: 20 * bar),
-        child: Container(
-          height: top + _barH,
-          padding: EdgeInsets.fromLTRB(12, top, 12, 0),
-          color: CharakColors.ground.withValues(alpha: hasTitle ? 0.85 * bar : 1),
-          child: Row(
-            children: [
-              CharakRoundIconButton(
-                icon: LucideIcons.arrowLeft,
-                semanticLabel: 'Back',
-                onTap: widget.onBack ?? () => Navigator.of(context).maybePop(),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Opacity(
-                  opacity: bar,
-                  child: Transform.translate(
-                    offset: Offset(0, 8 * (1 - bar)),
-                    child: Text(
-                      widget.barTitle ?? widget.title ?? '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: CharakText.titleSmall.copyWith(fontSize: 18, color: CharakColors.ink),
+    final topBar = ValueListenableBuilder<double>(
+      valueListenable: _offset,
+      builder: (context, offset, _) {
+        // Pushed headers are shorter than tab roots', so the fold happens sooner.
+        final bar = hasTitle ? ((offset - 24) / 48).clamp(0.0, 1.0) : 0.0;
+        return ClipRect(
+          child: BackdropFilter(
+            // No blur to draw until the bar starts to fold in (and never on a
+            // screen without a title, where the bar is solid).
+            enabled: bar > 0,
+            filter: ImageFilter.blur(sigmaX: 20 * bar, sigmaY: 20 * bar),
+            child: Container(
+              height: top + _barH,
+              padding: EdgeInsets.fromLTRB(12, top, 12, 0),
+              color: CharakColors.ground.withValues(alpha: hasTitle ? 0.85 * bar : 1),
+              child: Row(
+                children: [
+                  CharakRoundIconButton(
+                    icon: LucideIcons.arrowLeft,
+                    semanticLabel: 'Back',
+                    onTap: widget.onBack ?? () => Navigator.of(context).maybePop(),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Opacity(
+                      opacity: bar,
+                      child: Transform.translate(
+                        offset: Offset(0, 8 * (1 - bar)),
+                        child: Text(
+                          widget.barTitle ?? widget.title ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: CharakText.titleSmall.copyWith(fontSize: 18, color: CharakColors.ink),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  for (final a in widget.actions) ...[const SizedBox(width: 8), a],
+                ],
               ),
-              for (final a in widget.actions) ...[const SizedBox(width: 8), a],
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
 
     return Scaffold(

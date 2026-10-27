@@ -17,8 +17,12 @@ final _slotsProvider = FutureProvider.family<Map<String, dynamic>, String>((ref,
 /// is with the patient or that have completed, so a visit can be reopened to
 /// see or correct what was sent.
 final _activeBookingsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final active = await ApiClient.instance.get('/bookings/doctor/active') as List;
-  final past = await ApiClient.instance.get('/bookings/doctor/history') as List;
+  final results = await Future.wait([
+    ApiClient.instance.get('/bookings/doctor/active'),
+    ApiClient.instance.get('/bookings/doctor/history'),
+  ]);
+  final active = results[0] as List;
+  final past = results[1] as List;
   return [
     ...List<Map<String, dynamic>>.from(active),
     ...List<Map<String, dynamic>>.from(past)

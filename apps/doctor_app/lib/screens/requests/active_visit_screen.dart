@@ -29,11 +29,13 @@ class _ProcedureEntry {
 
 final _activeVisitProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
-  final booking    = await ApiClient.instance.get('/bookings/$id');
-  final procedures = await ApiClient.instance.get('/doctors/me/procedures');
+  final results = await Future.wait([
+    ApiClient.instance.get('/bookings/$id'),
+    ApiClient.instance.get('/doctors/me/procedures'),
+  ]);
   return {
-    'booking': booking as Map<String, dynamic>,
-    'procedures': procedures as List,
+    'booking': results[0] as Map<String, dynamic>,
+    'procedures': results[1] as List,
   };
 });
 
