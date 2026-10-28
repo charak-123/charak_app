@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ScrollText } from 'lucide-react'
@@ -18,9 +18,45 @@ type Approval = { approved_by: string; note: string | null; approved_at: string 
 type Policy = { id: string; channel: string; version: string; summary: string; decision_ref: string | null;
                 effective_from: string; policy_approvals: Approval | Approval[] }
 type Doc = { id: string; type: string; version: string; title: string; url: string; material: boolean;
-             published_at: string; legal_document_approvals: Approval | Approval[] }
+             published_at: string; summary: string | null; highlights: string[] | null; body: string | null;
+             sha256: string | null; audience: string[]; legal_document_approvals: Approval | Approval[] }
 
 const first = (a: Approval | Approval[]) => (Array.isArray(a) ? a[0] ?? null : a)
+
+/**
+ * The exact text people will be asked to sign (migration 0030), so the
+ * reviewer approves what they read. Versions from before 0030 live only on
+ * the website.
+ */
+function DocumentText({ doc }: { doc: Doc }) {
+  const [open, setOpen] = useState(false)
+  if (!doc.body) return null
+  return (
+    <div className="space-y-2">
+      <Button variant="outline" size="sm" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        {open ? 'Hide the text' : 'Read the full text'}
+      </Button>
+      {open && (
+        <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+          {doc.highlights && doc.highlights.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">In short</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                {doc.highlights.map((h, i) => <li key={i}>{h}</li>)}
+              </ul>
+            </div>
+          )}
+          <div className="max-h-[28rem] overflow-auto whitespace-pre-wrap text-sm leading-relaxed">{doc.body}</div>
+          {doc.sha256 && (
+            <p className="text-xs text-muted-foreground">
+              Fingerprint <span className="font-mono tabular-nums">{doc.sha256}</span>. Each signature records it.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function Policies() {
   const qc = useQueryClient()
@@ -40,7 +76,8 @@ export default function Policies() {
     }
   }
 
-  const row = (id: string, kind: 'policies' | 'legal-documents', title: string, sub: string, a: Approval) => (
+  const row = (id: string, kind: 'policies' | 'legal-documents', title: string, sub: string, a: Approval,
+               extra?: ReactNode) => (
     <Card key={id}>
       <CardContent className="space-y-2 p-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -49,6 +86,7 @@ export default function Policies() {
           {a && <span className="ml-auto text-xs text-muted-foreground">Approved by {a.approved_by}, {format(new Date(a.approved_at), 'd MMM yyyy')}</span>}
         </div>
         <p className="text-sm text-muted-foreground">{sub}</p>
+        {extra}
         {!a && (
           <div className="flex flex-wrap gap-2 border-t pt-3">
             <input className="min-w-64 flex-1 rounded-md border bg-background px-2 py-1.5 text-sm"
@@ -83,12 +121,14 @@ export default function Policies() {
             <Section title="Legal documents">
               <div className="space-y-3">
                 {data.documents.map(d => row(d.id, 'legal-documents', `${d.title} · ${d.version}`,
-                  `${d.url}${d.material ? ' · material: users must accept again' : ''}`, first(d.legal_document_approvals)))}
+                  [d.summary ?? d.url, `for ${(d.audience ?? []).join(' and ')}`,
+                   d.material ? 'material: everyone signs again' : null].filter(Boolean).join(' · '),
+                  first(d.legal_document_approvals), <DocumentText doc={d} />))}
               </div>
             </Section>
           </>
         )}
-        <p className="pt-2 text-xs text-muted-foreground"><MetaChip>Tip</MetaChip> Add a new version in SQL (runbook §6c); it stays inactive until approved here.</p>
+        <p className="pt-2 text-xs text-muted-foreground"><MetaChip>Tip</MetaChip> New document versions come from docs/legal/&lt;version&gt;/ through docs/legal/publish.py; a new cancellation policy is added in SQL (runbook §6c). Either stays inactive until approved here.</p>
       </PageBody>
     </div>
   )

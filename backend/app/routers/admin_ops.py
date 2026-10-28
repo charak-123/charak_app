@@ -60,8 +60,11 @@ def list_policies(user: dict = Depends(require_permission("policies.approve"))):
                 .select("id, kind, channel, version, summary, decision_ref, effective_from, created_at, "
                         "policy_approvals(approved_by, note, approved_at)")
                 .order("created_at", desc=True).execute().data or [])
+    # With the full text (0030): the approver reads exactly what people will
+    # be asked to sign, and the fingerprint that will be recorded with it.
     documents = (supabase.table("legal_documents")
                  .select("id, type, version, title, url, audience, material, published_at, "
+                         "summary, highlights, body, sha256, "
                          "legal_document_approvals(approved_by, note, approved_at)")
                  .order("published_at", desc=True).execute().data or [])
     return {"policies": policies, "documents": documents}

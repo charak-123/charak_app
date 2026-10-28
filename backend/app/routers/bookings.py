@@ -390,6 +390,12 @@ def accept_booking(
     if b["status"] != "requested":
         raise AppError(f"Cannot accept a booking with status '{b['status']}'", 400)
 
+    # The Practitioner Agreement, Privacy Policy and Cancellation & Refund
+    # Policy, at their current versions: the same switch as the patient's
+    # side. A 428 makes the doctor app show the documents to sign, then retry.
+    if app_config.get("require_legal_acceptance") is True:
+        legal.require(user["sub"], "doctor", legal.REQUIRED["doctor"])
+
     updated = booking_state.transition(
         booking_id, "accept", actor_role="doctor", actor_id=user["sub"], expected="requested",
         patch={

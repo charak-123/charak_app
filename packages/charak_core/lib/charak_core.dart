@@ -15,6 +15,8 @@ export 'models/charak_prescription.dart';
 export 'models/charak_price.dart';
 export 'models/charak_review.dart';
 export 'legal.dart';
+export 'legal_screens.dart';
+export 'legal_text.dart';
 export 'app_gate.dart';
 export 'location/charak_location.dart';
 export 'call/charak_call_session.dart';

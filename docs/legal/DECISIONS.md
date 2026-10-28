@@ -40,6 +40,7 @@ here before launch.
 | LD-011 | Legal entity and Grievance Officer | M/s Radiant Technologies, Airoli, Navi Mumbai. Grievance Officer and DPO: Neelima Patil. | Decided |
 | LD-012 | Minors and geography | Who may book for a minor; India-only service. | Open |
 | LD-013 | Third-party tool for drafting | The documents are drafted in-house from the product's actual behaviour. Termly is not the primary source. | Decided |
+| LD-014 | Signing in the apps | Each role reads and signs its full documents in the app, one by one, against a recorded version and fingerprint. Patients: Terms of Use, Privacy, Cancellation & Refund (+ Telemedicine at the first online consult). Doctors: Practitioner Agreement, Privacy, Cancellation & Refund. | Decided |
 
 ---
 
@@ -293,6 +294,43 @@ here before launch.
   telemedicine. Termly's cookie scanner may still be used for the website Cookie
   Policy.
 
+## LD-014: Signing the documents in the apps
+
+- **Status:** Decided (2026-10-28, founder: "we need the full policy the user needs to
+  sign … same for the doctor app as well").
+- **Decision:** people sign the full documents in the app, the way established
+  platforms do it (separate agreements, each accepted explicitly, the version recorded),
+  not a one-line summary and a tick.
+  - **Patients sign** the Terms of Use, the Privacy Policy and the Cancellation & Refund
+    Policy at sign-up, and the Telemedicine Consent before their first online
+    consultation.
+  - **Doctors sign** the Practitioner Agreement (a contract of its own, no longer the
+    patients' Terms), the Privacy Policy and the Cancellation & Refund Policy, at
+    onboarding.
+  - Each document opens in full in the app. Its key points come first; "I agree" is
+    available only once the reader reaches the end. One "Sign and continue" then records
+    every signature with the version, the text's SHA-256 fingerprint, the time, the IP
+    address and how it was given.
+  - At booking, the patient sees every case of the Cancellation & Refund Policy for that
+    kind of booking (who cancels, when, and what is refunded), generated from the rules
+    the backend enforces, and agrees to it.
+  - A material new version is signed again: on opening the app, and enforced by the
+    server before booking (patients) or accepting a booking (doctors) once
+    `require_legal_acceptance` is on.
+  - Profile → Legal shows each document, the version signed and when.
+- **Source of truth:** `docs/legal/<version>/*.md`, published to the database by
+  `docs/legal/publish.py` (migrations 0030–0031). Published text is never edited; a
+  change is a new version, and a version applies only once approved in admin → Policies.
+- **Reasoning:** clickwrap with an explicit "I agree" is enforceable in India (Indian
+  Contract Act 1872, IT Act 2000 s. 10A). Recording the exact text signed answers "what
+  did they agree to" in any dispute. DPDP Rules 2025, Rule 3 (in force from May 2027)
+  wants the privacy notice standalone, itemised and in plain language: the Privacy Policy
+  is its own document and lists each item of data with its purpose.
+- **To confirm with a lawyer:** the liability cap in the Practitioner Agreement (§16:
+  the fees for the bookings concerned), the indemnity (§15), the grievance timelines
+  (acknowledged in 24 hours, resolved in 15 days), and whether doctors should also sign
+  the patients' Terms of Use.
+
 ---
 
 ## Sources
@@ -310,6 +348,7 @@ here before launch.
 
 | Date | Change |
 |---|---|
+| 2026-10-28 | LD-014 decided: full documents signed in the apps. Version 2026-10-28 of all five documents drafted in `docs/legal/2026-10-28/`, including the first Practitioner Agreement and a standalone Cancellation & Refund Policy. |
 | 2026-10-26 | LD-006 refined again: withdrawable at 72 h after the prescription is sent, or at 48 h if the patient opened it within the first 48 h. |
 | 2026-10-26 | LD-006 refined: withdrawable 48 h after the prescription is opened, or 72 h after it was sent if never opened (whichever is first). |
 | 2026-10-26 | LD-006 decided: earnings balance, withdrawal on demand, 48 h after completion. Payout rail still open. |

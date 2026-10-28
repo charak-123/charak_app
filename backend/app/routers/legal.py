@@ -2,7 +2,8 @@
 Legal documents and consent, against published versions (migration 0024).
 
   GET  /legal/current                     what this user must accept, and what is outstanding
-  POST /legal/accept                      record acceptance (sign-up checkboxes, re-consent)
+  POST /legal/accept                      record acceptance (sign-up, re-consent, booking)
+  GET  /legal/documents/{type}[?version]  a document's full text (public, like the website)
   GET  /legal/cancellation-policy?channel the policy a booking made now would get
 
 The old ``/consents`` endpoints stay for app builds that predate these.
@@ -34,11 +35,14 @@ def _role(user: dict) -> str:
 def current(user: dict = Depends(get_current_user)):
     role = _role(user)
     docs = legal.current_documents(role)
-    accepted = legal.accepted_versions(user["sub"])
+    signed = legal.acceptances(user["sub"])
     return {
         "documents": [
-            {**legal._public(d), "accepted": (d["type"], d["version"]) in accepted}
-            for d in docs.values()
+            {**legal._public(d),
+             "accepted": (d["type"], d["version"]) in signed,
+             "accepted_at": signed.get((d["type"], d["version"])),
+             "required": d["type"] in legal.REQUIRED[role]}
+            for t in legal.listing_order(role) if (d := docs.get(t))
         ],
         # What blocks this user right now (telemedicine is asked for at the
         # first online booking, not here).
@@ -70,6 +74,21 @@ def accept(body: AcceptRequest, request: Request, user: dict = Depends(get_curre
         "recorded": [{"type": r["type"], "version": r["version"]} for r in recorded],
         "missing": legal.missing(user["sub"], role, legal.REQUIRED[role]),
     }
+
+
+@router.get("/documents/{doc_type}")
+def document(doc_type: str, version: Optional[str] = None):
+    """
+    The full text of a document: the current approved version, or the one
+    named (the version someone signed, still readable after it is replaced).
+    Public, like the website: the apps show it before an account exists.
+    Only approved versions are ever returned.
+    """
+    if doc_type not in legal.LISTED:
+        raise AppError("Unknown document", 404)
+    if version is not None and not (1 <= len(version) <= 40):
+        raise AppError("Unknown version", 404)
+    return legal.document(doc_type, version)
 
 
 @router.get("/cancellation-policy")

@@ -215,6 +215,26 @@ class _CharakGalleryState extends State<CharakGallery> {
             message: 'You can pay once a senior doctor approves the bill.',
           ),
           const SizedBox(height: 24),
+          const CharakSectionTitle(label: 'Legal'),
+          const SizedBox(height: 10),
+          const CharakLegalHighlights(points: [
+            'You pay only after the doctor accepts your request.',
+            'If the doctor cancels, you get a full refund.',
+          ]),
+          const SizedBox(height: 10),
+          const CharakCancellationRules(policy: {
+            'channel': 'home_visit',
+            'points': [
+              {'when': 'You cancel 2 hours or more before the visit', 'outcome': 'Full refund', 'tone': 'full'},
+              {'when': "You cancel less than 2 hours before the visit and the doctor hasn't set out",
+               'outcome': '50% refund', 'tone': 'partial'},
+              {'when': 'You cancel after the doctor has started travelling', 'outcome': 'No refund', 'tone': 'none'},
+              {'when': "The doctor can't keep the time", 'outcome': 'A new time or a full refund, your choice',
+               'tone': 'choice'},
+            ],
+            'refund_timing': 'Refunds go back to the way you paid, usually within 5 to 7 working days.',
+          }),
+          const SizedBox(height: 24),
           const CharakNowBar(
             icon: LucideIcons.video,
             title: 'Dr. Meera · Riya\'s consult',
