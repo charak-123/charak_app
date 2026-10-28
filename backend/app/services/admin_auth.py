@@ -112,28 +112,20 @@ def authenticate(email: str, password: str, totp_code: Optional[str]) -> dict:
     if not admin or not password_ok:
         raise AdminAuthError("Invalid email or password", 401)
 
+    # The secret never leaves the database through this route. It was shown once,
+    # to the operator who ran scripts/create_admin.py, who put it in the new
+    # admin's authenticator app. If login handed it to anyone who knew the
+    # password, the second factor would protect nothing on a fresh account:
+    # whoever had the password first could enrol their own device. So an account
+    # that has not signed in yet answers exactly like one that has, and the
+    # first valid code both proves the device and switches TOTP on.
+    if not totp_code:
+        raise AdminAuthError("Enter your two-factor code.", 428, next="totp")
+    _check_totp(admin, totp_code)
     if not admin["totp_enabled"]:
-        # First login after the account was created by the script. The secret
-        # already exists (the script generates it up front); this step shows
-        # it as a QR code and the next call both verifies and enrolls.
-        if not totp_code:
-            uri = pyotp.TOTP(admin["totp_secret"]).provisioning_uri(
-                name=admin["email"], issuer_name=_ISSUER
-            )
-            raise AdminAuthError(
-                "Set up two-factor authentication to finish signing in.",
-                428,
-                next="totp_setup",
-                provisioning_uri=uri,
-            )
-        _check_totp(admin, totp_code)
         supabase.table("admin_users").update({"totp_enabled": True}) \
             .eq("id", admin["id"]).execute()
         admin["totp_enabled"] = True
-    else:
-        if not totp_code:
-            raise AdminAuthError("Enter your two-factor code.", 428, next="totp")
-        _check_totp(admin, totp_code)
 
     try:
         supabase.table("admin_users").update(

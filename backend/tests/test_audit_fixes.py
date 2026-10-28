@@ -259,3 +259,82 @@ def test_a_redelivered_capture_finishes_a_booking_left_accepted():
         out = payments._handle_event(event, None)
     assert out == {"ok": True}
     confirm.assert_called_once()
+
+
+# ── Location: distances cannot be intersected to find a doctor's base ────────
+
+def test_public_distance_is_measured_from_a_grid_cell_not_the_exact_base():
+    from app.services import geo
+    base = (19.07609, 72.87771)
+    doctors = [{"id": "d1", "base_lat": base[0], "base_lng": base[1], "offers_home_visit": True,
+                "service_radius_km": 10}]
+    origins = [(19.20, 72.80), (19.00, 73.00), (18.95, 72.75)]
+    seen = []
+    for lat, lng in origins:
+        shown = geo.annotate_distance([dict(doctors[0])], lat, lng)[0]
+        seen.append((lat, lng, shown["distance_km"]))
+
+    # Whatever point those three distances intersect at, it is the cell centre,
+    # about a kilometre from the base, not the base itself.
+    best = min(
+        ((a / 4000 + 18.9, b / 4000 + 72.7) for a in range(0, 1200) for b in range(0, 1200, 3)),
+        key=lambda p: sum((geo.distance_between(p, (la, ln)) - d) ** 2 for la, ln, d in seen),
+    )
+    snapped = geo.snapped(doctors[0])
+    assert (snapped["base_lat"], snapped["base_lng"]) != base
+    assert geo.haversine_km(*best, *base) > 0.3        # not recovered to ~10 m
+
+
+def test_the_exact_base_is_still_used_to_decide_whether_a_booking_is_in_area():
+    from app.services import geo
+    doc = {"base_lat": 19.07609, "base_lng": 72.87771, "service_radius_km": 5}
+    assert geo.within_service_area(doc, 19.07609, 72.87771) == (True, 0.0)
+
+
+# ── Payouts: a changed destination is held ───────────────────────────────────
+
+def test_a_payout_is_held_after_the_destination_changed():
+    from app.services import payouts
+    from app.errors import AppError
+    entry = {"id": "e1", "status": "payable", "net_amount": 100, "gross_amount": 120,
+             "commission_amount": 20, "bookings": {}}
+    recent = datetime.now(timezone.utc).isoformat()
+    db = make_supabase({
+        "doctor_ledger_entries": make_chain(list_data=[entry]),
+        "doctor_bank_accounts": make_chain(list_data=[{"id": "b1", "updated_at": recent}]),
+    })
+    with patch("app.services.payouts.supabase", db), patch("app.services.payouts.is_payout_eligible", return_value=True):
+        try:
+            payouts.create_payout("doc-1", "2026-01-01", "2026-12-31")
+            raised = None
+        except AppError as exc:
+            raised = exc
+    assert raised is not None and raised.status_code == 409
+
+
+# ── Webhook payloads: personal fields are stripped after reconciliation ──────
+
+def test_webhook_redaction_keeps_reconciliation_fields_and_drops_the_payer():
+    from app.services import webhook_inbox
+    event = {"event": "payment.captured", "created_at": 1,
+             "payload": {"payment": {"entity": {
+                 "id": "pay_1", "order_id": "o1", "amount": 50000, "currency": "INR", "status": "captured",
+                 "contact": "+919811112222", "email": "a@b.in", "vpa": "a@upi", "notes": {"x": "y"},
+                 "card": {"last4": "1111"}}}}}
+    out = webhook_inbox.redact_payload(event)
+    entity = out["payload"]["payment"]["entity"]
+    assert entity == {"id": "pay_1", "order_id": "o1", "amount": 50000, "currency": "INR", "status": "captured"}
+    assert out["redacted"] is True and "9811112222" not in str(out)
+
+
+# ── Legacy complete: a visit that never started cannot be closed ─────────────
+
+def test_a_paid_booking_that_never_started_cannot_be_completed_by_the_doctor():
+    row = {**ROW, "status": "paid", "channel": "online_consult", "started_at": None}
+    db = make_supabase({"bookings": make_chain(data=row)})
+    with patch("app.routers.bookings.supabase", db), patch("app.deps.jwt") as jw, \
+         patch("app.services.booking_state.supabase") as bs:
+        jw.decode.return_value = DOCTOR
+        res = TestClient(app).patch("/bookings/bk-1/complete", headers=AUTH)
+    assert res.status_code == 409
+    bs.rpc.assert_not_called()                      # no transition, so no fee release clock

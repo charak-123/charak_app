@@ -201,9 +201,11 @@ def test_step5_doctor_accepts():
 
 # ── Step 6: Doctor marks booking complete ────────────────────────────────────
 
-def test_step6_booking_completed():
+def test_step6_a_visit_that_never_started_cannot_be_marked_complete():
     # Paid, not merely accepted: a booking completed while still unpaid can
-    # never be charged for afterwards, so the router refuses it.
+    # never be charged for afterwards, so the router refuses it. And one that
+    # was paid but never started has no visit behind it: the doctor must start
+    # the consultation first, not close it on their own word.
     row = _booking("paid")
     completed = {**row, "status": "completed"}
     chain = make_chain()
@@ -219,8 +221,8 @@ def test_step6_booking_completed():
         client = TestClient(app)
         resp = client.patch(f"/bookings/{BOOKING_ID}/complete", headers={"Authorization": DOCTOR_TOKEN})
 
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "completed"
+    assert resp.status_code == 409
+    assert "Start the consultation first" in resp.json()["error"]
 
 
 # ── Step 7: Doctor submits procedure bill (below threshold → auto approved) ───

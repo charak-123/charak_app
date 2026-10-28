@@ -17,7 +17,7 @@ from typing import Optional
 from ..config import CRON_SECRET
 from ..db import supabase
 from ..errors import AppError
-from ..services import app_config, erasure, jobs, notifications, otp_store, refunds
+from ..services import app_config, erasure, jobs, notifications, otp_store, refunds, webhook_inbox
 # Imported for their job handlers: a tick must be able to run every kind
 # that can be queued, whichever routes this instance has served.
 from ..services import prescriptions, remedies, reschedules, visits  # noqa: F401
@@ -165,7 +165,12 @@ def purge_old_rate_limit_hits(_: bool = Depends(require_cron)):
         .data
         or []
     )
-    return {"deleted": len(deleted), "idempotency_keys_deleted": len(keys)}
+    # Raw provider payloads are redacted on the same daily run (see
+    # services/webhook_inbox.py): they carry payer contact details that nothing
+    # needs once the event is reconciled.
+    redacted = webhook_inbox.redact_processed()
+    return {"deleted": len(deleted), "idempotency_keys_deleted": len(keys),
+            "webhook_events_redacted": redacted}
 
 
 @router.post("/purge-deleted-accounts")

@@ -543,7 +543,9 @@ def check_service_area(
             "reason": "This doctor does not offer home visits",
         }
 
-    in_area, distance = geo.within_service_area(doctor, lat, lng)
+    # Anyone signed in can ask this for any address, so answer from the snapped
+    # base: exact distances or a yes/no at the exact radius would give it away.
+    in_area, distance = geo.within_service_area(geo.snapped(doctor), lat, lng)
     reason = None
     if not in_area:
         reason = (

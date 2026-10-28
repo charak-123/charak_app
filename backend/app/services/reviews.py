@@ -143,14 +143,23 @@ def _summary(doctor: dict) -> dict:
     }
 
 
+def _month(timestamp) -> str:
+    """The first of the month. An exact time lets a doctor match a review to the
+    visit they did that day; marketplaces that promise anonymous reviews
+    (Airbnb, Uber, Zocdoc) show the reviewee nothing finer than the aggregate."""
+    parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    return parsed.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
 def _public(review: dict) -> dict:
-    """A review as anyone but its author sees it: never who wrote it."""
+    """A review as anyone but its author sees it: never who wrote it, and never
+    when to the day."""
     return {
         "id": review["id"],
         "overall": review["overall"],
         **{d: review.get(d) for d in DIMENSIONS},
         "comment": review.get("comment"),
-        "created_at": review["created_at"],
+        "created_at": _month(review["created_at"]),
         "edited": bool(review.get("edited_at")),
     }
 

@@ -21,7 +21,7 @@ at the query level first, and callers already work in the same units.
 """
 from __future__ import annotations
 
-from math import asin, cos, degrees, radians, sin, sqrt
+from math import floor, asin, cos, degrees, radians, sin, sqrt
 from typing import Optional
 
 # Mean Earth radius (km). Haversine on a sphere is accurate to roughly 0.5% —
@@ -58,6 +58,27 @@ def distance_between(origin: Optional[tuple], dest: Optional[tuple]) -> Optional
         return None
     return round(haversine_km(float(origin[0]), float(origin[1]),
                               float(dest[0]), float(dest[1])), 2)
+
+
+# Doctors' base points are home addresses for many. Returning exact distances
+# from anywhere the caller likes lets three queries intersect on the point (the
+# trilateration that hit Tinder and Bumble). The fix those apps settled on is to
+# snap the target to the centre of a grid cell on the server and measure from
+# there: every base in a cell looks identical, so the caller learns the cell,
+# about a kilometre across, and never the point. ~0.01 degree is ~1.1 km.
+PRIVACY_GRID_DEG = 0.01
+
+
+def _snap(value: float) -> float:
+    return (floor(float(value) / PRIVACY_GRID_DEG) + 0.5) * PRIVACY_GRID_DEG
+
+
+def snapped(doctor: dict) -> dict:
+    """A copy of the doctor with the base point moved to its grid cell's centre,
+    for any distance or in-area answer shown to someone other than the doctor."""
+    if doctor.get("base_lat") is None or doctor.get("base_lng") is None:
+        return doctor
+    return {**doctor, "base_lat": _snap(doctor["base_lat"]), "base_lng": _snap(doctor["base_lng"])}
 
 
 def bounding_box(lat: float, lng: float, radius_km: float) -> dict:
@@ -114,10 +135,13 @@ def annotate_distance(doctors: list[dict], lat: Optional[float],
             doc["in_service_area"] = None
             continue
 
-        doc["distance_km"] = distance_between((doc.get("base_lat"), doc.get("base_lng")),
+        # Both answers are measured from the snapped base (see PRIVACY_GRID_DEG):
+        # exact distance, or a yes/no at the exact radius, would give the base away.
+        shown = snapped(doc)
+        doc["distance_km"] = distance_between((shown.get("base_lat"), shown.get("base_lng")),
                                               (lat, lng))
         if doc.get("offers_home_visit"):
-            doc["in_service_area"] = within_service_area(doc, lat, lng)[0]
+            doc["in_service_area"] = within_service_area(shown, lat, lng)[0]
         else:
             doc["in_service_area"] = None
     return doctors
