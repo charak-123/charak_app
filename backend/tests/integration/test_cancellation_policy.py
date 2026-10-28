@@ -188,7 +188,9 @@ def test_the_kept_part_becomes_payable_48_hours_after_the_cancel(seed, client_fo
     booking, _ = _paid(db, s, hours_ahead=1.0)
     client_for(s["patient"]["id"]).patch(f"/bookings/{booking['id']}/cancel", headers=AUTH, json={})
     db.table("doctor_bank_accounts").insert({
-        "doctor_id": s["doctor"]["id"], "account_holder": "Dr", "upi_id": "dr@okhdfc"}).execute()
+        "doctor_id": s["doctor"]["id"], "account_holder": "Dr", "upi_id": "dr@okhdfc",
+        # Saved a while ago: a destination changed in the last 48h is held.
+        "updated_at": (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()}).execute()
     window = ((datetime.now(timezone.utc) - timedelta(days=5)).isoformat(),
               (datetime.now(timezone.utc) + timedelta(days=1)).isoformat())
 

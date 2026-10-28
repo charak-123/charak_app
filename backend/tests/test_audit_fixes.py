@@ -338,3 +338,35 @@ def test_a_paid_booking_that_never_started_cannot_be_completed_by_the_doctor():
         res = TestClient(app).patch("/bookings/bk-1/complete", headers=AUTH)
     assert res.status_code == 409
     bs.rpc.assert_not_called()                      # no transition, so no fee release clock
+
+
+def test_purge_erases_review_comments_through_the_database_function():
+    from app.services import erasure
+    db = _erasure_db()
+    with patch("app.services.erasure.supabase", db), patch("app.services.erasure.storage.remove", return_value=True):
+        erasure.purge_patient(U)
+    assert ("redact_patient_reviews", {"p_patient_id": U}) in db.rpc_calls
+    assert any(r.get("status") == "fulfilled" for r in db.rows("dsr_requests"))
+
+
+def test_a_purge_that_could_not_erase_reviews_stays_pending():
+    """If migration 0032 is not applied the function is missing: say so by
+    leaving the request open, not by reporting an erasure that did not happen."""
+    from app.services import erasure
+    db = _erasure_db()
+
+    def missing(_params):
+        raise RuntimeError("function redact_patient_reviews does not exist")
+    db.rpc_handlers["redact_patient_reviews"] = missing
+    with patch("app.services.erasure.supabase", db), patch("app.services.erasure.storage.remove", return_value=True):
+        erasure.purge_patient(U)
+    assert not any(r.get("status") == "fulfilled" for r in db.rows("dsr_requests"))
+
+
+def test_phone_numbers_must_be_ascii_digits():
+    import pytest
+    from app.phone import normalize_e164
+    assert normalize_e164("+91 98765 43210") == "+919876543210"
+    for bad in ("+91٩٨٧٦٥٤٣٢١٠", "+٩١٩٨٧٦٥٤٣٢١٠", "+0919876543210", "+91²8765432100"):
+        with pytest.raises(ValueError):
+            normalize_e164(bad)

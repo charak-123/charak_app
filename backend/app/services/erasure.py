@@ -134,7 +134,16 @@ def purge_patient(user_id: str) -> None:
             "patient_address_lng": None,
         }).eq("id", bid).execute()
 
-    # 3. Patient-authored free text → redacted.
+    # 3. Patient-authored free text → redacted. Review comments live in `reviews`
+    #    (migration 0027) and need the database function: a review is otherwise
+    #    frozen after its edit window. Scores stay; the doctor's rating is built
+    #    from them. If the function is missing (migration 0032 not applied) the
+    #    erasure is not complete and must say so.
+    try:
+        supabase.rpc("redact_patient_reviews", {"p_patient_id": user_id}).execute()
+    except Exception as exc:                                  # noqa: BLE001
+        logger.error("could not erase review comments for %s: %r", user_id, exc)
+        incomplete = True
     for bid in booking_ids:
         supabase.table("ratings").update({"comment": None}).eq("booking_id", bid).execute()
         supabase.table("complaints").update(

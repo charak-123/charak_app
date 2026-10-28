@@ -251,6 +251,8 @@ def test_a_payout_run_takes_completed_visits_and_nets_recoveries(seed, db):
                                      "p_note": "cancelled after payout"}).execute()
     db.table("doctor_bank_accounts").insert({
         "doctor_id": s["doctor"]["id"], "account_holder": "Dr Test", "upi_id": "drtest@okhdfc",
+        # Saved a while ago: a destination changed in the last 48h is held.
+        "updated_at": (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),
     }).execute()
 
     now = datetime.now(timezone.utc)

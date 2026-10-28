@@ -5,12 +5,18 @@ import 'package:charak_core/charak_core.dart';
 import 'package:image_picker/image_picker.dart';
 import 'shell_providers.dart';
 
+// These hold one doctor's profile and payout details. They watch the sign-in
+// token so they are rebuilt, not reused, when anyone signs out or a different
+// doctor signs in on the same device: otherwise the next doctor's Profile tab
+// shows the previous doctor's data until they pull to refresh.
 final _doctorProfileProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  ref.watch(authProvider.select((s) => s.token));
   return await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
 });
 
 /// The payout destination, or null when none is saved yet (404).
 final _payoutAccountProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
+  ref.watch(authProvider.select((s) => s.token));
   try {
     return await ApiClient.instance.get('/payouts/me/bank-account') as Map<String, dynamic>;
   } on ApiException catch (e) {
@@ -21,6 +27,7 @@ final _payoutAccountProvider = FutureProvider<Map<String, dynamic>?>((ref) async
 
 /// The doctor's price list (GET /doctors/me/prices).
 final _pricesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  ref.watch(authProvider.select((s) => s.token));
   return await ApiClient.instance.get('/doctors/me/prices') as Map<String, dynamic>;
 });
 
