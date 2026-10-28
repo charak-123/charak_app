@@ -124,7 +124,7 @@ def _booking_chain(get_row, update_row):
 def test_accept_booking():
     row = _booking("requested")
     chain = _booking_chain(row, {**row, "status": "accepted"})
-    mock_db = make_supabase({"bookings": chain})
+    mock_db = make_supabase({"bookings": chain, "doctors": make_chain(list_data=[{"name": "Dr Rao", "verification_status": "verified", "suspended": False}])})
 
     with patch(PATCH_TARGET, mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = DOCTOR_PAYLOAD

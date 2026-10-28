@@ -599,11 +599,42 @@ def test_a_capture_redelivered_after_the_booking_is_paid_changes_nothing(transit
 
     booking = {"id": "bk-1", "doctor_id": "doc-1", "patient_id": "pat-1", "status": "accepted"}
     payment = {"id": "pay-1", "booking_id": "bk-1", "amount": 500, "type": "consult_fee"}
-    db = make_supabase({"bookings": make_chain(data=booking), "payments": make_chain()})
+    # No other completed payment for this booking: this is a plain redelivery.
+    db = make_supabase({"bookings": make_chain(data=booking), "payments": make_chain(list_data=[])})
     transitions.refuse = ("invalid", "paid")
     with patch("app.routers.payments.supabase", db), \
          patch("app.routers.payments.payouts.credit"), \
          patch("app.routers.payments._refund_orphaned_payment") as refund, \
+         patch("app.routers.payments.refunds.queue") as queue, \
          patch("app.routers.payments.notifications"):
         assert payments._confirm_payment(payment, "rzp_pay_1", "upi") == {"ok": True}
     refund.assert_not_called()
+    queue.assert_not_called()
+
+
+def test_a_second_capture_for_an_already_paid_booking_is_refunded(transitions):
+    """An abandoned order paid after a retry captured twice: the first confirmed
+    the booking, so the second is money taken twice and goes back. The doctor's
+    one credit stays: it belongs to the payment that confirmed the booking."""
+    from app.routers import payments
+
+    booking = {"id": "bk-1", "doctor_id": "doc-1", "patient_id": "pat-1", "status": "accepted"}
+    payment = {"id": "pay-2", "booking_id": "bk-1", "amount": 500, "type": "consult_fee"}
+    db = make_supabase({
+        "bookings": make_chain(data=booking),
+        "payments": make_chain(list_data=[{"id": "pay-1"}]),   # the capture that paid it
+    })
+    transitions.refuse = ("invalid", "paid")
+    with patch("app.routers.payments.supabase", db), \
+         patch("app.routers.payments.payouts.credit"), \
+         patch("app.routers.payments.payouts.reverse") as reverse, \
+         patch("app.routers.payments.refunds.queue", return_value={"id": "rf-1"}) as queue, \
+         patch("app.routers.payments.refunds.execute") as execute, \
+         patch("app.routers.payments.notifications"):
+        out = payments._confirm_payment(payment, "rzp_pay_2", "upi")
+
+    assert out == {"ok": True, "refunded": True}
+    queue.assert_called_once()
+    assert queue.call_args.kwargs["reason"] == "late_capture"
+    execute.assert_called_once()
+    reverse.assert_not_called()

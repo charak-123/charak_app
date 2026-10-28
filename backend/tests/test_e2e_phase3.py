@@ -254,7 +254,7 @@ def test_step9_doctor_accepts_then_completes_the_visit(silent_push):
         MagicMock(data=_booking("requested")),
         MagicMock(data=[accepted]),
     ]
-    db = make_supabase({"bookings": bookings})
+    db = make_supabase({"bookings": bookings, "doctors": make_chain(list_data=[{"name": "Dr Rao", "verification_status": "verified", "suspended": False}])})
 
     for c in _client(DOC_PAYLOAD, db):
         res = c.patch(f"/bookings/{BOOKING_ID}/accept",

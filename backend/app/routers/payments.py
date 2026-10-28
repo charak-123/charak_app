@@ -343,6 +343,17 @@ def _handle_event(event: dict, background) -> dict:
         return {"ok": True}
     payment = payment_rows[0]
 
+    if payment["status"] == "completed" and payment.get("type") == "consult_fee":
+        # _confirm_payment marks the payment completed before it moves the
+        # booking to `paid`, as separate calls. If the second one failed, this
+        # redelivery is the only thing that can finish the job: left as a plain
+        # replay, the booking stays `accepted` until the hold sweeper cancels
+        # it with the patient's money taken. Every step of the confirm is
+        # idempotent, so run it again.
+        booking = fetch_one(supabase.table("bookings").select("id, status").eq("id", payment["booking_id"]))
+        if booking and booking.get("status") == "accepted":
+            return _confirm_payment(payment, entity.get("id"), entity.get("method"), background)
+
     if payment["status"] in ("completed", "refunded", "partially_refunded"):
         # A replayed delivery. A refunded payment counts too: treating it as new
         # would queue its refund a second time.
@@ -461,8 +472,27 @@ def _confirm_payment(
                 return {"ok": True, "refunded": True}
             if refused.current_status != "paid":
                 raise
-            # Already `paid`: a redelivery finishing a confirm that got this far
-            # before. Nothing left to change.
+            # Already `paid`. Either a redelivery finishing a confirm that got
+            # this far before (nothing to change), or a second, different
+            # payment for a booking that another capture already paid, e.g. an
+            # order the patient abandoned that was paid after all. The second
+            # one is money taken twice for one consultation: send it back.
+            other = (
+                supabase.table("payments").select("id")
+                .eq("booking_id", booking["id"]).eq("type", payment["type"])
+                .eq("status", "completed").neq("id", payment["id"]).execute().data or []
+            )
+            if other:
+                # No ledger reversal: the doctor's one credit belongs to the
+                # payment that actually confirmed the booking.
+                refund = refunds.queue(
+                    {**payment, "razorpay_payment_id": razorpay_payment_id},
+                    reason="late_capture", requested_by_role="system",
+                )
+                if refund:
+                    refunds.execute(refund, background)
+                notifications.payment_auto_refunded(booking, payment["amount"], background)
+                return {"ok": True, "refunded": True}
     else:
         supabase.table("procedure_bills").update({"status": "paid"}) \
             .eq("booking_id", booking["id"]).execute()
@@ -509,7 +539,9 @@ def stub_complete_payment(
     credits and notifications behave identically in development. Refuses outright
     once live keys are present.
     """
-    if not ALLOW_INSECURE_PAYMENTS:
+    # Both gates, like the webhook: the flag alone left a deploy that set it
+    # next to live keys letting any patient mark their own booking paid.
+    if not ALLOW_INSECURE_PAYMENTS or live_mode():
         raise AppError("Not available: set ALLOW_INSECURE_PAYMENTS for local dev", 403)
 
     kind = (body or OrderRequest()).type

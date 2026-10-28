@@ -28,7 +28,7 @@ if not os.getenv("CHARAK_INTEGRATION"):
 for _credential in (
     "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
     "FCM_PROJECT_ID", "FCM_SERVER_KEY", "GOOGLE_APPLICATION_CREDENTIALS",
-    "FIREBASE_ADMIN_CREDENTIALS_JSON", "MSG91_API_KEY", "OPENAI_API_KEY",
+    "FIREBASE_ADMIN_CREDENTIALS_JSON", "OPENAI_API_KEY",
     "VERTEX_PROJECT_ID", "AGORA_APP_ID", "AGORA_APP_CERTIFICATE",
 ):
     os.environ[_credential] = ""
@@ -358,6 +358,7 @@ def make_chain(data=None, list_data=None):
     c.delete.return_value = c
     c.eq.return_value = c
     c.in_.return_value = c
+    c.neq.return_value = c
     c.gte.return_value = c
     c.lte.return_value = c
     c.lt.return_value = c
@@ -389,6 +390,7 @@ def make_chain_seq(*execute_data_list):
     c.delete.return_value = c
     c.eq.return_value = c
     c.in_.return_value = c
+    c.neq.return_value = c
     c.gte.return_value = c
     c.lte.return_value = c
     c.lt.return_value = c

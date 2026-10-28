@@ -396,6 +396,14 @@ def accept_booking(
     if app_config.get("require_legal_acceptance") is True:
         legal.require(user["sub"], "doctor", legal.REQUIRED["doctor"])
 
+    # create_booking checks the doctor is listed, but a request can already be
+    # open when ops suspend or reject them. Accepting releases the patient's
+    # address and starts their payment hold, so the check has to run here too.
+    standing = supabase.table("doctors").select("verification_status, suspended") \
+        .eq("id", user["sub"]).execute().data or []
+    if not standing or standing[0].get("suspended") or standing[0].get("verification_status") != "verified":
+        raise AppError("Your account cannot accept requests right now.", 403)
+
     updated = booking_state.transition(
         booking_id, "accept", actor_role="doctor", actor_id=user["sub"], expected="requested",
         patch={
@@ -448,7 +456,9 @@ def decline_booking(
     doctor_name = (doctor[0].get("name") if doctor else None) or "The doctor"
     notifications.booking_declined({**b, **updated}, doctor_name, background)
 
-    return updated
+    # The RPC returns the whole row. A decline before accept must not hand the
+    # doctor the address the list and detail views withhold.
+    return _redact_address_for_doctor(updated)
 
 
 # ── Complete ──────────────────────────────────────────────────────────────────
@@ -658,7 +668,7 @@ def cancel_booking(
             incidents.record_late_cancel(booking, background)
         except Exception as exc:                  # noqa: BLE001 — the cancel stands
             logger.error("could not record late cancel for %s: %r", booking_id, exc)
-    return {
+    response = {
         **updated,
         "quote": _quote_view(quote),
         "refunded_payments": len(queued),
@@ -667,6 +677,8 @@ def cancel_booking(
             for r in sent
         ],
     }
+    # A doctor cancelling before accept must not receive the address either.
+    return _redact_address_for_doctor(response) if by == "doctor" else response
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

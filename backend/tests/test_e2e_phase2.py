@@ -189,7 +189,7 @@ def test_step5_doctor_accepts():
         return MagicMock(data=row) if n["v"] == 1 else MagicMock(data=[accepted])
     chain.execute.side_effect = exec_
 
-    mock_db = make_supabase({"bookings": chain})
+    mock_db = make_supabase({"bookings": chain, "doctors": make_chain(list_data=[{"name": "Dr Rao", "verification_status": "verified", "suspended": False}])})
     with patch("app.routers.bookings.supabase", mock_db), patch(JWT_TARGET) as jw:
         jw.decode.return_value = DOC_PAYLOAD
         client = TestClient(app)

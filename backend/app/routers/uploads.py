@@ -15,7 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor, require_permission
 from ..errors import AppError
-from ..services import storage, transcription
+from ..services import admin_roles, audit, storage, transcription
 from ..services.rate_limit import rate_limiter
 
 router = APIRouter()
@@ -172,11 +172,14 @@ def read_verification_document(doctor_id: str, user: dict = Depends(get_current_
     """
     Signed URL for a doctor's verification document.
 
-    Readable by ops — this is what the admin verification queue previews — and by
-    the doctor themselves, so they can confirm what they submitted. Nobody else:
-    patients have no business reading a doctor's identity documents.
+    Readable by ops staff who may verify doctors (doctors.verify) — this is what
+    the admin verification queue previews, and the read is audited — and by the
+    doctor themselves, so they can confirm what they submitted. Nobody else:
+    patients, and ops roles without that permission, have no business reading a
+    doctor's identity documents.
     """
-    if user.get("role") != "ops" and user.get("sub") != doctor_id:
+    is_self = user.get("role") == "doctor" and user.get("sub") == doctor_id
+    if not is_self and not admin_roles.can(user, "doctors.verify"):
         raise AppError("Forbidden", 403)
 
     doctor = fetch_one(
@@ -189,6 +192,8 @@ def read_verification_document(doctor_id: str, user: dict = Depends(get_current_
     if not doctor.get("verification_document_path"):
         raise AppError("No verification document has been submitted", 404)
 
+    if not is_self:
+        audit.record_or_refuse(user, "doctors", doctor_id, "verification_document_read")
     return {
         "url": storage.signed_url(storage.BUCKET_VERIFICATION,
                                   doctor["verification_document_path"]),

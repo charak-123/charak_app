@@ -241,15 +241,19 @@ def download(bucket: str, path: str) -> Optional[bytes]:
         return None
 
 
-def remove(bucket: str, path: str) -> None:
+def remove(bucket: str, path: str) -> bool:
     """
     Delete an object. Best-effort: a failed cleanup of a replaced file is not
-    worth failing the request the user actually made.
+    worth failing the request the user actually made, so this logs and returns
+    False rather than raising. Erasure must check the result: it may only forget
+    where a file is once the file is gone.
     """
     try:
         supabase.storage.from_(bucket).remove([path])
+        return True
     except Exception as exc:  # pragma: no cover
         logger.error("could not delete %s/%s: %s", bucket, path, exc)
+        return False
 
 
 def ensure_buckets() -> dict:

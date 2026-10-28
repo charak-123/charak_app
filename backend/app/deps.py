@@ -11,7 +11,7 @@ from .db import supabase
 _REVOCABLE_TABLES = {"patient": "users", "doctor": "doctors"}
 
 
-def _session_revoked(role: str, user_id: str, issued_at) -> bool:
+def _session_revoked(role: str, user_id: str, issued_at, admin_role=None) -> bool:
     """
     True if `issued_at` (the token's `iat`, a unix timestamp) is older than the
     account's `sessions_revoked_at` — i.e. this specific token was minted
@@ -19,13 +19,25 @@ def _session_revoked(role: str, user_id: str, issued_at) -> bool:
 
     An ops token is revoked once its admin_users row is gone: removing an
     admin has to end their access now, not when their 12-hour token expires.
+
+    The token also carries the admin's role (``admin_role``). If ops changed it
+    since sign-in, the token is revoked too: a demoted admin must not keep the
+    old permissions until the token expires.
     """
     if role == "ops":
         try:
-            admin = supabase.table("admin_users").select("id").eq("id", user_id).execute().data
-        except APIError:   # a sub that is not even a uuid
+            admin = supabase.table("admin_users").select("id, role").eq("id", user_id).execute().data
+        except APIError:
+            # Either a sub that is not even a uuid, or a database that predates
+            # the role column (migration 0029). Tell them apart: existence only.
+            try:
+                admin = supabase.table("admin_users").select("id").eq("id", user_id).execute().data
+            except APIError:
+                return True
+        if not admin:
             return True
-        return not admin
+        current = admin[0].get("role")
+        return bool(current and admin_role and current != admin_role)
 
     table = _REVOCABLE_TABLES.get(role)
     if not table or issued_at is None:
@@ -56,7 +68,8 @@ def get_current_user(authorization: str = Header(...)) -> dict:
     except InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    if _session_revoked(payload.get("role"), payload.get("sub"), payload.get("iat")):
+    if _session_revoked(payload.get("role"), payload.get("sub"), payload.get("iat"),
+                        payload.get("admin_role")):
         raise HTTPException(status_code=401, detail="Session revoked. Please sign in again.")
 
     return payload  # {"sub": id, "role": "patient"|"doctor"|"ops"}
