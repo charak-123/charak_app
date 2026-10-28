@@ -34,7 +34,9 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
   Future<void> _accept() async {
     setState(() => _deciding = true);
     try {
-      await ApiClient.instance.patch('/bookings/${widget.bookingId}/accept', {});
+      // A new Practitioner Agreement or policy version is signed first.
+      await charakWithSignatures(
+          context, () => ApiClient.instance.patch('/bookings/${widget.bookingId}/accept', {}));
       if (mounted) context.go('/visit/${widget.bookingId}');
     } on ApiException catch (e) {
       if (mounted) _showError(e.message);

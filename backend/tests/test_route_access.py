@@ -30,6 +30,7 @@ PUBLIC = {
     ("GET", "/config/app"): "minimum app version, before sign-in",
     ("GET", "/legal/current"): "documents to show before sign-up",
     ("GET", "/legal/cancellation-policy"): "the policy shown before booking",
+    ("GET", "/legal/documents/{doc_type}"): "the published text of a legal document, as on the website",
 }
 AUTH_PREFIXES = ("/auth/",)  # sign-in flows: OTP, Google, Firebase (rate-limited)
 

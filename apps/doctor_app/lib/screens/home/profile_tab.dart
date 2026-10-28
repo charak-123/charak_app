@@ -208,14 +208,10 @@ class ProfileTab extends ConsumerWidget {
                   onTap: () => CharakLegal.open(CharakLegal.supportUrl),
                 ),
                 CharakListRow(
-                  icon: LucideIcons.shieldAlert,
-                  title: 'Privacy policy',
-                  onTap: () => CharakLegal.open(CharakLegal.privacyUrl),
-                ),
-                CharakListRow(
                   icon: LucideIcons.fileText,
-                  title: 'Terms of service',
-                  onTap: () => CharakLegal.open(CharakLegal.termsUrl),
+                  title: 'Agreement and policies',
+                  subtitle: 'Read them in full, and see what you signed',
+                  onTap: () => CharakLegalCenterScreen.open(context),
                 ),
                 CharakListRow(
                   icon: LucideIcons.logOut,

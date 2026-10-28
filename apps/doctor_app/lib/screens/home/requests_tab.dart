@@ -103,7 +103,9 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
     await Future<void>.delayed(CharakMotion.exit);
     if (!mounted) return;
     try {
-      await ApiClient.instance.patch('/bookings/$bookingId/accept', {});
+      // A new Practitioner Agreement or policy version is signed first.
+      await charakWithSignatures(
+          context, () => ApiClient.instance.patch('/bookings/$bookingId/accept', {}));
       _fresh.remove(bookingId);
       ref.invalidate(_incomingProvider);
       if (mounted) showCharakToast(context, message: 'Accepted · the patient has been asked to pay');

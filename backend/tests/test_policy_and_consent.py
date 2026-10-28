@@ -119,5 +119,61 @@ def test_the_policy_for_a_channel_is_served_for_the_confirm_screen():
     finally:
         p.stop()
     assert res.status_code == 200
-    assert set(res.json()) == {"channel", "version", "summary", "free_cancellation_minutes"}
+    assert set(res.json()) == {"channel", "version", "summary", "free_cancellation_minutes",
+                               "points", "refund_timing"}
+    assert all(set(pt) == {"when", "outcome", "tone"} for pt in res.json()["points"])
     assert bad.status_code == 400
+
+
+# ── Every case, for the confirm screen ───────────────────────────────────────
+
+HOME_RULES = [{"when": {"journey_started": True}, "refund_pct": 0},
+              {"when": {"minutes_before_start_lt": 120}, "refund_pct": 50},
+              {"when": {}, "refund_pct": 100}]
+
+
+def test_the_home_visit_rules_read_earliest_first():
+    rows = cancellation._patient_points("home_visit", HOME_RULES)
+    assert [(r["when"], r["outcome"]) for r in rows] == [
+        ("You cancel 2 hours or more before the visit", "Full refund"),
+        ("You cancel less than 2 hours before the visit and the doctor hasn't set out", "50% refund"),
+        ("You cancel after the doctor has started travelling", "No refund"),
+    ]
+    assert [r["tone"] for r in rows] == ["full", "partial", "none"]
+
+
+def test_a_full_refund_any_time_reads_as_one_line():
+    rows = cancellation._patient_points("online_consult", [{"when": {}, "refund_pct": 100}])
+    assert rows == [{"when": "You cancel any time before the consultation starts",
+                     "outcome": "Full refund", "tone": "full"}]
+
+
+def test_two_time_windows_read_as_bands():
+    rules = [{"when": {"minutes_before_start_lt": 15}, "refund_pct": 0},
+             {"when": {"minutes_before_start_lt": 60}, "refund_pct": 50},
+             {"when": {}, "refund_pct": 100}]
+    assert [r["when"] for r in cancellation._patient_points("online_consult", rules)] == [
+        "You cancel 1 hour or more before the consultation",
+        "You cancel between 15 minutes and 1 hour before the consultation",
+        "You cancel less than 15 minutes before the consultation",
+    ]
+
+
+def test_a_rule_the_quote_wouldnt_understand_is_not_described():
+    """Better the summary alone than a line that disagrees with the refund."""
+    assert cancellation._patient_points("home_visit", [{"when": {"weekday": "sun"}, "refund_pct": 0},
+                                                       {"when": {}, "refund_pct": 100}]) == []
+
+
+def test_every_case_is_covered_with_the_enforced_settings():
+    with patch("app.services.incidents.app_config.get", return_value=None), \
+         patch("app.services.app_config.get", return_value=None):
+        rows = cancellation.points({"channel": "home_visit", "rules": HOME_RULES})
+        online = cancellation.points({"channel": "online_consult", "rules": [{"when": {}, "refund_pct": 100}]})
+    whens = [r["when"] for r in rows]
+    assert whens[0] == "You withdraw your request before the doctor accepts"
+    assert "The doctor cancels" in whens
+    assert "The doctor hasn't arrived 30 minutes after the start" in whens        # the grace the report uses
+    assert "The doctor hasn't joined 10 minutes after the start" in [r["when"] for r in online]
+    assert whens[-1] == "You miss the visit" and rows[-1]["outcome"] == "No refund"
+    assert "24 hours" in next(r["outcome"] for r in rows if r["when"].startswith("The doctor hasn't"))

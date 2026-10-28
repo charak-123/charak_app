@@ -1,30 +1,43 @@
 # Charak legal documents
 
-**The published text lives in the website repo** (`charak site`,
-`src/pages/Legal.jsx`) and is served at:
+**The text people sign lives here, in this folder**, one folder per version:
 
-- https://www.charak.care/privacy
-- https://www.charak.care/terms
-- https://www.charak.care/telemedicine
-- https://www.charak.care/disclaimer
+- `2026-10-28/terms-of-use.md`: patients
+- `2026-10-28/practitioner-agreement.md`: doctors
+- `2026-10-28/privacy-policy.md`: everyone
+- `2026-10-28/refund-cancellation-policy.md`: everyone
+- `2026-10-28/telemedicine-consent.md`: patients, before their first online consultation
 
-Those pages cover the website and both apps. The markdown files in this folder
-are the earlier app-only drafts, kept for reference; edit the website, not these.
+The apps show each document in full and people sign it there (LD-014 in
+[`DECISIONS.md`](DECISIONS.md)). Every signature records the version and the SHA-256
+fingerprint of the text (`consents.document_sha256`).
 
-**Status: DRAFT for legal review. Not legal advice.** A qualified lawyer must
-review the text and confirm the retention periods, grievance-officer details and
-any state-specific medical-record rules. Fill in the `ENTITY` placeholders at
-the top of `Legal.jsx` before launch.
+## Publishing a new version
 
-The published versions live in the `legal_documents` table (migration 0024),
-and consent is recorded against them in `consents` (append-only, with how it
-was given and for which booking). When a document changes materially, publish
-the new text on the website, then add a row for the new version
-(docs/runbooks/backend_go_live.md §6c). The apps ask everyone again on their
-next visit to home, and booking refuses until they accept once the
-`require_legal_acceptance` switch is on. The versions are no longer hard-coded
-in the apps.
+1. Copy the latest folder to a new one named for the new version, and edit the text.
+   The header at the top of each file sets its type, title, audience and key points.
+   Use only what the apps render: `##`/`###` headings, paragraphs, `- ` and `1. `
+   lists, two-column tables, `**bold**` and `*italic*`.
+2. `python3 docs/legal/publish.py <version> <next migration number>` writes the
+   migration. `--check` fails if it is out of date (the backend tests run it too).
+3. Apply the migration. The new version is inactive until someone approves it in
+   admin → Policies, after reading the full text there.
+4. Once approved, everyone it applies to is asked to sign it the next time they open
+   the app; the server refuses booking (patients) or accepting a booking (doctors)
+   until they do, once `require_legal_acceptance` is on.
 
-**Decisions** behind these documents (jurisdiction, fees, refunds, retention, and so
-on) are recorded in [`DECISIONS.md`](DECISIONS.md). Read it before you change any
-legal text.
+Never edit a published folder: the database refuses changes to a published version,
+and signatures point at its fingerprint.
+
+## The website
+
+The website (`charak site`, `src/pages/Legal.jsx`) still has the older text, which
+differs from these documents (it mentions a platform commission, a full refund for
+every cancellation, Navi Mumbai courts and Fly.io hosting) and has no Practitioner
+Agreement or Cancellation & Refund Policy page. Update it from these files.
+
+**Status: for legal review. Not legal advice.** A qualified lawyer must review the
+text before it is approved for use (D20).
+
+`2026-10-01/`-era drafts (`terms-of-service.md`, `privacy-policy.md`,
+`telemedicine-consent.md` in this folder's root) are kept for history only.

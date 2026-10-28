@@ -297,9 +297,9 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                       ),
                       data: (docs) => docs.isEmpty
                           ? const SizedBox.shrink()
-                          : CharakConsentChecklist(
+                          : CharakAgreementsList(
                               documents: docs,
-                              onAllChecked: (v) => setState(() => _consented = v),
+                              onAllAgreed: (v) => setState(() => _consented = v),
                             ),
                     ),
 

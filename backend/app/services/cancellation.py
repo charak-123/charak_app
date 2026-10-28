@@ -74,7 +74,103 @@ def public_policy(policy: dict) -> dict:
         "version": policy["version"],
         "summary": policy["summary"],
         "free_cancellation_minutes": free_cancellation_minutes(policy.get("rules")),
+        "points": points(policy),
+        "refund_timing": REFUND_TIMING,
     }
+
+
+# What the Cancellation & Refund Policy (docs/legal) promises about timing.
+REFUND_TIMING = "Refunds go back to the way you paid, usually within 5 to 7 working days."
+
+
+def _duration(minutes: int) -> str:
+    if minutes % 60 == 0:
+        hours = minutes // 60
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    return f"{minutes} minutes"
+
+
+def _outcome(pct: int) -> tuple[str, str]:
+    if pct >= 100:
+        return "Full refund", "full"
+    if pct <= 0:
+        return "No refund", "none"
+    return f"{pct}% refund", "partial"
+
+
+def _patient_points(channel: str, rules: list) -> list[dict]:
+    """
+    The patient's own cancellation, one line per rule, earliest first, from
+    the rules cancellation_quote() applies. Only the shapes that function
+    understands (journey_started, minutes_before_start_lt, the catch-all);
+    anything else returns [] and the apps show the summary alone rather than
+    a description that might not match the refund.
+    """
+    visit = "visit" if channel == "home_visit" else "consultation"
+    journey, timed, catch_all = None, [], None
+    for rule in rules or []:
+        when = rule.get("when") or {}
+        pct = int(rule.get("refund_pct", 100))
+        if set(when) - {"journey_started", "minutes_before_start_lt"}:
+            return []
+        if when.get("journey_started") is True and len(when) == 1:
+            journey = journey if journey is not None else pct
+        elif set(when) == {"minutes_before_start_lt"}:
+            timed.append((int(when["minutes_before_start_lt"]), pct))
+        elif not when:
+            catch_all = pct
+            break                                  # nothing after it can match
+        else:
+            return []
+
+    out = []
+    timed.sort(reverse=True)
+    travelling = " and the doctor hasn't set out" if journey is not None else ""
+    if catch_all is not None:
+        when = (f"You cancel {_duration(timed[0][0])} or more before the {visit}"
+                if timed else f"You cancel any time before the {visit} starts")
+        out.append((when, catch_all))
+    for i, (minutes, pct) in enumerate(timed):
+        when = f"You cancel less than {_duration(minutes)} before the {visit}{travelling}"
+        if i + 1 < len(timed):
+            when = (f"You cancel between {_duration(timed[i + 1][0])} and {_duration(minutes)} "
+                    f"before the {visit}{travelling}")
+        out.append((when, pct))
+    if journey is not None:
+        out.append(("You cancel after the doctor has started travelling", journey))
+    return [{"when": w, "outcome": _outcome(p)[0], "tone": _outcome(p)[1]} for w, p in out]
+
+
+def points(policy: dict) -> list[dict]:
+    """
+    Every case the Cancellation & Refund Policy covers for this kind of
+    booking, as {when, outcome, tone}: the patient's own cancellation from the
+    policy's rules, then what happens when the doctor cancels, moves the
+    booking or doesn't come, from the same settings the backend enforces.
+    tone is full / partial / none / choice, for colour.
+    """
+    from . import incidents                       # imports notifications; keep this module light
+    from .app_config import get as config
+
+    channel = policy["channel"]
+    grace = incidents.grace_minutes(channel)
+    remedy_hours = int(config("remedy_default_refund_hours", 24) or 24)
+    absent = (f"The doctor hasn't arrived {grace} minutes after the start" if channel == "home_visit"
+              else f"The doctor hasn't joined {grace} minutes after the start")
+    moved = ("The doctor can't keep the time" if channel == "home_visit"
+             else "The doctor can't keep the time, or the call fails")
+    return [
+        {"when": "You withdraw your request before the doctor accepts",
+         "outcome": "Nothing is charged", "tone": "full"},
+        *_patient_points(channel, policy.get("rules")),
+        {"when": "The doctor cancels", "outcome": "Full refund", "tone": "full"},
+        {"when": moved, "outcome": "A new time or a full refund, your choice", "tone": "choice"},
+        {"when": absent,
+         "outcome": f"A full refund or another doctor, your choice (refunded if you don't choose "
+                    f"within {remedy_hours} hours)", "tone": "choice"},
+        {"when": "You miss the " + ("visit" if channel == "home_visit" else "consultation"),
+         "outcome": "No refund", "tone": "none"},
+    ]
 
 
 def quote(booking_id: str, actor_role: str) -> dict:

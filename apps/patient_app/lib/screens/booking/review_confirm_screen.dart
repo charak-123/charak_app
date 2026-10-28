@@ -39,15 +39,20 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
   Future<void> _send({
     required Map<String, dynamic> policy,
     CharakLegalDocument? telemedicine,
+    CharakLegalDocument? refundPolicy,
   }) async {
     setState(() => _sending = true);
     try {
       final b = widget.booking;
 
-      // First online consultation: record the telemedicine consent the
-      // patient just ticked, before the booking that relies on it.
-      if (telemedicine != null) {
-        await CharakLegal.accept([telemedicine], method: 'booking_confirmation');
+      // What the patient just agreed to here, recorded before the booking
+      // that relies on it: the telemedicine consent at a first online
+      // consultation, and the Cancellation & Refund Policy if this version
+      // hasn't been signed yet. (The rules for this booking are recorded with
+      // it by the server, from accepted_policy_version.)
+      final agreed = [telemedicine, refundPolicy].whereType<CharakLegalDocument>().toList();
+      if (agreed.isNotEmpty) {
+        await CharakLegal.accept(agreed, method: 'booking_confirmation');
       }
 
       final created = await _create(b, policy['version'] as String);
@@ -114,7 +119,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
     } on ApiException catch (e) {
       final needed = CharakLegalDocument.listFrom(e.body?['consent_required']);
       if (e.statusCode != 428 || needed.isEmpty || !mounted) rethrow;
-      final ok = await showCharakConsentSheet(context, needed, method: 'reconsent');
+      final ok = await showCharakAgreements(context, needed, method: 'reconsent');
       if (!ok) rethrow;
       return await post();
     }
@@ -214,6 +219,8 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
     final telemedicine = isHome
         ? null
         : legal?.documents.where((d) => d.type == 'telemedicine' && !d.accepted).firstOrNull;
+    // The full policy behind the rules below, once it is published (0030).
+    final refundDoc = legal?.documents.where((d) => d.type == 'refund_policy').firstOrNull;
     final freeMinutes = (policy?['free_cancellation_minutes'] as num?)?.toInt();
     final startAt = DateTime.tryParse(start)?.toLocal();
     final freeUntil = (freeMinutes != null && startAt != null)
@@ -301,44 +308,43 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
               style: charakHintStyle,
             ),
 
-            // ── Cancellation policy, shown and ticked before booking ─────
+            // ── Every cancellation case, read and agreed before booking ──
             const SizedBox(height: 18),
             policyAsync.when(
-              loading: () => const CharakSkeleton(height: 120, radius: 26),
+              loading: () => const CharakSkeleton(height: 220, radius: 26),
               error: (e, _) => CharakErrorState(
                 error: e,
                 onRetry: () => ref.invalidate(_policyProvider(channel)),
               ),
-              data: (policy) => CharakSummaryCard(
-                title: 'Cancellation',
-                rows: [
-                  Text(
-                    freeUntil != null
-                        ? 'Free cancellation until ${CharakFormat.dayTime(freeUntil)}'
-                        : 'Free cancellation until the consultation starts',
-                    style: CharakText.label.copyWith(color: CharakColors.ink),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(policy['summary'] as String? ?? '',
-                      style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
-                  const SizedBox(height: 6),
-                  CharakCheckRow(
-                    value: _policyTicked,
-                    onChanged: (v) => setState(() => _policyTicked = v),
-                    label: "I've read the cancellation policy",
-                  ),
-                  if (telemedicine != null)
+              data: (policy) => CharakCancellationRules(
+                policy: policy,
+                freeUntil: freeUntil,
+                onReadPolicy: refundDoc == null
+                    ? null
+                    : () => CharakLegalReaderScreen.open(context, refundDoc),
+                footer: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  if (refundDoc != null)
+                    CharakPolicyAgreeRow(
+                      value: _policyTicked,
+                      onChanged: (v) => setState(() => _policyTicked = v),
+                      title: refundDoc.title,
+                      onOpen: () => CharakLegalReaderScreen.open(context, refundDoc),
+                    )
+                  else
                     CharakCheckRow(
+                      value: _policyTicked,
+                      onChanged: (v) => setState(() => _policyTicked = v),
+                      label: 'I agree to these cancellation rules',
+                    ),
+                  if (telemedicine != null)
+                    CharakPolicyAgreeRow(
                       value: _telemedicineTicked,
                       onChanged: (v) => setState(() => _telemedicineTicked = v),
-                      spans: [
-                        const TextSpan(text: 'I accept the '),
-                        CharakCheckRow.link(telemedicine.title,
-                            () => CharakLegal.open(telemedicine.url)),
-                        const TextSpan(text: ' for consultations by video'),
-                      ],
+                      title: telemedicine.title,
+                      onOpen: () => CharakLegalReaderScreen.open(context, telemedicine),
+                      suffix: ' for consultations by video',
                     ),
-                ],
+                ]),
               ),
             ),
             const SizedBox(height: 10),
@@ -357,7 +363,7 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
               : Text(
                   telemedicine != null && !_telemedicineTicked && _policyTicked
                       ? 'Accept the telemedicine consent below to continue.'
-                      : 'Tick the cancellation policy below to continue.',
+                      : 'Agree to the cancellation rules below to continue.',
                   style: charakHintStyle,
                   textAlign: TextAlign.center,
                 ),
@@ -367,7 +373,11 @@ class _State extends ConsumerState<ReviewConfirmScreen> {
                 label: price > 0 && !replacing ? 'Send request · ${CharakFormat.rupees(price)}' : 'Send request',
                 isLoading: _sending,
                 onPressed: ready && !_sending
-                    ? () => _send(policy: policy, telemedicine: telemedicine)
+                    ? () => _send(
+                          policy: policy,
+                          telemedicine: telemedicine,
+                          refundPolicy: refundDoc != null && !refundDoc.accepted ? refundDoc : null,
+                        )
                     : null,
               ),
             ),
