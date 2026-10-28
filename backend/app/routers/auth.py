@@ -1,19 +1,19 @@
 """
-Authentication: Google Sign-In, and phone + OTP.
+Authentication: Google Sign-In, Firebase (Google or phone), and the legacy
+phone + OTP routes.
 
-Google Sign-In is the live path until DLT approval lets MSG91 deliver SMS; the
-OTP endpoints stay so phone login can come back without a migration.
+Phone sign-in in production goes through Firebase (/auth/firebase). The
+/auth/send-otp and /auth/verify-otp routes remain only as a development path:
+there is no SMS gateway, so send-otp works only with ALLOW_OTP_STUB and prints
+the code to the server log.
 
 OTP state lives in the ``otp_codes`` table (see ``services/otp_store.py``), not
 in process memory, so login survives restarts and works behind more than one
 worker.
 
-SMS delivery falls back to printing the code when MSG91_API_KEY is unset — the
-only behaviour that changes when real credentials arrive.
 """
 from datetime import datetime, timedelta, timezone
 
-import httpx
 from fastapi import APIRouter
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
@@ -25,9 +25,6 @@ from ..config import (
     DEMO_LOGIN_ENABLED,
     GOOGLE_CLIENT_IDS,
     JWT_SECRET,
-    MSG91_API_KEY,
-    MSG91_SENDER_ID,
-    MSG91_TEMPLATE_ID,
     OTP_ALLOWED_COUNTRY_CODES,
 )
 from ..db import supabase
@@ -91,38 +88,17 @@ def _issue_jwt(user_id: str, role: str) -> str:
 
 
 async def _send_sms(phone: str, code: str) -> None:
-    if not MSG91_API_KEY:
-        print(f"\n{'=' * 40}\n[OTP STUB]  {phone}  →  {code}\n{'=' * 40}\n")
-        return
-
-    async with httpx.AsyncClient(timeout=10) as client:
-        res = await client.post(
-            "https://api.msg91.com/api/v5/otp",
-            headers={
-                "authkey": MSG91_API_KEY,
-                "accept": "application/json",
-                "content-type": "application/json",
-            },
-            json={
-                "template_id": MSG91_TEMPLATE_ID,
-                "mobile": phone.lstrip("+"),
-                "otp": code,
-                "sender": MSG91_SENDER_ID,
-            },
-        )
-        # A non-2xx means the patient will never receive the code, so surface it
-        # rather than leaving them staring at an OTP screen that cannot succeed.
-        if res.status_code >= 400:
-            raise AppError("Could not send OTP right now. Please try again.", 502)
+    """Development stub: there is no SMS gateway, so the code goes to the log."""
+    print(f"\n{'=' * 40}\n[OTP STUB]  {phone}  →  {code}\n{'=' * 40}\n")
 
 
 # Per caller, on top of otp_store's per-number cap. The per-number cap alone
 # still lets one machine walk a list of numbers and spend an SMS on each.
 @router.post("/send-otp", dependencies=[rate_limiter("send-otp", 20, 3600)])
 async def send_otp(req: SendOTPRequest):
-    # No SMS gateway and no explicit dev opt-in: refuse up front rather than
-    # issue a code that only the server log will ever see.
-    if not MSG91_API_KEY and not ALLOW_OTP_STUB:
+    # No SMS gateway: without the explicit dev opt-in, refuse up front rather
+    # than issue a code that only the server log will ever see.
+    if not ALLOW_OTP_STUB:
         raise AppError("Phone sign-in is not available. Continue with Google.", 503)
     if not any(req.phone.startswith(cc) for cc in OTP_ALLOWED_COUNTRY_CODES):
         raise AppError("Phone sign-in is only available for Indian (+91) numbers.", 400)

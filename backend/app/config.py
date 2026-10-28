@@ -8,10 +8,6 @@ SUPABASE_ANON_KEY        = os.environ["SUPABASE_ANON_KEY"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 JWT_SECRET               = os.environ["JWT_SECRET"]
 
-MSG91_API_KEY    = os.getenv("MSG91_API_KEY", "")
-MSG91_SENDER_ID  = os.getenv("MSG91_SENDER_ID", "CHARAK")
-MSG91_TEMPLATE_ID = os.getenv("MSG91_TEMPLATE_ID", "")
-
 RAZORPAY_KEY_ID     = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
@@ -94,9 +90,10 @@ PAYMENT_MAX_ATTEMPTS = int(os.getenv("PAYMENT_MAX_ATTEMPTS", "6"))
 # a production deploy that simply forgot to set keys would accept free payments.
 ALLOW_INSECURE_PAYMENTS = os.getenv("ALLOW_INSECURE_PAYMENTS", "").lower() in ("1", "true", "yes")
 
-# Explicit opt-in for printing OTP codes to the server log instead of sending
-# them by SMS. Local development only. Without it, and without MSG91 keys, phone
-# sign-in is switched off (send-otp returns 503) — the apps sign in with Google.
+# Explicit opt-in for the legacy /auth/send-otp route, which prints the code to
+# the server log (there is no SMS gateway). Local development only. Without it
+# send-otp returns 503; phone sign-in goes through Firebase (/auth/firebase) and
+# the apps otherwise sign in with Google.
 ALLOW_OTP_STUB = os.getenv("ALLOW_OTP_STUB", "").lower() in ("1", "true", "yes")
 
 # ── Ops ──────────────────────────────────────────────────────────────────────
