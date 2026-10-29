@@ -126,16 +126,22 @@ class Note(BaseModel):
     note: str = Field(min_length=5, max_length=1000)
 
 
+def _for_doctor(incident: dict) -> dict:
+    """The patient's own words stay with ops (incidents.doctor_cases and the
+    booking help view strip them too)."""
+    return {k: v for k, v in incident.items() if k != "patient_note"}
+
+
 @incidents_router.post("/{incident_id}/respond")
 def respond(incident_id: str, body: Note, user: dict = Depends(require_doctor)):
     """The doctor's account of what happened. Ops reads it before deciding."""
-    return incidents.public(incidents.respond(incident_id, user["sub"], body.note))
+    return _for_doctor(incidents.public(incidents.respond(incident_id, user["sub"], body.note)))
 
 
 @incidents_router.post("/{incident_id}/appeal")
 def appeal(incident_id: str, body: Note, user: dict = Depends(require_doctor)):
     """Contest a confirmed case that counts against you (once, within 7 days)."""
-    return incidents.public(incidents.appeal(incident_id, user["sub"], body.note))
+    return _for_doctor(incidents.public(incidents.appeal(incident_id, user["sub"], body.note)))
 
 
 # ── Reschedule answers ───────────────────────────────────────────────────────

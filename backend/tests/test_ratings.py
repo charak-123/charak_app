@@ -83,12 +83,20 @@ def test_a_second_review_is_refused():
     assert res.status_code == 409
 
 
-def test_the_doctor_reads_the_review_without_its_edit_window():
+def test_the_doctor_is_not_handed_the_review_by_booking():
+    """Reviews are anonymous. A doctor knows which patient each booking was, so
+    returning the review by booking would name its author."""
     res = _get(DOCTOR, {"bookings": make_chain(data=COMPLETED), "reviews": make_chain(data=REVIEW)},
                f"/bookings/{BOOKING_ID}/review")
     body = res.json()
-    assert body["review"]["overall"] == 5 and "editable_until" not in body["review"]
+    assert body["review"] is None
     assert body["can_review"] is False
+
+
+def test_reviews_shown_to_others_carry_only_the_month():
+    from app.services import reviews
+    shown = reviews._public({**REVIEW, "created_at": "2026-10-17T14:23:09+00:00", "overall": 5})
+    assert shown["created_at"].startswith("2026-10-01T00:00:00")
 
 
 def _none():

@@ -37,7 +37,7 @@ def _db(lookup, updated, extra=None):
     chain = _bookings_chain(lookup, updated)
     tables = {
         "bookings": chain,
-        "doctors": make_chain(list_data=[{"name": "Dr Rao"}]),
+        "doctors": make_chain(list_data=[{"name": "Dr Rao", "verification_status": "verified", "suspended": False}]),
         "users": make_chain(list_data=[{"name": "Asha"}]),
         "notifications": make_chain(list_data=[{"id": "n-1"}]),
     }

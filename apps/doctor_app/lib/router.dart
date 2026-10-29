@@ -95,7 +95,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           redirect: (_, s) => s.extra is CharakUpdateInfo ? null : '/',
           pageBuilder: (_, s) => _rise(CharakUpdateRequiredScreen(info: s.extra! as CharakUpdateInfo))),
       GoRoute(path: '/auth/sign-in',          pageBuilder: (_, __) => _push(const SignInScreen())),
-      // Phone + OTP: back once DLT approval lets MSG91 deliver SMS.
+      // Phone sign-in goes through Firebase; the legacy phone + OTP screens stay off.
       GoRoute(path: '/auth/phone',            pageBuilder: (_, __) => _push(const PhoneEntryScreen())),
       GoRoute(path: '/auth/otp',
           pageBuilder: (_, state) => _push(OtpScreen(phone: state.extra as String))),

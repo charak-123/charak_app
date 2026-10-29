@@ -1,7 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { QRCodeSVG } from 'qrcode.react'
 import { Eye, EyeOff } from 'lucide-react'
 import { setToken } from '@/lib/auth'
 import { api, ApiStepError } from '@/lib/api'
@@ -11,8 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 type Step =
   | { kind: 'credentials' }
-  | { kind: 'totp' }                              // already enrolled — just needs the code
-  | { kind: 'totp_setup'; provisioningUri: string } // first login — scan, then enter the code
+  | { kind: 'totp' } // password accepted — needs the 6-digit code from the authenticator app
 
 export default function Login() {
   const navigate = useNavigate()
@@ -37,11 +35,8 @@ export default function Login() {
       navigate('/', { replace: true })
     } catch (err: unknown) {
       if (err instanceof ApiStepError) {
-        setStep(
-          err.next === 'totp_setup' && err.provisioningUri
-            ? { kind: 'totp_setup', provisioningUri: err.provisioningUri }
-            : { kind: 'totp' }
-        )
+        void err
+        setStep({ kind: 'totp' })
       } else {
         setError(err instanceof Error ? err.message : 'Sign-in failed')
       }
@@ -72,7 +67,6 @@ export default function Login() {
           <p className="text-sm text-muted-foreground">
             {step.kind === 'credentials' && 'Sign in to continue'}
             {step.kind === 'totp' && 'Enter your two-factor code'}
-            {step.kind === 'totp_setup' && 'Set up two-factor authentication'}
           </p>
         </CardHeader>
         <CardContent>
@@ -120,19 +114,8 @@ export default function Login() {
             </form>
           )}
 
-          {(step.kind === 'totp' || step.kind === 'totp_setup') && (
+          {step.kind === 'totp' && (
             <form onSubmit={handleCode} className="space-y-4">
-              {step.kind === 'totp_setup' && (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    Scan this with an authenticator app (Google Authenticator, Authy, 1Password…),
-                    then enter the 6-digit code it shows.
-                  </p>
-                  <div className="flex justify-center rounded-md border bg-white p-4">
-                    <QRCodeSVG value={step.provisioningUri} size={180} />
-                  </div>
-                </div>
-              )}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-foreground">6-digit code</label>
                 <Input

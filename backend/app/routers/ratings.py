@@ -70,7 +70,10 @@ def get_review(booking_id: str, user: dict = Depends(get_current_user)):
         review = None
     until = reviews.review_window_end(booking)
     return {
-        "review": _shape(review, is_patient),
+        # Reviews are anonymous: a doctor knows which patient each booking was,
+        # so handing them the review by booking would name the author. They see
+        # reviews only in the doctor-wide list (reviews.doctor_view).
+        "review": _shape(review, True) if is_patient else None,
         # Whether the patient can still write one, and until when.
         "can_review": is_patient and review is None and until is not None
                       and until > reviews._now(),

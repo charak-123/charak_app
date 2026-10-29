@@ -247,14 +247,14 @@ def test_step8_patient_joins_the_call_without_knowing_its_id(silent_push):
     assert body["agora_channel"] == f"charak_{BOOKING_ID[:8]}"
 
 
-def test_step9_doctor_accepts_then_completes_the_visit(silent_push):
+def test_step9_doctor_accepts_but_cannot_complete_a_visit_that_never_started(silent_push):
     accepted = _booking("accepted")
     bookings = make_chain()
     bookings.execute.side_effect = [
         MagicMock(data=_booking("requested")),
         MagicMock(data=[accepted]),
     ]
-    db = make_supabase({"bookings": bookings})
+    db = make_supabase({"bookings": bookings, "doctors": make_chain(list_data=[{"name": "Dr Rao", "verification_status": "verified", "suspended": False}])})
 
     for c in _client(DOC_PAYLOAD, db):
         res = c.patch(f"/bookings/{BOOKING_ID}/accept",
@@ -276,8 +276,9 @@ def test_step9_doctor_accepts_then_completes_the_visit(silent_push):
     for c in _client(DOC_PAYLOAD, db2):
         res = c.patch(f"/bookings/{BOOKING_ID}/complete",
                       headers={"Authorization": DOCTOR_TOKEN})
-    assert res.status_code == 200
-    assert res.json()["status"] == "completed"
+    # Paid but never started: nothing shows the visit happened, so the legacy
+    # "complete" route refuses. The doctor starts the consultation instead.
+    assert res.status_code == 409
 
 
 # ── Senior review ─────────────────────────────────────────────────────────────

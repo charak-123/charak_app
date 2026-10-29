@@ -67,15 +67,15 @@ def test_admin_login_rejects_a_wrong_password():
     assert res.status_code == 401
 
 
-def test_admin_login_on_a_fresh_account_asks_for_totp_setup():
-    """First login after scripts/create_admin.py: password alone gets a QR
-    code to scan, not a session."""
-    res = _login({"email": "ops@charak.care", "password": "correct horse battery staple"},
-                 admin_row=_admin_row(False))
-    assert res.status_code == 428
-    body = res.json()
-    assert body["next"] == "totp_setup"
-    assert "otpauth://" in body["provisioning_uri"]
+def test_a_fresh_account_never_reveals_its_totp_secret_to_the_password():
+    """Knowing the password must not hand over the second factor: a fresh account
+    answers exactly like an enrolled one, with no secret and no setup link."""
+    fresh = _login({"email": "ops@charak.care", "password": "correct horse battery staple"},
+                   admin_row=_admin_row(False))
+    enrolled = _login({"email": "ops@charak.care", "password": "correct horse battery staple"},
+                      admin_row=_admin_row(True))
+    assert fresh.status_code == 428 and fresh.json() == enrolled.json()
+    assert "provisioning_uri" not in fresh.json() and "otpauth" not in fresh.text
 
 
 def test_admin_login_enrolled_account_asks_for_a_code():

@@ -52,10 +52,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CharakLogoMark(height: 140),
-              const SizedBox(height: 24),
-              const CharakWordmark(size: 30),
-              const SizedBox(height: 10),
+              // The brand lockup: the mark with चरक lettered beneath it. At
+              // 180 the mark itself stays at the 140 it had on its own.
+              const CharakLogoMark(height: 180, lockup: true),
+              const SizedBox(height: 16),
               Text(
                 'Home visits & online consults',
                 textAlign: TextAlign.center,

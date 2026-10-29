@@ -238,6 +238,12 @@ def ledger(doctor_id: str, status: Optional[str] = None) -> list[dict]:
 # long after the cancellation (LD-006), the same wait a visit gets.
 CANCELLATION_HOLD = timedelta(hours=48)
 
+# A changed payout destination is not paid to for this long. Stripe pauses
+# payouts for a day or two after a bank account changes while it re-verifies;
+# the same pause here gives a doctor (and ops) time to notice a swapped UPI id
+# after an account takeover, before any money leaves.
+BANK_CHANGE_HOLD = timedelta(hours=48)
+
 # A visit's fee (LD-006, decided 2026-10-26): withdrawable 48 hours after the
 # prescription was sent if the patient opened it by then, otherwise 72 hours
 # after it, when the unopened booking completes on its own. "Between 48 and
@@ -321,10 +327,20 @@ def create_payout(doctor_id: str, period_start: str, period_end: str) -> dict:
     if not entries:
         raise AppError("No payable earnings from completed visits in this period", 400)
 
-    bank = supabase.table("doctor_bank_accounts").select("id") \
+    bank = supabase.table("doctor_bank_accounts").select("id, updated_at") \
         .eq("doctor_id", doctor_id).execute().data or []
     if not bank:
         raise AppError("Doctor has no payout details (UPI or bank account) on file", 400)
+    changed = bank[0].get("updated_at")
+    if changed:
+        changed_at = datetime.fromisoformat(str(changed).replace("Z", "+00:00"))
+        if changed_at.tzinfo is None:
+            changed_at = changed_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - changed_at < BANK_CHANGE_HOLD:
+            raise AppError(
+                "Payout details were changed in the last 48 hours; paying out is on hold "
+                "until then. Confirm the new details with the doctor.", 409,
+            )
 
     gross      = _paise(sum(_paise(e["gross_amount"]) for e in entries))
     commission = _paise(sum(_paise(e["commission_amount"]) for e in entries))

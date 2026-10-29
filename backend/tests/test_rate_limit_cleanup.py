@@ -21,7 +21,7 @@ def test_purges_rows_older_than_a_day():
         res = TestClient(app).post("/maintenance/purge-old-rate-limit-hits", headers=CRON_HEADERS)
 
     assert res.status_code == 200
-    assert res.json() == {"deleted": 3, "idempotency_keys_deleted": 1}
+    assert res.json() == {"deleted": 3, "idempotency_keys_deleted": 1, "webhook_events_redacted": 0}
 
 
 def test_requires_the_cron_secret():

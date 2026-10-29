@@ -87,7 +87,7 @@ def test_accepting_releases_the_address(transitions):
     ]
     db = make_supabase({
         "bookings": bookings,
-        "doctors": make_chain(list_data=[{"name": "Dr Rao"}]),
+        "doctors": make_chain(list_data=[{"name": "Dr Rao", "verification_status": "verified", "suspended": False}]),
         "notifications": make_chain(list_data=[{"id": "n-1"}]),
     })
     for c in _client(DOCTOR, db):
@@ -107,7 +107,7 @@ def test_accepting_an_online_consult_releases_nothing(transitions):
     ]
     db = make_supabase({
         "bookings": bookings,
-        "doctors": make_chain(list_data=[{"name": "Dr Rao"}]),
+        "doctors": make_chain(list_data=[{"name": "Dr Rao", "verification_status": "verified", "suspended": False}]),
         "notifications": make_chain(list_data=[{"id": "n-1"}]),
     })
     for c in _client(DOCTOR, db):

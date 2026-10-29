@@ -7,6 +7,7 @@ import 'components/charak_card.dart';
 import 'components/charak_check.dart';
 import 'components/charak_controls.dart';
 import 'components/charak_layout.dart';
+import 'components/charak_sheet.dart';
 import 'components/charak_toast.dart';
 import 'design/motion.dart';
 import 'design/tokens.dart';
@@ -15,11 +16,12 @@ import 'legal.dart';
 import 'legal_text.dart';
 import 'network/api_client.dart';
 
-// The screens where people read and sign the legal documents: each one in
-// full, "I agree" only once they reach the end, and a signature recorded
-// against the exact version and its fingerprint (backend /legal, migration
-// 0030). This is how the apps ask at sign-up, at a material change, and when
-// a booking needs a document signed first.
+// The screens where people read and sign the legal documents: each one
+// readable in full in the app, agreed to with its own tick (reading is up to
+// them, LD-014), and a signature recorded against the exact version and its
+// fingerprint (backend /legal, migration 0030). This is how the apps ask at
+// sign-up, at a material change, and when a booking needs a document signed
+// first.
 
 Future<T?> _push<T>(BuildContext context, Widget screen) => Navigator.of(context).push<T>(
       PageRouteBuilder<T>(
@@ -35,9 +37,9 @@ String _dateTime(DateTime d) => DateFormat('d MMM y, h:mm a').format(d.toLocal()
 
 // ── Reading one document ─────────────────────────────────────────────────────
 
-/// One document, in full. With [signing], the bottom bar asks for agreement,
-/// enabled only once the reader has reached the end; the screen pops `true`
-/// when they agree. Without it, the document is just shown.
+/// One document, in full. With [signing], the bottom bar asks for agreement
+/// and the screen pops `true` when they agree. Without it, the document is
+/// just shown.
 class CharakLegalReaderScreen extends StatefulWidget {
   final String type;
 
@@ -94,14 +96,8 @@ class CharakLegalReaderScreen extends StatefulWidget {
 
 class _CharakLegalReaderScreenState extends State<CharakLegalReaderScreen> {
   late Future<CharakLegalDocument> _doc = _load();
-  bool _reachedEnd = false;
 
   Future<CharakLegalDocument> _load() => CharakLegal.document(widget.type, version: widget.version);
-
-  void _check(ScrollMetrics m) {
-    // Within a thumb's reach of the end counts: the last lines are on screen.
-    if (!_reachedEnd && m.extentAfter < 96) setState(() => _reachedEnd = true);
-  }
 
   @override
   Widget build(BuildContext context) => FutureBuilder<CharakLegalDocument>(
@@ -133,46 +129,34 @@ class _CharakLegalReaderScreenState extends State<CharakLegalReaderScreen> {
         },
       );
 
-  Widget _text(CharakLegalDocument doc) => NotificationListener<ScrollMetricsNotification>(
-        onNotification: (n) {
-          _check(n.metrics);
-          return false;
-        },
-        child: NotificationListener<ScrollUpdateNotification>(
-          onNotification: (n) {
-            _check(n.metrics);
-            return false;
-          },
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(CharakSpacing.gutter, 0, CharakSpacing.gutter, 40),
-            children: [
-              if (widget.acceptedAt != null) ...[
-                CharakInfoStrip(
-                  icon: LucideIcons.badgeCheck,
-                  tone: CharakStatusTone.success,
-                  label: 'You signed this version on ${_dateTime(widget.acceptedAt!)}',
-                ),
-                const SizedBox(height: 14),
-              ],
-              if (doc.highlights.isNotEmpty) ...[
-                CharakLegalHighlights(points: doc.highlights),
-                const SizedBox(height: 28),
-              ],
-              CharakLegalText(body: doc.body!),
-              const SizedBox(height: 20),
-              Container(height: 1, color: CharakColors.border),
-              const SizedBox(height: 14),
-              Text('End of the ${doc.title}', style: charakHintStyle),
-              if (doc.sha256 != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Fingerprint ${doc.sha256!.substring(0, 16)}',
-                  style: CharakText.caption.tabular.copyWith(color: CharakColors.inkFaint),
-                ),
-              ],
-            ],
-          ),
-        ),
+  Widget _text(CharakLegalDocument doc) => ListView(
+        padding: const EdgeInsets.fromLTRB(CharakSpacing.gutter, 0, CharakSpacing.gutter, 40),
+        children: [
+          if (widget.acceptedAt != null) ...[
+            CharakInfoStrip(
+              icon: LucideIcons.badgeCheck,
+              tone: CharakStatusTone.success,
+              label: 'You signed this version on ${_dateTime(widget.acceptedAt!)}',
+            ),
+            const SizedBox(height: 14),
+          ],
+          if (doc.highlights.isNotEmpty) ...[
+            CharakLegalHighlights(points: doc.highlights),
+            const SizedBox(height: 28),
+          ],
+          CharakLegalText(body: doc.body!),
+          const SizedBox(height: 20),
+          Container(height: 1, color: CharakColors.border),
+          const SizedBox(height: 14),
+          Text('End of the ${doc.title}', style: charakHintStyle),
+          if (doc.sha256 != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Fingerprint ${doc.sha256!.substring(0, 16)}',
+              style: CharakText.caption.tabular.copyWith(color: CharakColors.inkFaint),
+            ),
+          ],
+        ],
       );
 
   /// A version from before the text was stored: its words are on the website.
@@ -188,24 +172,15 @@ class _CharakLegalReaderScreenState extends State<CharakLegalReaderScreen> {
             label: 'Read it on charak.care',
             variant: CharakButtonVariant.outline,
             icon: LucideIcons.externalLink,
-            onPressed: () async {
-              await CharakLegal.open(doc?.url ?? widget.url ?? CharakLegal.termsUrl);
-              if (mounted) setState(() => _reachedEnd = true);
-            },
+            onPressed: () => CharakLegal.open(doc?.url ?? widget.url ?? CharakLegal.termsUrl),
           ),
         ],
       );
 
   Widget _agreeBar() => CharakCtaBar(
-        header: _reachedEnd
-            ? null
-            : Text('Read to the end to agree.', style: charakHintStyle, textAlign: TextAlign.center),
         children: [
           Expanded(
-            child: CharakButton(
-              label: 'I agree',
-              onPressed: _reachedEnd ? () => Navigator.of(context).pop(true) : null,
-            ),
+            child: CharakButton(label: 'I agree', onPressed: () => Navigator.of(context).pop(true)),
           ),
         ],
       );
@@ -241,9 +216,11 @@ class CharakLegalHighlights extends StatelessWidget {
 
 // ── Signing a set of documents ───────────────────────────────────────────────
 
-/// The documents to sign, one card each: tap to read it in full and agree.
-/// Reports whether every one has been agreed to. The screen that hosts it
-/// records the signatures ([CharakLegal.accept]) with its own button.
+/// The documents to sign, one tick each: "I agree to the Practitioner
+/// Agreement", the title opening the full text in the app. Reading is up to
+/// the person; agreeing in the reader ticks the box too. Reports whether
+/// every one is ticked. The screen that hosts it records the signatures
+/// ([CharakLegal.accept]) with its own button.
 class CharakAgreementsList extends StatefulWidget {
   final List<CharakLegalDocument> documents;
   final ValueChanged<bool> onAllAgreed;
@@ -257,60 +234,35 @@ class CharakAgreementsList extends StatefulWidget {
 class _CharakAgreementsListState extends State<CharakAgreementsList> {
   final _agreed = <String>{};
 
-  Future<void> _read(CharakLegalDocument d) async {
-    final agreed = await CharakLegalReaderScreen.open(context, d, signing: true);
-    if (!mounted || !agreed) return;
-    setState(() => _agreed.add(d.type));
+  void _set(CharakLegalDocument d, bool agreed) {
+    setState(() => agreed ? _agreed.add(d.type) : _agreed.remove(d.type));
     widget.onAllAgreed(widget.documents.every((x) => _agreed.contains(x.type)));
   }
 
-  @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final d in widget.documents) ...[
-            _AgreementCard(document: d, agreed: _agreed.contains(d.type), onTap: () => _read(d)),
-            const SizedBox(height: 10),
-          ],
-        ],
-      );
-}
-
-class _AgreementCard extends StatelessWidget {
-  final CharakLegalDocument document;
-  final bool agreed;
-  final VoidCallback onTap;
-  const _AgreementCard({required this.document, required this.agreed, required this.onTap});
+  Future<void> _read(CharakLegalDocument d) async {
+    final agreed = await CharakLegalReaderScreen.open(context, d, signing: true);
+    if (mounted && agreed) _set(d, true);
+  }
 
   @override
-  Widget build(BuildContext context) => Semantics(
-        button: true,
-        label: '${document.title}, ${agreed ? 'agreed' : 'not yet read'}',
-        excludeSemantics: true,
-        child: CharakCard(
-          onTap: onTap,
-          child: Row(children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(document.title, style: CharakText.label.weight(600).copyWith(color: CharakColors.ink)),
-                if (document.summary != null) ...[
-                  const SizedBox(height: 4),
-                  Text(document.summary!, style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
-                ],
-                const SizedBox(height: 10),
-                CharakFadeSwap(
-                  child: CharakStatusPill(
-                    key: ValueKey(agreed),
-                    label: agreed ? 'Agreed' : 'Read and agree',
-                    tone: agreed ? CharakStatusTone.success : CharakStatusTone.muted,
-                    icon: agreed ? LucideIcons.check : null,
-                  ),
+  Widget build(BuildContext context) => CharakCard(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final d in widget.documents)
+              Semantics(
+                label: d.summary,
+                child: CharakCheckRow(
+                  value: _agreed.contains(d.type),
+                  onChanged: (v) => _set(d, v),
+                  spans: [
+                    const TextSpan(text: 'I agree to the '),
+                    CharakCheckRow.link(d.title, () => _read(d)),
+                  ],
                 ),
-              ]),
-            ),
-            const SizedBox(width: 12),
-            Icon(LucideIcons.chevronRight, size: 20, color: CharakColors.inkFaint),
-          ]),
+              ),
+          ],
         ),
       );
 }
@@ -324,7 +276,7 @@ Future<bool> showCharakAgreements(
   String method = 'reconsent',
   String title = 'Review and sign',
   String message = 'We have updated the documents that cover how CHARAK works. '
-      'Read each one and agree to continue.',
+      'Agree to each one to continue. Tap a title to read it.',
 }) async {
   if (documents.isEmpty) return true;
   return await _push<bool>(
@@ -381,7 +333,7 @@ class _AgreementsScreenState extends State<_AgreementsScreen> {
         bottom: CharakCtaBar(
           header: _all
               ? null
-              : Text('Read and agree to each document to continue.',
+              : Text('Agree to each document to continue.',
                   style: charakHintStyle, textAlign: TextAlign.center),
           children: [
             Expanded(
@@ -533,10 +485,12 @@ class _CharakLegalCenterScreenState extends State<CharakLegalCenterScreen> {
 
 // ── The cancellation rules for one booking ───────────────────────────────────
 
-/// Every case of the Cancellation & Refund Policy for the kind of booking
-/// being made (GET /legal/cancellation-policy → `points`): when free
-/// cancellation ends, what each situation refunds, and how refunds are paid.
-/// The confirm screen puts the agreement tick under it.
+/// The Cancellation & Refund Policy for the kind of booking being made
+/// (GET /legal/cancellation-policy), the way checkout pages show terms: the
+/// card says when free cancellation ends and, in a line, what happens after;
+/// "View details" opens a sheet with every case (`points`), how refunds are
+/// paid and the full policy. The confirm screen puts the agreement tick under
+/// it.
 class CharakCancellationRules extends StatelessWidget {
   /// The policy from GET /legal/cancellation-policy.
   final Map<String, dynamic> policy;
@@ -565,83 +519,147 @@ class CharakCancellationRules extends StatelessWidget {
         _ => CharakStatusTone.primary,
       };
 
+  List<Map<String, dynamic>> get _points => [
+        for (final p in (policy['points'] as List? ?? const []))
+          if (p is Map<String, dynamic>) p,
+      ];
+
+  String get _headline => freeUntil != null
+      ? 'Free cancellation until ${CharakFormat.dayTime(freeUntil!)}'
+      : policy['channel'] == 'home_visit'
+          ? 'Free cancellation until the visit'
+          : 'Free cancellation until the consultation starts';
+
+  /// Whose side of the table a row sits on. Backends from before `by` wrote
+  /// the doctor's rows as sentences starting "The doctor".
+  static String _by(Map<String, dynamic> p) =>
+      p['by'] as String? ?? ((p['when'] as String? ?? '').startsWith('The doctor') ? 'doctor' : 'patient');
+
+  /// What the patient's own later cancellations get, from the tones of their
+  /// rows. Null when the backend sent no cases (the sheet shows its summary).
+  String? get _afterLine {
+    final tones = {for (final p in _points) if (_by(p) == 'patient') p['tone']};
+    final partial = tones.contains('partial');
+    final none = tones.contains('none');
+    if (partial && none) return 'After that, a partial refund or none, depending on timing.';
+    if (partial) return 'After that, a partial refund.';
+    if (none) return 'After that, no refund.';
+    return null;
+  }
+
+  /// Every case, in a sheet over the confirm screen: two tables, the
+  /// patient's own cancellation and what happens when the doctor can't make
+  /// it, each row a timing and its refund.
+  void _showDetails(BuildContext context) => showCharakSheet<void>(
+        context,
+        title: 'Cancellation & refunds',
+        child: Builder(
+          builder: (sheet) => SingleChildScrollView(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text(_headline, style: CharakText.label.weight(600).copyWith(color: CharakColors.ink)),
+              const SizedBox(height: 16),
+              if (_points.isEmpty)
+                // An older backend, or rules it couldn't describe: the summary.
+                Text(policy['summary'] as String? ?? '', style: CharakText.body.copyWith(color: CharakColors.inkMuted))
+              else
+                for (final (side, label) in const [('patient', 'If you cancel'), ('doctor', "If the doctor can't make it")])
+                  if (_points.where((p) => _by(p) == side).toList() case final rows when rows.isNotEmpty) ...[
+                    CharakSectionTitle(label: label),
+                    const SizedBox(height: 2),
+                    for (var i = 0; i < rows.length; i++)
+                      _RuleRow(
+                        when: rows[i]['when'] as String? ?? '',
+                        outcome: rows[i]['outcome'] as String? ?? '',
+                        note: rows[i]['note'] as String?,
+                        tone: _tone(rows[i]['tone'] as String?),
+                        first: i == 0,
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+              if (policy['refund_timing'] case final String timing) ...[
+                const SizedBox(height: 12),
+                Text(timing, style: charakHintStyle),
+              ],
+              if (onReadPolicy != null) ...[
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: CharakGhostButton(label: 'Read the full policy', onPressed: onReadPolicy),
+                ),
+              ],
+              const SizedBox(height: 16),
+              CharakButton(label: 'Got it', onPressed: () => Navigator.of(sheet).pop()),
+            ]),
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
-    final points = [
-      for (final p in (policy['points'] as List? ?? const []))
-        if (p is Map<String, dynamic>) p,
-    ];
-    final timing = policy['refund_timing'] as String?;
+    final after = _afterLine;
     return CharakSummaryCard(
       title: 'Cancellation & refunds',
       rows: [
-        Text(
-          freeUntil != null
-              ? 'Free cancellation until ${CharakFormat.dayTime(freeUntil!)}'
-              : policy['channel'] == 'home_visit'
-                  ? 'Free cancellation until the visit'
-                  : 'Free cancellation until the consultation starts',
-          style: CharakText.label.weight(600).copyWith(color: CharakColors.ink),
-        ),
-        const SizedBox(height: 12),
-        if (points.isEmpty)
-          // An older backend, or rules it couldn't describe: the summary.
-          Text(policy['summary'] as String? ?? '', style: CharakText.body.copyWith(color: CharakColors.inkMuted))
-        else
-          for (var i = 0; i < points.length; i++)
-            _RuleRow(
-              when: points[i]['when'] as String? ?? '',
-              outcome: points[i]['outcome'] as String? ?? '',
-              tone: _tone(points[i]['tone'] as String?),
-              first: i == 0,
-            ),
-        if (timing != null) ...[
-          const SizedBox(height: 12),
-          Text(timing, style: charakHintStyle),
-        ],
-        if (onReadPolicy != null) ...[
+        Text(_headline, style: CharakText.label.weight(600).copyWith(color: CharakColors.ink)),
+        if (after != null) ...[
           const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: CharakGhostButton(label: 'Read the full policy', onPressed: onReadPolicy),
-          ),
+          Text(after, style: CharakText.body.copyWith(color: CharakColors.inkMuted)),
         ],
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: CharakGhostButton(label: 'View details', onPressed: () => _showDetails(context)),
+        ),
         if (footer != null) ...[const SizedBox(height: 4), footer!],
       ],
     );
   }
 }
 
+/// One row of a policy table: the timing on the left, the refund on the
+/// right in its tone, fine print under both.
 class _RuleRow extends StatelessWidget {
   final String when;
   final String outcome;
+  final String? note;
   final CharakStatusTone tone;
   final bool first;
-  const _RuleRow({required this.when, required this.outcome, required this.tone, required this.first});
+  const _RuleRow({required this.when, required this.outcome, this.note, required this.tone, required this.first});
 
   @override
   Widget build(BuildContext context) {
     final (_, ink) = charakToneColors(tone);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: first ? null : BoxDecoration(border: Border(top: BorderSide(color: CharakColors.border))),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 6, right: 10),
-          child: Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: charakToneSolid(tone), shape: BoxShape.circle),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // The refund takes the width it needs (up to half the row) and the
+        // timing gets the rest, so short refunds don't squeeze the timing.
+        LayoutBuilder(
+          builder: (context, box) => Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Expanded(
+                child: Text(when, style: CharakText.body.copyWith(color: CharakColors.ink, height: 1.35)),
+              ),
+              const SizedBox(width: 16),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: box.maxWidth / 2),
+                child: Text(
+                  outcome,
+                  textAlign: TextAlign.right,
+                  style: CharakText.label.weight(600).copyWith(color: ink, height: 1.35),
+                ),
+              ),
+            ],
           ),
         ),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(when, style: CharakText.body.copyWith(color: CharakColors.ink, height: 1.4)),
-            const SizedBox(height: 2),
-            Text(outcome, style: CharakText.label.weight(600).copyWith(color: ink)),
-          ]),
-        ),
+        if (note != null) ...[
+          const SizedBox(height: 4),
+          Text(note!, style: charakHintStyle),
+        ],
       ]),
     );
   }

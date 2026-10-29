@@ -77,6 +77,32 @@ android {
             )
         }
     }
+
+    packaging {
+        jniLibs {
+            // agora_rtc_engine pulls in io.agora.rtc:full-sdk, every optional
+            // Agora extension for every ABI (~28 MB per ABI). The call
+            // (charak_core/lib/call/charak_call_session.dart) never calls the
+            // APIs that load these, and nothing links against them (only they
+            // link against libagora-rtc-sdk.so), so the SDK simply runs as
+            // Agora's documented full-rtc-basic configuration. Anything that
+            // can touch the default audio/video path stays: AI noise
+            // suppression, AI echo cancellation, the video encoders and the
+            // quality analyzer. Using one of these features later means
+            // deleting its line here. Keep in sync with doctor_app.
+            excludes += setOf(
+                "lib/*/libagora_lip_sync_extension.so",        // voice-driven avatars
+                "lib/*/libagora_clear_vision_extension.so",    // beauty / low-light / denoise
+                "lib/*/libagora_spatial_audio_extension.so",   // 3D spatial audio
+                "lib/*/libagora_face_capture_extension.so",    // facial motion capture
+                "lib/*/libagora_segmentation_extension.so",    // virtual background
+                "lib/*/libagora_audio_beauty_extension.so",    // voice changer / beautifier
+                "lib/*/libagora_content_inspect_extension.so", // screenshot moderation
+                "lib/*/libagora_face_detection_extension.so",  // face detection
+                "lib/*/libagora_screen_capture_extension.so",  // screen sharing
+            )
+        }
+    }
 }
 
 kotlin {

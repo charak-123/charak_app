@@ -262,15 +262,42 @@ def decide_appeal(incident_id: str, ops: dict, outcome: str, reason: str, backgr
     return row
 
 
+def _doctor_showed_up(booking_id: Optional[str]) -> bool:
+    """True if the doctor has joined the call, or the booking has moved past
+    `paid`, since the report was filed."""
+    if not booking_id:
+        return False
+    booking = supabase.table("bookings").select("status").eq("id", booking_id).execute().data or []
+    if booking and booking[0].get("status") in ("in_progress", "consulted", "completed"):
+        return True
+    joins = (
+        supabase.table("call_joins").select("id").eq("booking_id", booking_id)
+        .eq("actor_role", "doctor").eq("kind", "consultation").limit(1).execute().data or []
+    )
+    return bool(joins)
+
+
 def auto_confirm_due(now: Optional[datetime] = None) -> int:
     """D7: an online no-show with clear evidence that the doctor didn't
     answer within 48 hours is confirmed."""
     rows = (
-        supabase.table("incidents").select("id")
+        supabase.table("incidents").select("id, booking_id")
         .eq("status", "reported").lte("auto_confirm_at", (now or _now()).isoformat())
         .limit(50).execute().data or []
     )
     for r in rows:
+        if _doctor_showed_up(r.get("booking_id")):
+            # The evidence behind the timer was a snapshot taken when the patient
+            # reported. The doctor has joined, or the visit has gone ahead, since:
+            # naming them at fault now would be wrong, so a person decides.
+            moved = (
+                supabase.table("incidents").update({"status": "under_review", "auto_confirm_at": None})
+                .eq("id", r["id"]).eq("status", "reported").execute().data or []
+            )
+            if moved:
+                event(r["id"], "needs_review", "system", None,
+                      "the doctor joined or the visit went ahead after the report")
+            continue
         updated = (
             supabase.table("incidents").update({
                 "status": "confirmed", "cause": "doctor", "decided_at": _now().isoformat(),

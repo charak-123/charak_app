@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 
-/// Google Sign-In. Replaces phone + OTP until DLT approval lets MSG91 deliver
-/// SMS; the phone number is collected on the next step instead.
+/// Google Sign-In. Replaces the legacy phone + OTP screens (phone sign-in now
+/// goes through Firebase); the phone number is collected on the next step instead.
 class SignInScreen extends ConsumerStatefulWidget {
   const SignInScreen({super.key});
   @override

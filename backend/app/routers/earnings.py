@@ -98,7 +98,7 @@ def get_ratings(user: dict = Depends(require_doctor)):
         return []
     return (
         supabase.table("ratings")
-        .select("*, bookings(scheduled_start, channel)")
+        .select("stars, comment")
         .in_("booking_id", booking_ids)
         .order("created_at", desc=True)
         .execute()

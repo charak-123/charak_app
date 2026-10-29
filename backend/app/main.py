@@ -132,7 +132,6 @@ def ready():
     from .db import supabase
     from .routers.calls import agora_configured
     from .routers.payments import live_mode as razorpay_live, webhook_verified
-    from .config import MSG91_API_KEY
     from .services.transcription import (
         enabled as transcription_enabled,
         backend_name as transcription_backend,
@@ -156,7 +155,6 @@ def ready():
                   else "degraded",
         "database": {"ok": db_ok, "error": db_error},
         "integrations": {
-            "sms_otp": bool(MSG91_API_KEY),
             "payments": razorpay_live(),
             # Live keys without a verified webhook is the dangerous combination:
             # payments can be taken but confirmations cannot be trusted.

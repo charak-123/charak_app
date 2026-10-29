@@ -431,7 +431,11 @@ the action in `CharakCtaBar`.
 - **Wordmark**: `CHARAK` at width 125 / weight 800 with tracking, followed by
   `चरक` in Chandan (`CharakWordmark(suffix: 'Partner')` in the doctor app). The
   wordmark is a Chandan moment.
-- Splash screens: mark (140px) + wordmark + one muted line, on the ground colour.
+- Splash screens, on the ground colour: the lockup (`CharakLogoMark(height: 180,
+  lockup: true)`, the mark with चरक), then one muted line. The doctor app adds a muted
+  "Partner" between them.
+- `CharakWordmark` sets CHARAK and चरक on a shared baseline; centring them floats चरक,
+  whose font has taller line metrics.
 - For a vector mark or app icons, re-cut from the source artwork. The PNGs here
   are raster (720px wide).
 

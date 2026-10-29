@@ -148,21 +148,20 @@ without an ops approval in `audit_log`.
 
 ---
 
-## 1. SMS OTP — MSG91
+## 1. Phone sign-in — Firebase
 
-```
-MSG91_API_KEY=...
-MSG91_SENDER_ID=CHARAK
-MSG91_TEMPLATE_ID=...
-```
+Phone sign-in goes through Firebase Authentication, not an SMS gateway of our
+own: the app signs in with Firebase and the backend verifies the ID token at
+`POST /auth/firebase` (credentials in `FIREBASE_ADMIN_CREDENTIALS_JSON`). There
+is no MSG91 integration and no `MSG91_*` variable.
 
-Until these are set, `POST /auth/send-otp` prints the code to the server log
-(`[OTP STUB] +9198... → 123456`) and returns success. With them set, the code is
-sent by SMS and a gateway error surfaces as a 502 rather than silently leaving
-the patient on a dead OTP screen.
+The legacy `POST /auth/send-otp` / `verify-otp` routes remain for local
+development only. `send-otp` returns 503 unless `ALLOW_OTP_STUB=true`, in which
+case it prints the code to the server log. Never set `ALLOW_OTP_STUB` in
+production.
 
-**Verify:** request an OTP on a real handset and log in. Then request four codes
-in a row — the fourth must return 429.
+**Verify:** sign in with a phone number from a real handset through the app, and
+confirm `POST /auth/send-otp` returns 503 on the deployed service.
 
 ---
 

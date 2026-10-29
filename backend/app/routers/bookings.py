@@ -396,6 +396,14 @@ def accept_booking(
     if app_config.get("require_legal_acceptance") is True:
         legal.require(user["sub"], "doctor", legal.REQUIRED["doctor"])
 
+    # create_booking checks the doctor is listed, but a request can already be
+    # open when ops suspend or reject them. Accepting releases the patient's
+    # address and starts their payment hold, so the check has to run here too.
+    standing = supabase.table("doctors").select("verification_status, suspended") \
+        .eq("id", user["sub"]).execute().data or []
+    if not standing or standing[0].get("suspended") or standing[0].get("verification_status") != "verified":
+        raise AppError("Your account cannot accept requests right now.", 403)
+
     updated = booking_state.transition(
         booking_id, "accept", actor_role="doctor", actor_id=user["sub"], expected="requested",
         patch={
@@ -448,7 +456,9 @@ def decline_booking(
     doctor_name = (doctor[0].get("name") if doctor else None) or "The doctor"
     notifications.booking_declined({**b, **updated}, doctor_name, background)
 
-    return updated
+    # The RPC returns the whole row. A decline before accept must not hand the
+    # doctor the address the list and detail views withhold.
+    return _redact_address_for_doctor(updated)
 
 
 # ── Complete ──────────────────────────────────────────────────────────────────
@@ -473,8 +483,20 @@ def complete_booking(
             409,
         )
 
-    # Doctor app builds from before migration 0025. Newer builds send the
-    # prescription instead, and the booking completes when the patient opens it.
+    # A doctor cannot close a visit on their own word. Marketplaces that pay
+    # providers (Uber, Urban Company) make the start of the job a recorded step
+    # (an OTP or a trip start) before it can be ended; here that step is
+    # starting the consultation, which moves the booking to in_progress. A
+    # booking still `paid` has never started, so completing it releases the fee
+    # for a visit nothing shows happened. Builds from before migration 0025
+    # called this route straight from `paid`; they now get a clear refusal and
+    # must use the consultation flow.
+    if b["status"] == "paid" and not b.get("started_at"):
+        raise AppError(
+            "Start the consultation first. A visit that has not started cannot be marked complete.",
+            409,
+        )
+
     updated = booking_state.transition(
         booking_id, "complete", actor_role="doctor", actor_id=user["sub"],
         expected="paid", patch={"hold_expires_at": None, "completion_source": "doctor"},
@@ -658,7 +680,7 @@ def cancel_booking(
             incidents.record_late_cancel(booking, background)
         except Exception as exc:                  # noqa: BLE001 — the cancel stands
             logger.error("could not record late cancel for %s: %r", booking_id, exc)
-    return {
+    response = {
         **updated,
         "quote": _quote_view(quote),
         "refunded_payments": len(queued),
@@ -667,6 +689,8 @@ def cancel_booking(
             for r in sent
         ],
     }
+    # A doctor cancelling before accept must not receive the address either.
+    return _redact_address_for_doctor(response) if by == "doctor" else response
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -753,9 +777,12 @@ def _resolve_home_visit_address(body: "BookingCreate", doctor: dict,
             raise AppError(
                 "This doctor has not finished setting up their home-visit area yet", 409
             )
+        # Say roughly how far, not exactly: this answers for any address a
+        # patient cares to save, and an exact figure would locate the doctor.
+        shown = geo.within_service_area(geo.snapped(doctor), address["lat"], address["lng"])[1]
         raise AppError(
-            f"That address is {distance:.1f}km away, outside this doctor's "
-            f"{doctor['service_radius_km']}km service area",
+            f"That address is about {(shown if shown is not None else distance):.0f}km away, "
+            f"outside this doctor's {doctor['service_radius_km']}km service area",
             409,
         )
 

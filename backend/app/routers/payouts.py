@@ -120,7 +120,9 @@ def upsert_bank_account(body: BankAccount, user: dict = Depends(require_doctor))
     Editing resets ``verified`` — a changed account has not been checked, and
     treating it as verified is how money reaches the wrong person.
     """
-    payload = {**body.model_dump(), "doctor_id": user["sub"], "verified": False}
+    # updated_at is what the payout hold counts from (BANK_CHANGE_HOLD).
+    payload = {**body.model_dump(), "doctor_id": user["sub"], "verified": False,
+               "updated_at": datetime.now(timezone.utc).isoformat()}
     if body.account_number is None and body.ifsc is not None:
         existing = (
             supabase.table("doctor_bank_accounts").select("account_number")

@@ -111,14 +111,15 @@ here before launch.
 
 ## LD-005: Refunds and cancellations
 
-- **Status:** The home-visit rows are Decided (2026-10-26, founder). The other rows are still
-  Proposed.
+- **Status:** The home-visit rows are Decided (2026-10-26, founder), and the online
+  cancellation rows (2026-10-29, founder: "in online booking, cancellation full refund till
+  15 min before consultation"). The other rows are still Proposed.
 - **Decision:**
 
 | Situation | Outcome |
 |---|---|
-| Patient cancels an online consultation ≥ 15 minutes before the slot | Full refund |
-| Patient cancels an online consultation < 15 minutes before the slot | No refund |
+| Patient cancels an online consultation ≥ 15 minutes before the slot | Full refund **(Decided)** |
+| Patient cancels an online consultation < 15 minutes before the slot | No refund **(Decided)** |
 | Patient cancels a home visit ≥ 2 hours before the slot | Full refund **(Decided)** |
 | Patient cancels a home visit < 2 hours before the slot, before the practitioner has started travelling | 50% refund **(Decided)** |
 | Patient cancels a home visit after the practitioner has started travelling | No refund **(Decided)** |
@@ -156,8 +157,10 @@ here before launch.
   - The cancel screen shows the exact refund.
   - Refunds round down to the paisa, so the doctor keeps the odd paisa of a 50% split.
   - Bookings made before this keep a full refund.
-  - Online consultations keep a full refund until the online rule (D3 in the plan) is
-    confirmed; adding it is one new policy version (runbook §6c).
+  - Online consultations kept a full refund until the online rule (D3 in the plan) was
+    confirmed. It is policy version 2026-10-29 (migration 0033), with the matching
+    Cancellation & Refund Policy text (docs/legal/2026-10-29, migration 0034). Both apply
+    to new bookings once approved in admin → Policies.
 
 ## LD-006: Practitioner payouts
 
@@ -307,10 +310,15 @@ here before launch.
   - **Doctors sign** the Practitioner Agreement (a contract of its own, no longer the
     patients' Terms), the Privacy Policy and the Cancellation & Refund Policy, at
     onboarding.
-  - Each document opens in full in the app. Its key points come first; "I agree" is
-    available only once the reader reaches the end. One "Sign and continue" then records
-    every signature with the version, the text's SHA-256 fingerprint, the time, the IP
-    address and how it was given.
+  - Each document opens in full in the app, its key points first. Each is agreed to
+    with its own tick ("I agree to the Practitioner Agreement", the title opening the
+    text); reading it is up to the person (amended 2026-10-29, founder: "why is it
+    compulsory to read that"; it was read-to-the-end before "I agree"). One "Sign and
+    continue" then records every signature with the version, the text's SHA-256
+    fingerprint, the time, the IP address and how it was given.
+  - The full text shows in the app only for versions published with it (2026-10-28
+    onwards). Until those are approved in admin → Policies, the current versions are the
+    2026-10-01 ones, whose words live only on the website, so the app links there.
   - At booking, the patient sees every case of the Cancellation & Refund Policy for that
     kind of booking (who cancels, when, and what is refunded), generated from the rules
     the backend enforces, and agrees to it.

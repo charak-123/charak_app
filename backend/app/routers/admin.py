@@ -210,6 +210,11 @@ def suspend_doctor(
         "suspended_reason": body.reason if body.suspended else None,
         "suspended_at": datetime.now(timezone.utc).isoformat() if body.suspended else None,
     }
+    if body.suspended:
+        # End the doctor's existing sessions with the suspension, not at token
+        # expiry. (Signing in again is a separate step; accept/payout paths
+        # re-check the suspended flag themselves.)
+        update_data["sessions_revoked_at"] = datetime.now(timezone.utc).isoformat()
     result = supabase.table("doctors").update(update_data).eq("id", doctor_id).execute()
 
     if body.suspended:
@@ -303,9 +308,15 @@ def list_all_bookings(status: Optional[str] = None, user: dict = Depends(require
 
     result = query.execute()
     rows = result.data or []
+    # The street address is as personal as the phone: only roles that may
+    # reveal (and are audited for) patient contact data see it in a list.
+    may_see_address = admin_roles.can(user, "patient_phone.reveal")
     for row in rows:
         if row.get("users"):
             row["users"]["phone"] = _mask_phone(row["users"].get("phone"))
+        if not may_see_address:
+            for column in ("patient_address", "patient_address_lat", "patient_address_lng"):
+                row.pop(column, None)
     return rows
 
 
