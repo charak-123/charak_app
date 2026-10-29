@@ -100,7 +100,7 @@ def _outcome(pct: int) -> tuple[str, str]:
 
 def _patient_points(channel: str, rules: list) -> list[dict]:
     """
-    The patient's own cancellation, one line per rule, earliest first, from
+    The patient's own cancellation, one row per rule, earliest first, from
     the rules cancellation_quote() applies. Only the shapes that function
     understands (journey_started, minutes_before_start_lt, the catch-all);
     anything else returns [] and the apps show the summary alone rather than
@@ -125,51 +125,62 @@ def _patient_points(channel: str, rules: list) -> list[dict]:
 
     out = []
     timed.sort(reverse=True)
-    travelling = " and the doctor hasn't set out" if journey is not None else ""
+    travelling = ", if the doctor hasn't set out" if journey is not None else ""
     if catch_all is not None:
-        when = (f"You cancel {_duration(timed[0][0])} or more before the {visit}"
-                if timed else f"You cancel any time before the {visit} starts")
+        when = (f"{_duration(timed[0][0])} or more before the {visit}"
+                if timed else f"Any time before the {visit} starts")
         out.append((when, catch_all))
     for i, (minutes, pct) in enumerate(timed):
-        when = f"You cancel less than {_duration(minutes)} before the {visit}{travelling}"
+        when = f"Less than {_duration(minutes)} before the {visit}{travelling}"
         if i + 1 < len(timed):
-            when = (f"You cancel between {_duration(timed[i + 1][0])} and {_duration(minutes)} "
+            when = (f"Between {_duration(timed[i + 1][0])} and {_duration(minutes)} "
                     f"before the {visit}{travelling}")
         out.append((when, pct))
     if journey is not None:
-        out.append(("You cancel after the doctor has started travelling", journey))
-    return [{"when": w, "outcome": _outcome(p)[0], "tone": _outcome(p)[1]} for w, p in out]
+        out.append(("After the doctor has set out", journey))
+    return [_row(w, *_outcome(p), by="patient") for w, p in out]
+
+
+def _row(when: str, outcome: str, tone: str, *, by: str, note: Optional[str] = None) -> dict:
+    """One row of the policy table. `by` is whose side of the table it sits on."""
+    row = {"when": when, "outcome": outcome, "tone": tone, "by": by}
+    if note:
+        row["note"] = note
+    return row
 
 
 def points(policy: dict) -> list[dict]:
     """
     Every case the Cancellation & Refund Policy covers for this kind of
-    booking, as {when, outcome, tone}: the patient's own cancellation from the
-    policy's rules, then what happens when the doctor cancels, moves the
-    booking or doesn't come, from the same settings the backend enforces.
-    tone is full / partial / none / choice, for colour.
+    booking, as table rows {when, outcome, tone, by[, note]}: the patient's
+    own cancellation from the policy's rules (by "patient"), then what
+    happens when the doctor cancels, moves the booking or doesn't come, from
+    the same settings the backend enforces (by "doctor"). `when` and
+    `outcome` are short cells, not sentences, and any alternative the patient
+    may pick instead goes in `note`, fine print under the row. tone is full /
+    partial / none, for colour (apps still read "choice" from older versions).
     """
     from . import incidents                       # imports notifications; keep this module light
     from .app_config import get as config
 
     channel = policy["channel"]
+    visit = "visit" if channel == "home_visit" else "consultation"
     grace = incidents.grace_minutes(channel)
     remedy_hours = int(config("remedy_default_refund_hours", 24) or 24)
-    absent = (f"The doctor hasn't arrived {grace} minutes after the start" if channel == "home_visit"
-              else f"The doctor hasn't joined {grace} minutes after the start")
-    moved = ("The doctor can't keep the time" if channel == "home_visit"
-             else "The doctor can't keep the time, or the call fails")
+    absent = (f"Doctor hasn't arrived {grace} minutes in" if channel == "home_visit"
+              else f"Doctor hasn't joined {grace} minutes in")
+    moved = ("Doctor can't keep the time" if channel == "home_visit"
+             else "Doctor can't keep the time, or the call fails")
     return [
-        {"when": "You withdraw your request before the doctor accepts",
-         "outcome": "Nothing is charged", "tone": "full"},
+        _row("Before the doctor accepts", "No charge", "full", by="patient"),
         *_patient_points(channel, policy.get("rules")),
-        {"when": "The doctor cancels", "outcome": "Full refund", "tone": "full"},
-        {"when": moved, "outcome": "A new time or a full refund, your choice", "tone": "choice"},
-        {"when": absent,
-         "outcome": f"A full refund or another doctor, your choice (refunded if you don't choose "
-                    f"within {remedy_hours} hours)", "tone": "choice"},
-        {"when": "You miss the " + ("visit" if channel == "home_visit" else "consultation"),
-         "outcome": "No refund", "tone": "none"},
+        _row(f"Missed {visit}", "No refund", "none", by="patient"),
+        _row("Doctor cancels", "Full refund", "full", by="doctor"),
+        _row(moved, "Full refund", "full", by="doctor",
+             note="Or pick a new time at the same price."),
+        _row(absent, "Full refund", "full", by="doctor",
+             note=f"Or choose another doctor. If you don't choose within {remedy_hours} hours, "
+                  "you're refunded."),
     ]
 
 

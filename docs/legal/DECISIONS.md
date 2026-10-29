@@ -307,10 +307,15 @@ here before launch.
   - **Doctors sign** the Practitioner Agreement (a contract of its own, no longer the
     patients' Terms), the Privacy Policy and the Cancellation & Refund Policy, at
     onboarding.
-  - Each document opens in full in the app. Its key points come first; "I agree" is
-    available only once the reader reaches the end. One "Sign and continue" then records
-    every signature with the version, the text's SHA-256 fingerprint, the time, the IP
-    address and how it was given.
+  - Each document opens in full in the app, its key points first. Each is agreed to
+    with its own tick ("I agree to the Practitioner Agreement", the title opening the
+    text); reading it is up to the person (amended 2026-10-29, founder: "why is it
+    compulsory to read that"; it was read-to-the-end before "I agree"). One "Sign and
+    continue" then records every signature with the version, the text's SHA-256
+    fingerprint, the time, the IP address and how it was given.
+  - The full text shows in the app only for versions published with it (2026-10-28
+    onwards). Until those are approved in admin → Policies, the current versions are the
+    2026-10-01 ones, whose words live only on the website, so the app links there.
   - At booking, the patient sees every case of the Cancellation & Refund Policy for that
     kind of booking (who cancels, when, and what is refunded), generated from the rules
     the backend enforces, and agrees to it.
