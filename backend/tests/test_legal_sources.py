@@ -12,7 +12,7 @@ SPEC = importlib.util.spec_from_file_location("publish", ROOT / "docs" / "legal"
 publish = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(publish)
 
-PUBLISHED = {"2026-10-28": "0031"}
+PUBLISHED = {"2026-10-28": "0031", "2026-10-29": "0034"}
 
 
 @pytest.mark.parametrize("version,number", PUBLISHED.items())
@@ -28,6 +28,25 @@ def test_every_role_has_its_documents():
     assert docs["tos"]["audience"] == ["patient"]
     assert docs["practitioner_terms"]["audience"] == ["doctor"]
     assert docs["refund_policy"]["audience"] == ["patient", "doctor"]
+
+
+def test_the_online_rule_and_its_policy_text_agree():
+    """0033's rules and the 2026-10-29 policy text promise the same refunds."""
+    import json
+    import re
+    from app.services import cancellation
+
+    sql = (ROOT / "supabase" / "migrations" / "0033_online_cancellation_15_minutes.sql").read_text()
+    rules = json.loads(re.search(r"'(\[\{.*?\}\])'", sql, re.S).group(1))
+    rows = cancellation._patient_points("online_consult", rules)
+    assert [(r["when"], r["outcome"]) for r in rows] == [
+        ("15 minutes or more before the consultation", "Full refund"),
+        ("Less than 15 minutes before the consultation", "No refund"),
+    ]
+    text = next(d for d in publish.documents("2026-10-29") if d["type"] == "refund_policy")["body"]
+    assert "**15 minutes or more before the consultation: full refund.**" in text
+    assert "**Less than 15 minutes before the consultation: no refund.**" in text
+    assert "Any time before the consultation starts" not in text
 
 
 def _write(tmp_path, body, **header):

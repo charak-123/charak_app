@@ -111,14 +111,15 @@ here before launch.
 
 ## LD-005: Refunds and cancellations
 
-- **Status:** The home-visit rows are Decided (2026-10-26, founder). The other rows are still
-  Proposed.
+- **Status:** The home-visit rows are Decided (2026-10-26, founder), and the online
+  cancellation rows (2026-10-29, founder: "in online booking, cancellation full refund till
+  15 min before consultation"). The other rows are still Proposed.
 - **Decision:**
 
 | Situation | Outcome |
 |---|---|
-| Patient cancels an online consultation ≥ 15 minutes before the slot | Full refund |
-| Patient cancels an online consultation < 15 minutes before the slot | No refund |
+| Patient cancels an online consultation ≥ 15 minutes before the slot | Full refund **(Decided)** |
+| Patient cancels an online consultation < 15 minutes before the slot | No refund **(Decided)** |
 | Patient cancels a home visit ≥ 2 hours before the slot | Full refund **(Decided)** |
 | Patient cancels a home visit < 2 hours before the slot, before the practitioner has started travelling | 50% refund **(Decided)** |
 | Patient cancels a home visit after the practitioner has started travelling | No refund **(Decided)** |
@@ -156,8 +157,10 @@ here before launch.
   - The cancel screen shows the exact refund.
   - Refunds round down to the paisa, so the doctor keeps the odd paisa of a 50% split.
   - Bookings made before this keep a full refund.
-  - Online consultations keep a full refund until the online rule (D3 in the plan) is
-    confirmed; adding it is one new policy version (runbook §6c).
+  - Online consultations kept a full refund until the online rule (D3 in the plan) was
+    confirmed. It is policy version 2026-10-29 (migration 0033), with the matching
+    Cancellation & Refund Policy text (docs/legal/2026-10-29, migration 0034). Both apply
+    to new bookings once approved in admin → Policies.
 
 ## LD-006: Practitioner payouts
 
