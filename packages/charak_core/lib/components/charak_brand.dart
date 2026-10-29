@@ -47,7 +47,12 @@ class CharakWordmark extends StatelessWidget {
       fit: BoxFit.scaleDown,
       child: Row(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
+      // Baseline, not centre: Anek Devanagari has taller line metrics than
+      // Anek Latin, so centring the two boxes floated चरक above CHARAK. On a
+      // shared baseline the letters sit on one line and the shirorekha meets
+      // the cap height, as the two Anek scripts are designed to pair.
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
       children: [
         Text('CHARAK', style: latin),
         SizedBox(width: size * 0.35),

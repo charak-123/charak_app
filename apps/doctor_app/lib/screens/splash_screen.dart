@@ -98,10 +98,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CharakLogoMark(height: 140),
-              const SizedBox(height: 24),
-              const CharakWordmark(size: 30, suffix: 'Partner'),
-              const SizedBox(height: 10),
+              // The brand lockup, as on the patient splash: the mark with चरक
+              // lettered beneath it. At 180 the mark itself stays at 140.
+              const CharakLogoMark(height: 180, lockup: true),
+              const SizedBox(height: 14),
+              Text(
+                'Partner',
+                style: CharakText.label.copyWith(fontSize: 16.5, color: CharakColors.inkMuted),
+              ),
+              const SizedBox(height: 6),
               Text(
                 'Your practice, your schedule, your price',
                 textAlign: TextAlign.center,
