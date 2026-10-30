@@ -6,6 +6,7 @@ AGORA_APP_CERTIFICATE are set; until then a clearly-labelled stub token is
 returned so the call UI is testable end to end without credentials.
 """
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -19,7 +20,14 @@ from ..services import notifications, visits
 
 router = APIRouter()
 
-TOKEN_TTL_SECONDS = 3600
+# Two hours: a 60-minute consultation joined a few minutes early outlived a
+# one-hour token, and Agora drops the call when its token expires.
+TOKEN_TTL_SECONDS = 2 * 3600
+
+# How long a clarification call rings on the patient's phone. A doctor who
+# rings again restarts it; one who gave up and left the screen without ending
+# the call must not leave the patient's app ringing for ever.
+RING_SECONDS = 60
 
 
 def agora_configured() -> bool:
@@ -28,7 +36,7 @@ def agora_configured() -> bool:
 
 def _generate_agora_token(channel: str, uid: int) -> str:
     """
-    Mint an RTC token valid for one hour.
+    Mint an RTC token valid for TOKEN_TTL_SECONDS.
 
     ``agora-token-builder`` is imported lazily so it stays an optional dependency
     until credentials exist. If the package is missing while credentials *are*
@@ -69,13 +77,25 @@ class CallComplete(BaseModel):
     notes: Optional[str] = None
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @router.post("/{booking_id}/clarification-call", status_code=201)
 def initiate_call(
     booking_id: str,
     background: BackgroundTasks,
     user: dict = Depends(require_doctor),
 ):
-    """Doctor initiates a clarification call. Returns Agora token + channel name."""
+    """
+    Doctor rings the patient. Returns Agora token + channel name.
+
+    A call already in progress on this booking is rung again rather than
+    refused. The doctor's screen used to leave the call open when it was
+    closed with the back gesture, and every later "Call patient" then failed
+    with 409 until someone ended a call nobody could see. Ringing again is what
+    the doctor meant, and it is one channel per booking either way.
+    """
     b = fetch_one(supabase.table("bookings").select("*").eq("id", booking_id))
     if not b:
         raise AppError("Booking not found", 404)
@@ -84,21 +104,29 @@ def initiate_call(
     if b["status"] not in ("requested", "accepted"):
         raise AppError("Can only clarify requested or accepted bookings", 400)
 
-    # Prevent duplicate active calls
+    now = _now().isoformat()
     active = (
         supabase.table("clarification_calls")
-        .select("id")
+        .select("*")
         .eq("booking_id", booking_id)
         .eq("call_status", "initiated")
+        .order("created_at", desc=True)
         .execute()
-    )
-    if active.data:
-        raise AppError("A call is already in progress for this booking", 409)
-
-    row = supabase.table("clarification_calls").insert({
-        "booking_id": booking_id,
-        "call_status": "initiated",
-    }).execute().data[0]
+        .data
+    ) or []
+    if active:
+        # started_at is when it last rang: the patient app rings for
+        # RING_SECONDS from here.
+        row = (
+            supabase.table("clarification_calls").update({"started_at": now})
+            .eq("id", active[0]["id"]).execute().data or [active[0]]
+        )[0]
+    else:
+        row = supabase.table("clarification_calls").insert({
+            "booking_id": booking_id,
+            "call_status": "initiated",
+            "started_at": now,
+        }).execute().data[0]
 
     channel_name = _channel_for(booking_id)
     token = _generate_agora_token(channel_name, 0)
@@ -114,6 +142,119 @@ def initiate_call(
         "live": agora_configured(),
         "expires_in": TOKEN_TTL_SECONDS,
     }
+
+
+def _rang_at(call: dict) -> Optional[datetime]:
+    ts = call.get("started_at") or call.get("created_at")
+    if not ts:
+        return None
+    dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+@router.get("/patient/ringing-call")
+def ringing_call(user: dict = Depends(get_current_user)):
+    """
+    ``call``: the clarification call ringing for this patient right now, or
+    null. ``open_requests``: how many of their bookings a doctor could call
+    about (requested or accepted), so the app asks often only while that is
+    more than none.
+
+    Push is how a ringing call normally reaches the phone, but it can be off
+    (no Firebase on a dev backend, notifications denied, a battery saver
+    holding messages back). The patient app asks this while it is open, so a
+    call still rings.
+    """
+    bookings = (
+        supabase.table("bookings").select("id")
+        .eq("patient_id", user["sub"])
+        .in_("status", ["requested", "accepted"])
+        .execute().data
+    ) or []
+    return {"call": _ringing_for(bookings), "open_requests": len(bookings)}
+
+
+def _ringing_for(bookings: list[dict]) -> Optional[dict]:
+    if not bookings:
+        return None
+    calls = (
+        supabase.table("clarification_calls").select("*")
+        .in_("booking_id", [b["id"] for b in bookings])
+        .eq("call_status", "initiated")
+        .execute().data
+    ) or []
+    cutoff = _now() - timedelta(seconds=RING_SECONDS)
+    ringing = [c for c in calls if (_rang_at(c) or cutoff) > cutoff]
+    if not ringing:
+        return None
+    call = max(ringing, key=lambda c: _rang_at(c))
+    booking = fetch_one(
+        supabase.table("bookings").select("id, doctors(name, photo_url)").eq("id", call["booking_id"])
+    ) or {}
+    doctor = booking.get("doctors") or {}
+    return {
+        "booking_id": call["booking_id"],
+        "call_id": call["id"],
+        "doctor_name": doctor.get("name"),
+        "doctor_photo_url": doctor.get("photo_url"),
+        "rang_at": _rang_at(call).isoformat(),
+        "ring_seconds": RING_SECONDS,
+    }
+
+
+@router.post("/{booking_id}/clarification-call/{call_id}/decline")
+def decline_call(
+    booking_id: str,
+    call_id: str,
+    background: BackgroundTasks,
+    user: dict = Depends(get_current_user),
+):
+    """The patient can't talk now. Closes the call as missed and tells the
+    doctor, whose screen would otherwise keep saying "Ringing…"."""
+    booking = fetch_one(
+        supabase.table("bookings").select("id, patient_id, doctor_id").eq("id", booking_id)
+    )
+    if not booking:
+        raise AppError("Booking not found", 404)
+    if user["sub"] != booking["patient_id"]:
+        raise AppError("Forbidden", 403)
+    call = fetch_one(
+        supabase.table("clarification_calls").select("*")
+        .eq("id", call_id).eq("booking_id", booking_id)
+    )
+    if not call:
+        raise AppError("Call not found", 404)
+    if call["call_status"] != "initiated":
+        return call                                  # already over: nothing to decline
+    updated = (
+        supabase.table("clarification_calls").update({
+            "call_status": "missed",
+            "ended_at": _now().isoformat(),
+        })
+        .eq("id", call_id).eq("call_status", "initiated").execute().data
+    ) or [call]
+    notifications.clarification_call_declined(booking, background)
+    return updated[0]
+
+
+@router.get("/{booking_id}/clarification-call/{call_id}")
+def get_call(booking_id: str, call_id: str, user: dict = Depends(get_current_user)):
+    """One call's state: the doctor's screen asks while it rings, to learn
+    that the patient declined."""
+    booking = fetch_one(
+        supabase.table("bookings").select("patient_id, doctor_id").eq("id", booking_id)
+    )
+    if not booking:
+        raise AppError("Booking not found", 404)
+    if user["sub"] not in (booking["patient_id"], booking["doctor_id"]):
+        raise AppError("Forbidden", 403)
+    call = fetch_one(
+        supabase.table("clarification_calls").select("*")
+        .eq("id", call_id).eq("booking_id", booking_id)
+    )
+    if not call:
+        raise AppError("Call not found", 404)
+    return call
 
 
 class JoinRequest(BaseModel):
@@ -238,9 +379,14 @@ def join_active_call(
 @router.patch("/{booking_id}/clarification-call/{call_id}/complete")
 def complete_call(booking_id: str, call_id: str, body: CallComplete, user: dict = Depends(require_doctor)):
     call = _get_call(call_id, booking_id, user["sub"])
+    if call["call_status"] == "missed":
+        # The patient declined while the doctor was writing a note: keep the
+        # note, and the call stays missed.
+        return supabase.table("clarification_calls").update({
+            "notes": body.notes,
+        }).eq("id", call_id).execute().data[0]
     if call["call_status"] != "initiated":
         raise AppError("Call is not in progress", 400)
-    from datetime import datetime, timezone
     return supabase.table("clarification_calls").update({
         "call_status": "completed",
         "notes": body.notes,

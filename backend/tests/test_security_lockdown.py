@@ -42,7 +42,7 @@ _FULL_DOCTOR_ROW = {
     "offers_online_consult": True, "offers_home_visit": False,
     "online_consult_mode": "scheduled", "service_radius_km": 5, "accepting_requests": True,
     "verification_status": "verified", "suspended": False,
-    "doctor_pricing": [{"channel": "online_consult", "price": 500}],
+    "doctor_pricing": [{"channel": "online_consult", "price": 500}], "doctor_schedules": [{"day_of_week": 0, "start_time": "09:00", "end_time": "12:00"}],
     "doctor_procedures": [
         {"name": "Dressing", "price": 200, "active": True},
         {"name": "Removed", "price": 900, "active": False},

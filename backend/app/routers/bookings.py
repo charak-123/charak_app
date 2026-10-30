@@ -171,7 +171,8 @@ def create_booking(
     if existing.data:
         raise AppError("Slot already booked", 409)
 
-    _assert_bookable(body.doctor_id, start, None if legacy_grid else rule["duration_min"])
+    _assert_bookable(body.doctor_id, start, None if legacy_grid else rule["duration_min"],
+                     None if legacy_grid else body.channel)
 
     # The check above loses to a concurrent request that passed it a moment
     # earlier, so uq_booking_doctor_slot_active (migration 0010) is what actually
@@ -707,7 +708,7 @@ def _create_replacement(body: "BookingCreate", doc: dict, rule: dict, start: dat
         raise AppError("Case not found", 404)
     if inc["doctor_id"] == body.doctor_id:
         raise AppError("Choose a different doctor", 400)
-    _assert_bookable(body.doctor_id, start, rule["duration_min"])
+    _assert_bookable(body.doctor_id, start, rule["duration_min"], body.channel)
     fields = {
         "doctor_id": body.doctor_id, "channel": body.channel, "scheduled_start": start.isoformat(),
         "duration_min": rule["duration_min"], "price_paise": rule["price_paise"],
@@ -722,7 +723,8 @@ def _create_replacement(body: "BookingCreate", doc: dict, rule: dict, start: dat
     return {**row, "cancellation_policy": cancellation.public_policy(policy)}
 
 
-def _assert_bookable(doctor_id: str, start: datetime, duration_min: Optional[int] = None) -> None:
+def _assert_bookable(doctor_id: str, start: datetime, duration_min: Optional[int] = None,
+                     channel: Optional[str] = None) -> None:
     """
     Refuse a time the patient could not have picked from the slot grid.
 
@@ -737,7 +739,7 @@ def _assert_bookable(doctor_id: str, start: datetime, duration_min: Optional[int
         raise AppError("That time has already passed. Pick another slot.", 409)
 
     open_slots = availability.get_available_slots(doctor_id, local.date(), days=1,
-                                                  duration_min=duration_min)
+                                                  duration_min=duration_min, channel=channel)
     starts = {s["start"] for s in open_slots.get(str(local.date()), [])}
     if local.second or local.microsecond or local.strftime("%H:%M") not in starts:
         raise AppError(

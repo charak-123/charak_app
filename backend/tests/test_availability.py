@@ -216,3 +216,42 @@ def test_slots_that_have_started_or_are_too_close_are_not_offered():
         result = get_available_slots("doc-1", monday, days=1, now=now)
 
     assert [s["start"] for s in result["2026-08-24"]] == ["09:30", "09:45"]
+
+
+# ── Per-channel hours (migration 0035) ───────────────────────────────────────
+
+_MONDAY = date(2026, 8, 24)
+_SPLIT = [
+    {"day_of_week": 0, "start_time": "09:00", "end_time": "10:00", "channel": "online_consult"},
+    {"day_of_week": 0, "start_time": "16:00", "end_time": "17:00", "channel": "home_visit"},
+]
+
+
+def _starts(channel, schedules=_SPLIT):
+    with patch("app.services.availability.supabase", _make_supabase(schedules=schedules)):
+        grid = _get_available_slots("doc-1", _MONDAY, days=1, now=_BEFORE_ALL_FIXTURES,
+                                    duration_min=30, channel=channel)
+    return [s["start"] for s in grid.get(str(_MONDAY), [])]
+
+
+def test_home_visit_hours_are_not_online_slots():
+    # A 30-minute visit can start every 15 minutes.
+    assert _starts("online_consult") == ["09:00", "09:15", "09:30"]
+    assert _starts("home_visit") == ["16:00", "16:15", "16:30"]
+
+
+def test_without_a_channel_every_hour_counts():
+    assert _starts(None) == ["09:00", "09:15", "09:30", "16:00", "16:15", "16:30"]
+
+
+def test_hours_saved_before_0035_serve_both_channels():
+    legacy = [{"day_of_week": 0, "start_time": "09:00", "end_time": "10:00"}]
+    assert _starts("online_consult", legacy) == _starts("home_visit", legacy) == ["09:00", "09:15", "09:30"]
+
+
+def test_overlapping_online_and_home_hours_list_a_time_once():
+    both = [
+        {"day_of_week": 0, "start_time": "09:00", "end_time": "10:00", "channel": "online_consult"},
+        {"day_of_week": 0, "start_time": "09:00", "end_time": "10:00", "channel": "home_visit"},
+    ]
+    assert _starts(None, both) == ["09:00", "09:15", "09:30"]

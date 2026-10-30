@@ -36,10 +36,20 @@ def to_ist(ts) -> datetime:
 # slot.
 SLOT_OCCUPYING_STATUSES = ["requested", "accepted", "paid", "in_progress", "consulted", "completed"]
 
+CHANNELS = ("online_consult", "home_visit")
+
+
+def applies_to(row: dict, channel: Optional[str]) -> bool:
+    """Whether a weekly-hours row serves ``channel``. Rows from before
+    migration 0035 have no channel and serve both; no channel asked means
+    every row (the doctor's own agenda)."""
+    return channel is None or row.get("channel") in (None, channel)
+
 
 def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
                         now: Optional[datetime] = None,
-                        duration_min: Optional[int] = None) -> dict:
+                        duration_min: Optional[int] = None,
+                        channel: Optional[str] = None) -> dict:
     """
     Returns {date_str: [{"start": "09:00", "end": "09:15"}, ...], ...}
 
@@ -57,6 +67,10 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
     the longest first-visit length the doctor offers, so a slot fits either
     channel, and steps by that length, as before.
 
+    ``channel`` keeps to that channel's weekly hours (migration 0035). Without
+    it every row counts, which is what the doctor's own agenda wants and what
+    app builds that don't send it always got.
+
     Everything is in IST. Slots starting within MIN_LEAD_MINUTES of `now` (or
     already past) are not offered.
     """
@@ -69,13 +83,18 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
     end_date = from_date + timedelta(days=days)
     earliest = (now or now_ist()).astimezone(IST) + timedelta(minutes=MIN_LEAD_MINUTES)
 
-    schedules = (
-        supabase.table("doctor_schedules")
-        .select("day_of_week, start_time, end_time")
-        .eq("doctor_id", doctor_id)
-        .execute()
-        .data
-    )
+    # "*" rather than naming the columns: channel exists only from 0035, and
+    # a row without it serves both channels.
+    schedules = [
+        s for s in (
+            supabase.table("doctor_schedules")
+            .select("*")
+            .eq("doctor_id", doctor_id)
+            .execute()
+            .data
+        ) or []
+        if applies_to(s, channel)
+    ]
 
     blocks = (
         supabase.table("doctor_slot_blocks")
@@ -124,6 +143,7 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
         ]
 
         slots = []
+        seen: set[str] = set()   # online and home hours can overlap
         for sched in sorted(day_schedules, key=lambda s: s["start_time"]):
             t = datetime.combine(current, _parse_time(sched["start_time"]), IST)
             close = datetime.combine(current, _parse_time(sched["end_time"]), IST)
@@ -132,12 +152,13 @@ def get_available_slots(doctor_id: str, from_date: date, days: int = 14,
                 slot_end = t + timedelta(minutes=length)
                 blocked = any(s < slot_end and t < e for s, e in day_blocks)
                 taken = any(s < slot_end and t < e for s, e in booked)
-                if not blocked and not taken and t >= earliest:
+                if not blocked and not taken and t >= earliest and _fmt(t.time()) not in seen:
+                    seen.add(_fmt(t.time()))
                     slots.append({"start": _fmt(t.time()), "end": _fmt(slot_end.time())})
                 t += timedelta(minutes=step)
 
         if slots:
-            result[day_str] = slots
+            result[day_str] = sorted(slots, key=lambda x: x["start"])
 
         current += timedelta(days=1)
 
