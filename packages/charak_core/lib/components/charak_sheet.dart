@@ -35,6 +35,12 @@ Future<T?> showCharakSheet<T>(
 
 /// The sheet surface itself. Use [showCharakSheet] rather than building this
 /// directly unless you need a custom host.
+///
+/// The sheet rides up with the keyboard. A modal bottom sheet doesn't on its
+/// own, so a form in one (adding an address) sat behind the keyboard: the
+/// field being edited was hidden and there was no way to reach it. A sheet
+/// whose content can outgrow the space left should make that content
+/// scrollable; the sheet gives it the height that remains.
 class CharakSheet extends StatelessWidget {
   final Widget child;
   final String? title;
@@ -42,7 +48,12 @@ class CharakSheet extends StatelessWidget {
   const CharakSheet({super.key, required this.child, this.title});
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    child: _surface(context),
+  );
+
+  Widget _surface(BuildContext context) => Container(
     width: double.infinity,
     decoration: BoxDecoration(
       color: CharakColors.card,

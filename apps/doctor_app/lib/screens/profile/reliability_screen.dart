@@ -28,9 +28,9 @@ class ReliabilityScreen extends ConsumerWidget {
     final ok = await showCharakSheet<bool>(
       context,
       title: appeal ? 'Appeal this decision' : 'Tell us what happened',
+      // CharakSheet rides up with the keyboard itself.
       child: Builder(
-        builder: (ctx) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        builder: (ctx) => SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text(
               appeal

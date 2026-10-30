@@ -16,6 +16,19 @@ const doctorId = 'doc-1';
 /// Overrides `verification_status` on `/doctors/me` for one capture.
 String? verificationOverride;
 
+/// Set for a capture of a doctor patients can't book yet (home visits
+/// missing hours and a base location).
+bool notListedOverride = false;
+
+/// Weekly hours as GET /schedules/me returns them (migration 0035 channels).
+final schedules = <Map<String, dynamic>>[
+  for (final d in [0, 1, 2, 3, 4])
+    {'day_of_week': d, 'start_time': '09:00:00', 'end_time': '13:00:00', 'channel': 'online_consult'},
+  {'day_of_week': 5, 'start_time': '10:00:00', 'end_time': '12:30:00', 'channel': 'online_consult'},
+  for (final d in [1, 3])
+    {'day_of_week': d, 'start_time': '17:00:00', 'end_time': '19:30:00', 'channel': 'home_visit'},
+];
+
 final me = <String, dynamic>{
   'accepting_requests': true,
   'id': doctorId,
@@ -36,6 +49,17 @@ final me = <String, dynamic>{
     {'channel': 'online_consult', 'price': 650.0, 'base_duration_min': 15, 'extra_rate_per_15min': 100.0},
     {'channel': 'home_visit', 'price': 1100.0, 'base_duration_min': 30, 'extra_rate_per_15min': 150.0, 'extra_duration_min': 10},
   ],
+  'base_lat': 18.5590,
+  'base_lng': 73.7868,
+  'doctor_schedules': schedules,
+  'listing': {
+    'visible': true,
+    'bookable_channels': ['online_consult', 'home_visit'],
+    'channels': {
+      'online_consult': {'offered': true, 'missing': []},
+      'home_visit': {'offered': true, 'missing': []},
+    },
+  },
 };
 
 Map<String, dynamic> _req(String id, String patient, String status, DateTime start,
@@ -95,6 +119,28 @@ MockClient doctorBackend() => MockClient((req) async {
         ];
         return http.Response(jsonEncode({'documents': docs, 'missing': docs}), 200,
             headers: {'content-type': 'application/json; charset=utf-8'});
+      }
+      if (p == '/schedules/me') {
+        final channel = req.url.queryParameters['channel'];
+        return _json([
+          for (final r in schedules)
+            if (channel == null || r['channel'] == channel) r,
+        ]);
+      }
+      if (p == '/doctors/me' && notListedOverride) {
+        return _json({
+          ...me,
+          'base_lat': null,
+          'doctor_schedules': [for (final r in schedules) if (r['channel'] == 'online_consult') r],
+          'listing': {
+            'visible': true,
+            'bookable_channels': ['online_consult'],
+            'channels': {
+              'online_consult': {'offered': true, 'missing': []},
+              'home_visit': {'offered': true, 'missing': ['hours', 'base_location']},
+            },
+          },
+        });
       }
       if (p == '/doctors/me') {
         if (verificationOverride == null) return _json(me);

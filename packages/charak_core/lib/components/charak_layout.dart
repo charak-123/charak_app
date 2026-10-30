@@ -102,6 +102,10 @@ class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
   @override
   Widget build(BuildContext context) {
     final top = MediaQuery.paddingOf(context).top;
+    // What overlays the bottom: the floating tab bar (a shell with
+    // `extendBody`) or the system gesture area. Content scrolls clear of it
+    // and the Now Bar floats above it.
+    final under = MediaQuery.paddingOf(context).bottom;
     const barH = 56.0;
 
     final header = ValueListenableBuilder<double>(
@@ -132,11 +136,12 @@ class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
       slivers: [
         SliverToBoxAdapter(child: SizedBox(height: top + barH)),
         SliverToBoxAdapter(child: header),
-        if (widget.slivers != null)
-          ...widget.slivers!
-        else
+        if (widget.slivers != null) ...[
+          ...widget.slivers!,
+          SliverToBoxAdapter(child: SizedBox(height: under)),
+        ] else
           SliverPadding(
-            padding: widget.padding,
+            padding: widget.padding + EdgeInsets.only(bottom: under),
             sliver: SliverToBoxAdapter(child: CharakStaggerIn(children: widget.children)),
           ),
       ],
@@ -206,7 +211,7 @@ class _CharakLargeTitleScaffoldState extends State<CharakLargeTitleScaffold> {
           Positioned.fill(child: scroll),
           Positioned(left: 0, right: 0, top: 0, child: topBar),
           if (widget.floating != null)
-            Positioned(left: 12, right: 12, bottom: 12, child: widget.floating!),
+            Positioned(left: 12, right: 12, bottom: 12 + under, child: widget.floating!),
         ],
       ),
       bottomNavigationBar: widget.bottom,
@@ -439,66 +444,229 @@ class CharakSectionHeader extends StatelessWidget {
   );
 }
 
-// ───────────────────── specialty tile ──────────────────────────────────────
+// ───────────────────── spot mark ───────────────────────────────────────────
 
-/// Specialty tile: a 20px-radius tonal block with an icon top-left and the
-/// name bottom-left. [toneIndex] picks from [CharakTileTones] (general,
-/// paediatrics, cardiology, ayurveda, skin, ortho).
+/// The Charak spot: a line glyph over a soft tonal disc, set off-centre so the
+/// two overlap like a two-colour print. It is the patient app's mark for a
+/// kind of care: one per specialty and per way of being seen, never inside a
+/// boxed badge. [toneIndex] picks from [CharakTileTones].
+class CharakSpot extends StatelessWidget {
+  final IconData icon;
+  final int toneIndex;
+  final double size;
+
+  const CharakSpot({super.key, required this.icon, this.toneIndex = 0, this.size = 44});
+
+  /// (disc, glyph) for a tone on the current scheme. On ink the disc is the
+  /// tone's light colour, translucent, and the glyph is that light colour.
+  static (Color, Color) colors(int toneIndex) {
+    final i = toneIndex % CharakTileTones.all.length;
+    final (bg, fg) = CharakTileTones.all[i];
+    if (CharakColors.isInk) {
+      final light = fg == CharakTileTones.ortho.$2 ? CharakPalette.ink100 : bg;
+      return (CharakTileTones.spots[i].withValues(alpha: 0.24), light);
+    }
+    return (CharakTileTones.spots[i], fg);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (disc, glyph) = colors(toneIndex);
+    // The disc sits up and left, the glyph down and right, overlapping by
+    // about half, so they read as one mark rather than a ball and an icon.
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(children: [
+        Positioned(
+          left: 0,
+          top: 0,
+          child: Container(
+            width: size * 0.7,
+            height: size * 0.7,
+            decoration: BoxDecoration(color: disc, shape: BoxShape.circle),
+          ),
+        ),
+        Positioned(
+          right: size * 0.02,
+          bottom: size * 0.02,
+          child: Icon(icon, size: size * 0.66, color: glyph),
+        ),
+      ]),
+    );
+  }
+}
+
+// ───────────────────── care grid ───────────────────────────────────────────
+
+/// One kind of care in a [CharakSpecialtyGrid]: a card with its [CharakSpot],
+/// the name, and an optional [hint] in plain words ("Fever, cough, BP,
+/// sugar"), since patients look for a symptom more often than a specialty.
 class CharakSpecialtyTile extends StatelessWidget {
   final String label;
+  final String? hint;
   final IconData icon;
   final int toneIndex;
   final VoidCallback? onTap;
-  final double height;
 
   const CharakSpecialtyTile({
     super.key,
     required this.label,
     required this.icon,
+    this.hint,
     this.toneIndex = 0,
     this.onTap,
-    this.height = 88,
   });
 
-  static (Color, Color) toneFor(int i) {
-    final (bg, fg) = CharakTileTones.all[i % CharakTileTones.all.length];
-    if (!CharakColors.isInk) return (bg, fg);
-    return (CharakColors.card, fg == CharakTileTones.ortho.$2 ? CharakColors.ink : bg);
-  }
+  @override
+  Widget build(BuildContext context) => _CareCell(tile: this, prominent: false);
+}
+
+class _CareCell extends StatelessWidget {
+  final CharakSpecialtyTile tile;
+  final bool prominent;
+  const _CareCell({required this.tile, required this.prominent});
 
   @override
-  Widget build(BuildContext context) => CharakRiseIn(child: _body(context));
-
-  Widget _body(BuildContext context) {
-    final (bg, fg) = toneFor(toneIndex);
-    // Design system V2 § Specialty tiles: a tonal 20px tile — the tile is
-    // the colour — with the icon top-left and the name bottom-left in the
-    // tone's ink.
-    return CharakPressable(
-      onTap: onTap,
-      child: Container(
-        height: height,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: bg, borderRadius: const BorderRadius.all(CharakRadius.tile)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Icon(icon, size: 22, color: fg),
-            Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: CharakText.label.copyWith(fontSize: 15, color: fg)),
-          ],
+  Widget build(BuildContext context) {
+    final hint = tile.hint;
+    return Semantics(
+      button: tile.onTap != null,
+      label: hint == null ? tile.label : '${tile.label}. $hint',
+      excludeSemantics: true,
+      child: CharakPressable(
+        onTap: tile.onTap,
+        child: Container(
+          padding: prominent ? const EdgeInsets.fromLTRB(18, 18, 14, 18) : const EdgeInsets.fromLTRB(14, 14, 12, 16),
+          decoration: BoxDecoration(
+            color: CharakColors.card,
+            borderRadius: BorderRadius.all(prominent ? CharakRadius.card : CharakRadius.tile),
+            boxShadow: CharakShadows.card,
+          ),
+          child: prominent || hint == null ? _named(hint) : _symptomFirst(hint),
         ),
       ),
     );
   }
+
+  /// The way of being seen (and a tile without a hint): mark, name, hint.
+  Widget _named(String? hint) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            CharakSpot(icon: tile.icon, toneIndex: tile.toneIndex, size: prominent ? 52 : 40),
+            const Spacer(),
+            // Blue acts: the two ways of being seen are the page's first
+            // choice, and say so.
+            if (prominent)
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(color: CharakColors.primarySoft, shape: BoxShape.circle),
+                child: Icon(LucideIcons.arrowUpRight, size: 16, color: CharakColors.primaryDeep),
+              ),
+          ]),
+          SizedBox(height: prominent ? 18 : 14),
+          Text(
+            tile.label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: prominent
+                ? CharakText.titleSmall.copyWith(fontSize: 19, color: CharakColors.ink)
+                : CharakText.label.weight(650).copyWith(fontSize: 16, height: 1.2, color: CharakColors.ink),
+          ),
+          if (hint != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              hint,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: CharakText.caption.copyWith(color: CharakColors.inkMuted, height: 1.35),
+            ),
+          ],
+        ],
+      );
+
+  /// A specialty, the way Apple Health labels a category: the mark and the
+  /// specialty's name small, in its tone, on top; what it treats large
+  /// underneath. People look for their problem ("Fever, cough") more often
+  /// than for a specialty's name.
+  Widget _symptomFirst(String hint) {
+    final (_, tone) = CharakSpot.colors(tile.toneIndex);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          CharakSpot(icon: tile.icon, toneIndex: tile.toneIndex, size: 30),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              tile.label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: CharakText.label.weight(650).copyWith(fontSize: 14, height: 1.15, color: tone),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 14),
+        Text(
+          hint,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: CharakText.label.weight(650).copyWith(fontSize: 18, height: 1.2, color: CharakColors.ink),
+        ),
+      ],
+    );
+  }
+}
+
+/// Kinds of care, two to a row, each its own lifted card (r20, the soft
+/// [CharakShadows.card], 10px apart) so
+/// every choice is clearly its own target. Each row takes the height of its
+/// taller card, so a two-line hint or a large system font never clips and
+/// the rows stay even. [prominent] is for the first choice on Home (home
+/// visit or online): r26 cards, bigger spots, the name in the wide title
+/// face, and a blue arrow, since that pair is what most people tap.
+class CharakSpecialtyGrid extends StatelessWidget {
+  final List<CharakSpecialtyTile> tiles;
+  final bool prominent;
+  const CharakSpecialtyGrid({super.key, required this.tiles, this.prominent = false});
+
+  static const _gap = 10.0;
+
+  @override
+  Widget build(BuildContext context) => CharakRiseIn(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < tiles.length; i += 2) ...[
+              if (i > 0) const SizedBox(height: _gap),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: _CareCell(tile: tiles[i], prominent: prominent)),
+                    const SizedBox(width: _gap),
+                    Expanded(
+                      child: i + 1 < tiles.length
+                          ? _CareCell(tile: tiles[i + 1], prominent: prominent)
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
 }
 
 // ───────────────────── search bar ──────────────────────────────────────────
 
-/// Pill search field (56px) on a card surface, with an optional round voice
+/// Pill search field (56px) on a lifted card surface ([CharakShadows.card]),
+/// with an optional round voice
 /// button. Tapping it when [onTap] is set opens search instead of focusing.
 class CharakSearchBar extends StatelessWidget {
   final String placeholder;
@@ -541,7 +709,11 @@ class CharakSearchBar extends StatelessWidget {
     final bar = Container(
       height: 56,
       padding: EdgeInsets.fromLTRB(20, 0, onVoice != null ? 8 : 20, 0),
-      decoration: BoxDecoration(color: CharakColors.card, borderRadius: const BorderRadius.all(CharakRadius.pill)),
+      decoration: BoxDecoration(
+        color: CharakColors.card,
+        borderRadius: const BorderRadius.all(CharakRadius.pill),
+        boxShadow: CharakShadows.card,
+      ),
       child: Row(children: [
         Icon(LucideIcons.search, size: 22, color: CharakColors.inkMuted),
         const SizedBox(width: 12),

@@ -41,6 +41,7 @@ String? _packageDir(String name) {
 final _screens = <(String, String, int?)>[
   ('01_sign_in', '/auth/sign-in', null),
   ('02_requests', '/home', 0),
+  ('02b_requests_not_listed', '/home', 0),
   ('03_schedule', '/home', 1),
   ('04_earnings', '/home', 2),
   ('05_profile', '/home', 3),
@@ -53,6 +54,8 @@ final _screens = <(String, String, int?)>[
   ('09_channels', '/setup/channels', null),
   ('10_pricing', '/setup/pricing', null),
   ('11_payout', '/setup/payout', null),
+  ('12_online_hours', '/setup/online', null),
+  ('13_home_visit_settings', '/setup/home-visit', null),
 ];
 
 void main() {
@@ -86,6 +89,7 @@ void main() {
 
       CharakColors.useScheme(CharakScheme.doctor);
       verificationOverride = name.contains('pending') ? 'pending' : name.contains('rejected') ? 'rejected' : null;
+      notListedOverride = name.contains('not_listed');
       ApiClient.debugClient = doctorBackend();
       FlutterSecureStorage.setMockInitialValues({'auth_token': 'fixture-token'});
       SharedPreferences.setMockInitialValues({'user_id': doctorId, 'user_name': 'Dr. Meera Kulkarni'});

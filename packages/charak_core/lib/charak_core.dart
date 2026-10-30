@@ -36,6 +36,8 @@ export 'components/charak_misc.dart';
 export 'components/charak_controls.dart';
 export 'components/charak_call.dart';
 export 'components/charak_sheet.dart';
+export 'components/charak_time_picker.dart';
+export 'components/charak_photo_viewer.dart';
 export 'components/charak_nav.dart';
 export 'components/charak_layout.dart';
 export 'components/charak_brand.dart';

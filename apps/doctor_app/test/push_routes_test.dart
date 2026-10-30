@@ -32,6 +32,13 @@ void main() {
       );
     });
 
+    test('a declined call goes back to the request it was about', () {
+      expect(
+        doctorPushDestination(_msg('call.declined', bookingId: 'bk-9')),
+        const DoctorPushDestination('/request/bk-9'),
+      );
+    });
+
     test('a booking event with no booking id routes nowhere', () {
       // Better to leave the doctor where they are than to push `/request/null`.
       expect(doctorPushDestination(_msg('booking.requested')), isNull);

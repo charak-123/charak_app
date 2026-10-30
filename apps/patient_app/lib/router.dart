@@ -25,6 +25,9 @@ import 'screens/booking/active_booking_screen.dart';
 import 'screens/booking/prescription_screen.dart';
 import 'screens/booking/help_screen.dart';
 import 'screens/booking/video_call_screen.dart';
+import 'screens/booking/incoming_call_screen.dart';
+import 'screens/home/booking_providers.dart';
+import 'incoming_calls.dart';
 import 'screens/booking/visit_complete_screen.dart';
 import 'screens/booking/procedure_bill_screen.dart';
 import 'screens/booking/rate_screen.dart';
@@ -178,6 +181,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           pageBuilder: (_, s) => _card(s, ActiveBookingScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/call',
           pageBuilder: (_, s) => _rise(VideoCallScreen(bookingId: s.pathParameters['id']!))),
+      GoRoute(path: '/booking/:id/incoming',
+          pageBuilder: (_, s) => _rise(IncomingCallScreen.fromJson(
+                s.pathParameters['id']!,
+                s.extra is Map<String, dynamic> ? s.extra! as Map<String, dynamic> : null,
+              ))),
       GoRoute(path: '/booking/:id/complete',
           pageBuilder: (_, s) => _rise(VisitCompleteScreen(bookingId: s.pathParameters['id']!))),
       GoRoute(path: '/booking/:id/bill',
@@ -197,10 +205,41 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 
-  // A tapped notification should land on the thing it is about — above all
-  // `call.incoming`, which is time-critical: the doctor is ringing now. The
-  // mapping lives in `push_routes.dart` so it can be tested without a GoRouter.
+  // A doctor ringing while the app is open: the incoming-call screen, once
+  // per ring, unless the patient is already in that call.
+  void ring(String bookingId, Map<String, dynamic>? call) {
+    if (IncomingCallScreen.showingFor == bookingId) return;
+    final path = router.routerDelegate.currentConfiguration.uri.path;
+    if (path == '/booking/$bookingId/call' || path == '/booking/$bookingId/incoming') return;
+    router.push('/booking/$bookingId/incoming', extra: call);
+  }
+
+  final watcher = IncomingCallWatcher(onRinging: (call) {
+    final id = call['booking_id'] as String?;
+    if (id != null) ring(id, call);
+  });
+  ref.listen<AuthState>(authProvider, (_, auth) {
+    auth.isAuthenticated ? watcher.start() : watcher.stop();
+  }, fireImmediately: true);
+  ref.onDispose(watcher.stop);
+
+  // A tapped notification lands on the thing it is about; for `call.incoming`
+  // that is the call itself, since the tap was the answer. The mapping lives
+  // in `push_routes.dart` so it can be tested without a GoRouter.
+  //
+  // A push that merely arrives while the app is open moves nobody: it shows
+  // as a banner (charak_push.dart) and the lists it affects refresh. It used
+  // to yank the patient to another screen mid-task. A ringing call is the
+  // exception, and gets the incoming-call screen.
   final pushSub = CharakPush.instance.messages.listen((m) {
+    if (!m.opened) {
+      ref.invalidate(patientBookingsProvider);
+      ref.invalidate(unreadNotificationsProvider);
+      final id = m.bookingId;
+      if (m.event == 'call.incoming' && id != null) ring(id, null);
+      if (m.event == 'booking.requested' || m.event == 'booking.accepted') watcher.pokeNow();
+      return;
+    }
     final route = patientPushRoute(m);
     if (route != null) router.go(route);
   });

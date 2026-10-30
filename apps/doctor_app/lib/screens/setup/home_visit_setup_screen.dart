@@ -18,25 +18,63 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
   String? _address;
   int    _radius = 3; // middle of _radii; pre-selected per the wireframe
   bool   _loading = false, _locating = false;
+  bool   _loaded = false;
+  Object? _loadError;
   String? _error;
 
   static const _radii = [2, 3, 5];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  /// What is already saved: hours, radius and base location. This screen
+  /// used to open blank every time, so a doctor changing one block had to
+  /// redo the week, and an untouched radius reset to 3 km on save.
+  Future<void> _load() async {
+    setState(() { _loadError = null; _loaded = false; });
+    try {
+      final results = await Future.wait([
+        loadScheduleBlocks('home_visit'),
+        ApiClient.instance.get('/doctors/me'),
+      ]);
+      final me = results[1] as Map<String, dynamic>;
+      if (!mounted) return;
+      setState(() {
+        _blocks = results[0] as List<ScheduleBlock>;
+        _radius = (me['service_radius_km'] as num?)?.toInt() ?? _radius;
+        _lat = (me['base_lat'] as num?)?.toDouble();
+        _lng = (me['base_lng'] as num?)?.toDouble();
+        _loaded = true;
+      });
+      final lat = _lat, lng = _lng;
+      if (lat != null && lng != null) {
+        final place = await CharakLocation.describe(lat, lng);
+        if (mounted && _lat == lat && _lng == lng) setState(() => _address = _label(place));
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loadError = e);
+    }
+  }
+
+  /// The area name reads better than raw coordinates; fall back to them when
+  /// the phone's geocoder had nothing.
+  static String _label(CharakPlace p) {
+    final text = [p.line2, p.city, p.pincode].whereType<String>().join(', ');
+    return text.isNotEmpty ? text : '${p.lat.toStringAsFixed(4)}, ${p.lng.toStringAsFixed(4)}';
+  }
 
   Future<void> _detectLocation() async {
     setState(() { _locating = true; _error = null; });
     try {
       final place = await CharakLocation.current();
       if (!mounted) return;
-      final text = [place.line2, place.city, place.pincode]
-          .whereType<String>().join(', ');
       setState(() {
         _lat = place.lat;
         _lng = place.lng;
-        // The area name reads better than raw coordinates; fall back to them
-        // when the phone's geocoder had nothing.
-        _address = text.isNotEmpty
-            ? text
-            : '${place.lat.toStringAsFixed(4)}, ${place.lng.toStringAsFixed(4)}';
+        _address = _label(place);
       });
     } on CharakLocationException catch (e) {
       if (mounted) {
@@ -53,6 +91,11 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
   // The wireframe's Continue is likewise ungated. Radius defaults below.
   bool get _valid => _blocks.isNotEmpty;
 
+  /// The standard choices, plus a saved radius that isn't one of them, so
+  /// it shows as selected instead of silently becoming 3 km.
+  List<int> get _radiusChoices =>
+      _radii.contains(_radius) ? _radii : ([..._radii, _radius]..sort());
+
   Future<void> _submit() async {
     setState(() { _loading = true; _error = null; });
     try {
@@ -65,7 +108,13 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
         if (_lat != null) 'base_lat': _lat,
         if (_lng != null) 'base_lng': _lng,
       });
-      if (mounted) context.go('/setup/pricing');
+      if (!mounted) return;
+      if (widget.fromSetup) {
+        context.go('/setup/pricing');
+      } else {
+        showCharakToast(context, message: 'Home visit settings saved');
+        context.pop(true);
+      }
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {
@@ -84,7 +133,9 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
         child: Column(
           children: [
             Expanded(
-              child: SingleChildScrollView(
+              child: _loadError != null
+                  ? CharakErrorState(error: _loadError!, onRetry: _load)
+                  : SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -100,13 +151,13 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
                     // `.rad-chips` — equal 52px cells, 10px gutters.
                     Row(
                       children: [
-                        for (var idx = 0; idx < _radii.length; idx++) ...[
+                        for (var idx = 0; idx < _radiusChoices.length; idx++) ...[
                           if (idx > 0) const SizedBox(width: 10),
                           Expanded(
                             child: _RadiusChip(
-                              label: '${_radii[idx]} km',
-                              selected: _radius == _radii[idx],
-                              onTap: () => setState(() => _radius = _radii[idx]),
+                              label: '${_radiusChoices[idx]} km',
+                              selected: _radius == _radiusChoices[idx],
+                              onTap: () => setState(() => _radius = _radiusChoices[idx]),
                             ),
                           ),
                         ],
@@ -122,6 +173,14 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
                       resolved: _lat != null,
                       onTap: _detectLocation,
                     ),
+                    if (_lat != null) ...[
+                      const SizedBox(height: 6),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Text('Moved? Tap it where you now start your visits to pin it again.',
+                            style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+                      ),
+                    ],
                     const SizedBox(height: 20),
 
                     const CharakSectionTitle(label: 'Visit hours'),
@@ -133,10 +192,15 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
                         color: CharakColors.bg,
                         borderRadius: const BorderRadius.all(CharakRadius.card),
                       ),
-                      child: ScheduleEditor(
-                        blocks: _blocks,
-                        onChanged: (b) => setState(() => _blocks = b),
-                      ),
+                      child: !_loaded
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: CharakSkeletonList(count: 3, avatar: false, padding: EdgeInsets.zero),
+                            )
+                          : ScheduleEditor(
+                              blocks: _blocks,
+                              onChanged: (b) => setState(() => _blocks = b),
+                            ),
                     ),
 
                     if (_error != null) ...[
@@ -149,8 +213,9 @@ class _HomeVisitSetupScreenState extends ConsumerState<HomeVisitSetupScreen> {
             ),
             CharakCtaBar.single(
               CharakButton(
-                label: 'Continue',
-                onPressed: _valid ? _submit : null,
+                label: widget.fromSetup ? 'Continue' : 'Save',
+                // Never save over settings that didn't load: that would erase them.
+                onPressed: _loaded && _valid ? _submit : null,
                 isLoading: _loading,
               ),
             ),
@@ -241,7 +306,9 @@ class _BaseLocationCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 1),
                 Text(
-                  locating ? 'Detecting location…' : (address ?? 'Tap to detect via GPS'),
+                  locating
+                      ? 'Detecting location…'
+                      : (address ?? (resolved ? 'Pinned' : 'Tap to detect via GPS')),
                   style: CharakText.caption.tabular.copyWith(color: CharakColors.inkMuted),
                 ),
               ],
@@ -251,7 +318,8 @@ class _BaseLocationCard extends StatelessWidget {
             const SizedBox(
                 width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
           else
-            Icon(LucideIcons.chevronRight, size: 16, color: CharakColors.inkMuted),
+            Icon(resolved ? LucideIcons.locateFixed : LucideIcons.chevronRight,
+                size: 16, color: CharakColors.inkMuted),
         ],
       ),
     ),

@@ -8,20 +8,8 @@ import 'package:intl/intl.dart';
 
 import '../notifications/notifications_screen.dart';
 import 'booking_providers.dart';
+import '../../specialties.dart';
 
-/// (directory filter, tile label, icon, tile tone index into CharakTileTones.all).
-/// Tile labels are the short names from the design system so they fit one
-/// line on a third-width tile; the filter keeps the full specialty name.
-const _specialties = [
-  ('General Physician', 'General', LucideIcons.stethoscope, 0),
-  ('Pediatrics', 'Paediatrics', LucideIcons.baby, 1),
-  ('Cardiology', 'Cardiology', LucideIcons.heartPulse, 2),
-  ('Dermatology', 'Skin', LucideIcons.scanFace, 4),
-  ('Orthopedic', 'Ortho', LucideIcons.bone, 5),
-  ('Physiotherapy', 'Physio', LucideIcons.personStanding, 3),
-  ('Gynecology', 'Gynae', LucideIcons.venus, 2),
-  ('Nurse', 'Nurse', LucideIcons.syringe, 0),
-];
 
 /// Patient Home (design-system/README.md § Screens · Patient Home).
 ///
@@ -49,12 +37,20 @@ class HomeTab extends ConsumerWidget {
     final upcoming = _upcoming(bookings);
     final next = upcoming.isEmpty ? null : upcoming.first;
     final live = upcoming.where(_isLiveSoon).firstOrNull;
+    // A home visit whose doctor has tapped Start Journey and not yet started
+    // the consultation: they are on their way now, which outranks anything
+    // scheduled.
+    final onTheWay = bookings
+        .where((b) => b['channel'] == 'home_visit' && b['status'] == 'paid' && b['journey_started_at'] != null)
+        .firstOrNull;
 
-    final status = next == null
-        ? 'Book a home visit or an online consult in a few taps.'
-        : live != null
-            ? 'Your consult starts soon. Everything else is on track.'
-            : 'You have ${upcoming.length} upcoming booking${upcoming.length == 1 ? '' : 's'}.';
+    final status = onTheWay != null
+        ? '${CharakFormat.doctor((onTheWay['doctors'] as Map?)?['name'] as String?)} is on the way to you.'
+        : next == null
+            ? 'Book a home visit or an online consult in a few taps.'
+            : live != null
+                ? 'Your consult starts soon. Everything else is on track.'
+                : 'You have ${upcoming.length} upcoming booking${upcoming.length == 1 ? '' : 's'}.';
 
     final unread = ref.watch(unreadNotificationsProvider).valueOrNull ?? 0;
     final ready = bookings.where((b) => b['status'] == 'consulted').toList();
@@ -99,7 +95,9 @@ class HomeTab extends ConsumerWidget {
         ref.invalidate(followUpsProvider);
         return ref.refresh(patientBookingsProvider.future);
       },
-      floating: live == null ? null : _ConsultNowBar(booking: live),
+      floating: onTheWay != null
+          ? _OnTheWayNowBar(booking: onTheWay)
+          : (live == null ? null : _ConsultNowBar(booking: live)),
       children: [
         CharakSearchBar(
           onTap: () => context.push('/directory'),
@@ -109,6 +107,26 @@ class HomeTab extends ConsumerWidget {
           const SizedBox(height: 16),
           _NextBookingHero(booking: next),
         ],
+        // The first choice a patient makes: a doctor at home, or a video
+        // call. Each opens the directory showing only doctors bookable that
+        // way; the directory's chips still switch between them.
+        const SizedBox(height: 16),
+        CharakSpecialtyGrid(prominent: true, tiles: [
+          CharakSpecialtyTile(
+            label: 'Home visit',
+            hint: 'A doctor comes to you',
+            icon: LucideIcons.house,
+            toneIndex: 1,
+            onTap: () => context.push('/directory?q=home_visit'),
+          ),
+          CharakSpecialtyTile(
+            label: 'Online consult',
+            hint: 'See a doctor on video',
+            icon: LucideIcons.video,
+            toneIndex: 0,
+            onTap: () => context.push('/directory?q=online_consult'),
+          ),
+        ]),
         if (ready.isNotEmpty || followUps.isNotEmpty) ...[
           const SizedBox(height: 24),
           CharakGroupedList(label: 'For you', children: [
@@ -138,27 +156,16 @@ class HomeTab extends ConsumerWidget {
           onAction: () => context.push('/directory'),
         ),
         const SizedBox(height: 12),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            mainAxisExtent: 88,
-          ),
-          itemCount: _specialties.length,
-          itemBuilder: (_, i) {
-            final (filter, label, icon, tone) = _specialties[i];
-            return CharakSpecialtyTile(
-              label: label,
-              icon: icon,
-              toneIndex: tone,
-              onTap: () => context.push('/directory?q=${Uri.encodeQueryComponent(filter)}'),
-            );
-          },
-        ),
+        CharakSpecialtyGrid(tiles: [
+          for (final s in specialties)
+            CharakSpecialtyTile(
+              label: s.name,
+              hint: s.hint,
+              icon: s.icon,
+              toneIndex: s.tone,
+              onTap: () => context.push('/directory?q=${Uri.encodeQueryComponent(s.category)}'),
+            ),
+        ]),
       ],
     );
   }
@@ -246,7 +253,7 @@ class _NextBookingHero extends StatelessWidget {
     final channel = booking['channel'] as String? ?? '';
     final doc = booking['doctors'] as Map? ?? const {};
     final docName = CharakFormat.doctor(doc['name'] as String?);
-    final category = (doc['categories'] as Map?)?['name'] as String? ?? '';
+    final category = specialtyName((doc['categories'] as Map?)?['name'] as String?);
     final pricing = List<Map<String, dynamic>>.from(doc['doctor_pricing'] as List? ?? const []);
     final price = pricing.where((p) => p['channel'] == channel).firstOrNull?['price'] as num?;
     final at = DateTime.tryParse(booking['scheduled_start'] as String? ?? '')?.toLocal();
@@ -329,6 +336,28 @@ class _NextBookingHero extends StatelessWidget {
 
 /// Now Bar for a paid online consult starting within the hour. The
 /// countdown ticks every second in tabular figures.
+/// A home visit under way: the doctor tapped Start Journey. When they left
+/// is real; an arrival estimate would need their live location, which the
+/// app doesn't track, so none is shown.
+class _OnTheWayNowBar extends StatelessWidget {
+  final Map<String, dynamic> booking;
+  const _OnTheWayNowBar({required this.booking});
+
+  @override
+  Widget build(BuildContext context) {
+    final doc = booking['doctors'] as Map? ?? const {};
+    final left = DateTime.tryParse(booking['journey_started_at'] as String? ?? '')?.toLocal();
+    return CharakNowBar(
+      icon: LucideIcons.car,
+      live: true,
+      title: '${CharakFormat.doctor(doc['name'] as String?)} is on the way',
+      subtitle: left == null ? 'Home visit' : 'Home visit · left at ${DateFormat('h:mm a').format(left)}',
+      actionLabel: 'View visit',
+      onAction: () => context.push('/booking/${booking['id']}/active'),
+    );
+  }
+}
+
 class _ConsultNowBar extends StatefulWidget {
   final Map<String, dynamic> booking;
   const _ConsultNowBar({required this.booking});
@@ -357,11 +386,11 @@ class _ConsultNowBarState extends State<_ConsultNowBar> {
     final countdown = left.isNegative
         ? 'Now'
         : 'in ${left.inMinutes.toString().padLeft(2, '0')}:${(left.inSeconds % 60).toString().padLeft(2, '0')}';
-    final category = (doc['categories'] as Map?)?['name'] as String?;
+    final category = specialtyName((doc['categories'] as Map?)?['name'] as String?);
     return CharakNowBar(
       icon: LucideIcons.video,
       title: '${CharakFormat.doctor(doc['name'] as String?)} · your consult',
-      subtitle: ['Online', if (category != null) category].join(' · '),
+      subtitle: ['Online', if (category.isNotEmpty) category].join(' · '),
       trailing: countdown,
       actionLabel: 'Join waiting room',
       onAction: () => context.push('/booking/${b['id']}/active'),

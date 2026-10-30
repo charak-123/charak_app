@@ -41,6 +41,8 @@ DoctorPushDestination? doctorPushDestination(CharakPushMessage message) {
     // Time-critical and booking-specific: go straight to the request.
     case 'booking.requested':
     case 'call.incoming':
+    // The patient declined a clarification call: back to the request.
+    case 'call.declined':
       return bookingId == null ? null : DoctorPushDestination('/request/$bookingId');
 
     // Money. All of it reads in one place.

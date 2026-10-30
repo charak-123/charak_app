@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
 import '../format/charak_format.dart';
+import 'charak_photo_viewer.dart';
 
 // Six tone pairs from the V2 ramps (bg, initials). Avatars keep these light
 // tones on both schemes, as in the doctor app's ink mockup.
@@ -31,6 +32,16 @@ class CharakAvatar extends StatelessWidget {
   /// Draw a circle instead of the rounded square (the account button).
   final bool circle;
 
+  /// Tapping a photo opens it full screen ([showCharakPhoto]), titled
+  /// [viewTitle] (the name otherwise). An avatar without a photo is not
+  /// tappable. Inside a tappable card the photo takes the tap and the rest of
+  /// the card still opens the card, as in WhatsApp's chat list.
+  final bool viewable;
+  final String? viewTitle;
+
+  /// Extra buttons in the full-screen viewer, e.g. the doctor's "Change photo".
+  final List<CharakPhotoAction> viewActions;
+
   const CharakAvatar({
     super.key,
     required this.name,
@@ -38,10 +49,26 @@ class CharakAvatar extends StatelessWidget {
     this.radius = 24,
     this.tone,
     this.circle = false,
+    this.viewable = false,
+    this.viewTitle,
+    this.viewActions = const [],
   });
+
+  bool get _hasImage => imageUrl != null && imageUrl!.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
+    if (!viewable || !_hasImage) return _avatar(context);
+    return _ViewableAvatar(
+      imageUrl: imageUrl!,
+      title: viewTitle ?? name,
+      actions: viewActions,
+      semanticLabel: 'Photo of ${viewTitle ?? name}',
+      builder: _avatar,
+    );
+  }
+
+  Widget _avatar(BuildContext context) {
     final t = ((tone ?? _toneFromName(name)) - 1).clamp(0, 5);
     final side = radius * 2;
     final shape = circle
@@ -55,7 +82,7 @@ class CharakAvatar extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: ShapeDecoration(color: _toneBg[t], shape: shape),
       alignment: Alignment.center,
-      child: (imageUrl != null && imageUrl!.isNotEmpty)
+      child: _hasImage
           ? Image(
               image: CharakCoverResizeImage(
                 NetworkImage(imageUrl!),
@@ -78,6 +105,48 @@ class CharakAvatar extends StatelessWidget {
   // Expose for callers that want the tone colours for overlaid content.
   static Color fgForTone(int tone) => _toneFg[(tone - 1).clamp(0, 5)];
   static Color bgForTone(int tone) => _toneBg[(tone - 1).clamp(0, 5)];
+}
+
+class _ViewableAvatar extends StatefulWidget {
+  final String imageUrl;
+  final String title;
+  final List<CharakPhotoAction> actions;
+  final String semanticLabel;
+  final WidgetBuilder builder;
+
+  const _ViewableAvatar({
+    required this.imageUrl,
+    required this.title,
+    required this.actions,
+    required this.semanticLabel,
+    required this.builder,
+  });
+
+  @override
+  State<_ViewableAvatar> createState() => _ViewableAvatarState();
+}
+
+class _ViewableAvatarState extends State<_ViewableAvatar> {
+  // One tag per avatar on screen: two avatars of the same doctor (a list and
+  // the screen it pushes) must not be taken for the same hero.
+  final _heroTag = Object();
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: widget.semanticLabel,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => showCharakPhoto(
+            context,
+            imageUrl: widget.imageUrl,
+            title: widget.title,
+            heroTag: _heroTag,
+            actions: widget.actions,
+          ),
+          child: Hero(tag: _heroTag, child: widget.builder(context)),
+        ),
+      );
 }
 
 /// Decodes a photo at the size the avatar shows it, not the size it was

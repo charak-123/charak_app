@@ -87,23 +87,39 @@ class CharakBottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ink = CharakColors.isInk;
-    final barColor = ink ? CharakColors.ground : CharakColors.card;
+    final row = Row(
+      children: [
+        for (var i = 0; i < items.length; i++)
+          Expanded(child: _NavButton(item: items[i], active: i == currentIndex, onTap: () => onTap(i))),
+      ],
+    );
+    if (!ink) {
+      // Patient scheme: a capsule floating above the content (One UI 7,
+      // iOS 26), with the soft card lift. The shell sets `extendBody` so
+      // content scrolls on under it; CharakLargeTitleScaffold pads for it.
+      final inset = MediaQuery.paddingOf(context).bottom;
+      return Padding(
+        padding: EdgeInsets.fromLTRB(12, 0, 12, inset > 0 ? inset + 4 : 12),
+        child: Container(
+          height: CharakSizes.bottomBarHeight,
+          decoration: BoxDecoration(
+            color: CharakColors.card,
+            borderRadius: const BorderRadius.all(CharakRadius.pill),
+            boxShadow: CharakShadows.card,
+          ),
+          child: row,
+        ),
+      );
+    }
+    final barColor = CharakColors.ground;
     return Container(
       decoration: BoxDecoration(
         color: barColor,
-        border: Border(top: BorderSide(color: ink ? CharakColors.card : CharakColors.border)),
+        border: Border(top: BorderSide(color: CharakColors.card)),
       ),
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          height: CharakSizes.bottomBarHeight,
-          child: Row(
-            children: [
-              for (var i = 0; i < items.length; i++)
-                Expanded(child: _NavButton(item: items[i], active: i == currentIndex, onTap: () => onTap(i))),
-            ],
-          ),
-        ),
+        child: SizedBox(height: CharakSizes.bottomBarHeight, child: row),
       ),
     );
   }

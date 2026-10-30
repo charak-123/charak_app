@@ -12,12 +12,60 @@ final _incomingProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>
   return List<Map<String, dynamic>>.from(res as List);
 });
 
+final _meProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  return await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+});
+
 /// Whether new patients can send requests ("Accepting requests" switch).
 /// Defaults to on: a backend without the column has no way to pause.
 final _acceptingProvider = FutureProvider.autoDispose<bool>((ref) async {
-  final me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+  final me = await ref.watch(_meProvider.future);
   return me['accepting_requests'] as bool? ?? true;
 });
+
+/// What stops patients booking a channel the doctor offers, as one line and
+/// the screen that fixes it; null when everything offered is bookable.
+/// From GET /doctors/me `listing` (backend services/listing.py).
+({String lead, String message, String route})? _listingGap(Map<String, dynamic>? me) {
+  final listing = me?['listing'] as Map<String, dynamic>?;
+  if (listing == null) return null;
+  final channels = (listing['channels'] as Map?)?.cast<String, dynamic>() ?? const {};
+  const names = {'online_consult': 'online consults', 'home_visit': 'home visits'};
+  const words = {'price': 'a price', 'hours': 'your hours', 'base_location': 'your base location'};
+  final offered = channels.entries.where((e) => (e.value as Map)['offered'] == true).toList();
+  if (offered.isEmpty) {
+    return (
+      lead: "Patients can't book you yet.",
+      message: ' Choose online consults, home visits or both.',
+      route: '/setup/channels',
+    );
+  }
+  final gaps = [
+    for (final e in offered)
+      if (((e.value as Map)['missing'] as List?)?.isNotEmpty == true)
+        (channel: e.key, missing: List<String>.from((e.value as Map)['missing'] as List)),
+  ];
+  if (gaps.isEmpty) return null;
+  final first = gaps.first;
+  final route = first.missing.contains('price')
+      ? '/setup/pricing'
+      : (first.channel == 'home_visit' ? '/setup/home-visit' : '/setup/online');
+  String list(List<String> m) {
+    final w = [for (final k in m) words[k] ?? k];
+    return w.length == 1 ? w.first : '${w.sublist(0, w.length - 1).join(', ')} and ${w.last}';
+  }
+  String capital(String t) => '${t[0].toUpperCase()}${t.substring(1)}';
+  return (
+    lead: listing['visible'] == true
+        ? '${capital(names[first.channel]!)} are hidden from patients.'
+        : "Patients can't book you yet.",
+    // One channel: "Add your hours and your base location." Both: name each.
+    message: gaps.length == 1
+        ? ' Add ${list(first.missing)}.'
+        : ' ${[for (final g in gaps) 'For ${names[g.channel]}, add ${list(g.missing)}'].join('. ')}.',
+    route: route,
+  );
+}
 
 // ── RequestsTab ───────────────────────────────────────────────────────────────
 
@@ -42,10 +90,22 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
   /// in that snapshot were already waiting, so they don't raise a heads-up.
   bool _synced = false;
 
+  StreamSubscription<CharakPushMessage>? _pushSub;
+
   @override
   void initState() {
     super.initState();
     _pollIncoming();
+    // A request, cancellation or payment pushed while this tab is open shows
+    // here straight away rather than at the next poll.
+    _pushSub = CharakPush.instance.messages.listen((m) {
+      if (m.opened) return;
+      if (const {'booking.requested', 'booking.cancelled', 'booking.hold_expired', 'payment.received'}
+          .contains(m.event)) {
+        _poll?.pokeNow();
+        ref.invalidate(_incomingProvider);
+      }
+    });
   }
 
   /// Polls /bookings/doctor/incoming for requests that have appeared since the
@@ -122,7 +182,7 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
     setState(() => _acceptingOverride = value);
     try {
       await ApiClient.instance.patch('/doctors/me', {'accepting_requests': value});
-      ref.invalidate(_acceptingProvider);
+      ref.invalidate(_meProvider);
     } on ApiException catch (e) {
       if (mounted) {
         setState(() => _acceptingOverride = !value);
@@ -156,6 +216,7 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
   @override
   void dispose() {
     _poll?.dispose();
+    _pushSub?.cancel();
     super.dispose();
   }
 
@@ -197,8 +258,26 @@ class _RequestsTabState extends ConsumerState<RequestsTab> {
               ? 'Nothing waiting. New requests arrive live.'
               : '$count waiting for your decision',
       subtitleColor: (count ?? 0) > 0 ? CharakColors.greeting : null,
-      onRefresh: () => ref.refresh(_incomingProvider.future),
+      onRefresh: () {
+        ref.invalidate(_meProvider);
+        return ref.refresh(_incomingProvider.future);
+      },
       children: [
+        if (_listingGap(ref.watch(_meProvider).valueOrNull) case final gap?) ...[
+          CharakPressable(
+            onTap: () async {
+              await context.push(gap.route);
+              ref.invalidate(_meProvider);
+            },
+            child: CharakNoteBanner(
+              icon: LucideIcons.eyeOff,
+              tone: CharakStatusTone.review,
+              leadLabel: gap.lead,
+              message: gap.message,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         availability,
         const SizedBox(height: 12),
         ...incoming.when(

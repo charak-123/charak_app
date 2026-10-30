@@ -74,6 +74,15 @@ class CharakPoller with WidgetsBindingObserver {
     stop();
   }
 
+  /// Polls now and goes back to the fastest interval: something (a push that
+  /// arrived while the app was open) says the answer has probably changed.
+  void pokeNow() {
+    if (!_running || _disposed) return;
+    _current = interval;
+    _timer?.cancel();
+    _timer = Timer(Duration.zero, _tick);
+  }
+
   void _schedule() {
     _timer?.cancel();
     if (!_running) return;

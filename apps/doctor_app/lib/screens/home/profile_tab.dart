@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:image_picker/image_picker.dart';
+import '../setup/schedule_editor.dart';
 import 'shell_providers.dart';
 
 // These hold one doctor's profile and payout details. They watch the sign-in
@@ -86,6 +87,17 @@ class ProfileTab extends ConsumerWidget {
           final radius  = me['service_radius_km'];
           final spec    = (me['categories'] as Map<String, dynamic>?)?['name'] as String?;
           final phone   = me['phone'] as String? ?? '';
+          final hours = [
+            for (final r in (me['doctor_schedules'] as List?) ?? const [])
+              (r as Map)['channel'] as String?,
+          ];
+          List<ScheduleBlock> blocksFor(String channel) => [
+                for (final r in (me['doctor_schedules'] as List?) ?? const [])
+                  if ((r as Map)['channel'] == null || r['channel'] == channel)
+                    ScheduleBlock.fromJson(Map<String, dynamic>.from(r)),
+              ];
+          final onlineHours = hours.isEmpty ? null : summariseSchedule(blocksFor('online_consult'));
+          final homeHours = hours.isEmpty ? null : summariseSchedule(blocksFor('home_visit'));
           final rules = (ref.watch(_pricesProvider).valueOrNull?['rules'] as List?) ?? const [];
           final onlineLine = _rateLine(rules, 'online_consult');
           final homeLine   = _rateLine(rules, 'home_visit');
@@ -100,7 +112,26 @@ class ProfileTab extends ConsumerWidget {
           return [
             CharakCard(
               child: Row(children: [
-                CharakAvatar(name: name, radius: 30, imageUrl: me['photo_url'] as String?),
+                // Tap the photo to see it full size, and change it from there.
+                CharakAvatar(
+                  name: name,
+                  radius: 30,
+                  imageUrl: me['photo_url'] as String?,
+                  viewable: true,
+                  viewTitle: CharakFormat.doctor(name),
+                  viewActions: [
+                    CharakPhotoAction(
+                      icon: LucideIcons.pencil,
+                      label: 'Change photo',
+                      onPressed: (viewer) async {
+                        if (await changeProfilePhoto(viewer) && viewer.mounted) {
+                          ref.invalidate(_doctorProfileProvider);
+                          Navigator.of(viewer).pop();
+                        }
+                      },
+                    ),
+                  ],
+                ),
                 const SizedBox(width: 16),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(CharakFormat.doctor(name), style: CharakText.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -115,7 +146,7 @@ class ProfileTab extends ConsumerWidget {
               ]),
             ),
             const SizedBox(height: 10),
-            _VerifCard(status: status),
+            _VerifCard(status: status, listed: (me['listing'] as Map?)?['visible'] as bool?),
             const SizedBox(height: 24),
             CharakGroupedList(
               label: 'Consultation',
@@ -126,6 +157,16 @@ class ProfileTab extends ConsumerWidget {
                   subtitle: [if (online) 'Online', if (home) 'Home visit'].join(' · ').ifEmpty('Off'),
                   onTap: () => context.push('/setup/channels'),
                 ),
+                if (online)
+                  CharakListRow(
+                    icon: LucideIcons.clock,
+                    title: 'Online consult hours',
+                    subtitle: onlineHours ?? 'Not set · patients can\'t book online yet',
+                    onTap: () async {
+                      await context.push('/setup/online');
+                      ref.invalidate(_doctorProfileProvider);
+                    },
+                  ),
                 CharakListRow(
                   icon: LucideIcons.indianRupee,
                   title: 'Pricing & procedures',
@@ -139,12 +180,19 @@ class ProfileTab extends ConsumerWidget {
                     ref.invalidate(_pricesProvider);
                   },
                 ),
-                CharakListRow(
-                  icon: LucideIcons.mapPin,
-                  title: 'Home visit hours & radius',
-                  subtitle: radius != null ? '$radius km' : null,
-                  onTap: () => context.push('/setup/home-visit'),
-                ),
+                if (home)
+                  CharakListRow(
+                    icon: LucideIcons.mapPin,
+                    title: 'Home visit hours & radius',
+                    subtitle: [
+                      homeHours ?? 'Hours not set',
+                      if (radius != null) 'within $radius km',
+                    ].join(' · '),
+                    onTap: () async {
+                      await context.push('/setup/home-visit');
+                      ref.invalidate(_doctorProfileProvider);
+                    },
+                  ),
                 CharakListRow(
                   icon: LucideIcons.signature,
                   title: 'Prescription signature',
@@ -287,7 +335,11 @@ extension on String {
 /// uses the Confirmed (sage) tone, pending uses Requested (chandan).
 class _VerifCard extends StatelessWidget {
   final String status;
-  const _VerifCard({required this.status});
+
+  /// Whether patients can find and book this doctor (GET /doctors/me
+  /// `listing.visible`); null from a backend that doesn't say.
+  final bool? listed;
+  const _VerifCard({required this.status, this.listed});
 
   @override
   Widget build(BuildContext context) {
@@ -309,7 +361,11 @@ class _VerifCard extends StatelessWidget {
           Text(verified ? 'Verified doctor' : 'Verification pending',
               style: CharakText.body.weight(650).copyWith(color: CharakColors.ink)),
           Text(
-            verified ? 'License checked · listed in directory' : "You'll be listed the moment ops approves",
+            !verified
+                ? "You'll be listed the moment ops approves"
+                : listed == false
+                    ? 'License checked · not bookable until your hours and prices are set'
+                    : 'License checked · listed in directory',
             style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
           ),
         ])),
@@ -318,6 +374,34 @@ class _VerifCard extends StatelessWidget {
   }
 }
 
+
+/// Replaces the directory photo from the gallery. Returns whether one was
+/// saved.
+Future<bool> changeProfilePhoto(BuildContext context) async {
+  // Shown at most a few hundred pixels wide, and the backend caps it at 5MB.
+  final img = await ImagePicker().pickImage(
+      source: ImageSource.gallery, maxWidth: 1200, maxHeight: 1200, imageQuality: 85);
+  if (img == null) return false;
+  try {
+    final ext = img.path.split('.').last.toLowerCase();
+    await ApiClient.instance.postFile(
+      '/uploads/doctor/photo',
+      bytes: await img.readAsBytes(),
+      filename: img.name,
+      contentType: switch (ext) {
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        'heic' || 'heif' => 'image/heic',
+        _ => 'image/jpeg',
+      },
+    );
+    if (context.mounted) showCharakToast(context, message: 'Photo updated');
+    return true;
+  } on ApiException catch (e) {
+    if (context.mounted) showCharakToast(context, message: e.message, isError: true);
+    return false;
+  }
+}
 
 /// The signature printed on this doctor's prescription PDFs: a photo of it
 /// signed on white paper. Stored privately; prescriptions already sent keep

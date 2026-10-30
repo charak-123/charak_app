@@ -105,17 +105,16 @@ class _ScheduleTabState extends ConsumerState<ScheduleTab> {
             ]),
             const SizedBox(height: 16),
             Row(children: [
-              Expanded(child: _TimeField(label: 'From', value: from,
-                  onTap: () async {
-                    final t = await showTimePicker(context: ctx, initialTime: from);
-                    if (t != null) setSheetState(() => from = t);
-                  })),
-              const SizedBox(width: 12),
-              Expanded(child: _TimeField(label: 'To', value: to,
-                  onTap: () async {
-                    final t = await showTimePicker(context: ctx, initialTime: to);
-                    if (t != null) setSheetState(() => to = t);
-                  })),
+              for (final (i, label) in const ['From', 'To'].indexed) ...[
+                if (i > 0) const SizedBox(width: 12),
+                Expanded(child: _TimeField(label: label, value: i == 0 ? from : to,
+                    onTap: () async {
+                      final r = await showCharakTimeRangePicker(ctx,
+                          title: 'Block from – to', start: from, end: to,
+                          confirmLabel: 'Set time', editEnd: i == 1);
+                      if (r != null) setSheetState(() => (from, to) = r);
+                    })),
+              ],
             ]),
             const SizedBox(height: 18),
             CharakButton(

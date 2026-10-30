@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
+import '../../specialties.dart';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ class _Body extends StatelessWidget {
     final bio        = doctor['bio'] as String?;
     final rating     = (doctor['rating_avg'] as num?)?.toDouble() ?? 0;
     final reviewCount = (doctor['rating_count'] as num?)?.toInt() ?? 0;
-    final category   = (doctor['categories'] as Map?)?['name'] as String? ?? '';
+    final category   = specialtyName((doctor['categories'] as Map?)?['name'] as String?);
     final creds      = doctor['qualifications'] as String? ?? category;
     final procedures = List<Map<String,dynamic>>.from(doctor['doctor_procedures'] as List? ?? []);
     final threshold  = doctor['procedure_review_threshold'];
@@ -91,7 +92,7 @@ class _Body extends StatelessWidget {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Stack(clipBehavior: Clip.none, children: [
-                    CharakAvatar(name: name, imageUrl: photoUrl, radius: 44),
+                    CharakAvatar(name: name, imageUrl: photoUrl, radius: 44, viewable: true),
                     if (verified)
                       Positioned(
                         right: -4,
@@ -210,11 +211,24 @@ class _Body extends StatelessWidget {
         ),
       ),
 
-      CharakCtaBar.single(
-        CharakButton(
-          label: replacement != null ? 'Book with your earlier payment' : 'Book a consultation',
-          onPressed: () => context.push('/book/${doctor['id']}/channel', extra: replacement),
-        ),
+      CharakCtaBar(
+        // A doctor still setting up their hours or prices offers nothing to
+        // book yet (backend services/listing.py); say so rather than open a
+        // booking flow with nothing in it.
+        header: prices != null && online.isEmpty && home.isEmpty
+            ? Text("This doctor isn't taking bookings right now.",
+                textAlign: TextAlign.center, style: charakHintStyle)
+            : null,
+        children: [
+          Expanded(
+            child: CharakButton(
+              label: replacement != null ? 'Book with your earlier payment' : 'Book a consultation',
+              onPressed: prices != null && online.isEmpty && home.isEmpty
+                  ? null
+                  : () => context.push('/book/${doctor['id']}/channel', extra: replacement),
+            ),
+          ),
+        ],
       ),
     ]);
   }

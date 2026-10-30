@@ -41,6 +41,9 @@ class _State extends ConsumerState<HomeShell> {
       if (next != _tab) setState(() => _tab = next);
     });
     return Scaffold(
+      // The tab bar floats (CharakBottomBar on the patient scheme): content
+      // runs on under it.
+      extendBody: true,
       // Tab switch: the new tab rises and fades in (motion.standard).
       body: IndexedStack(
         index: _tab,

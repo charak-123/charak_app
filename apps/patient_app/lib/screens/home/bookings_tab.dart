@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
 import 'package:intl/intl.dart';
 import 'booking_providers.dart';
+import '../../specialties.dart';
 
 const _activeStatuses = {'requested', 'accepted', 'paid', 'in_progress', 'consulted'};
 
@@ -79,9 +80,8 @@ class _BookingCard extends StatelessWidget {
     final start = booking['scheduled_start'] as String?;
     final docName =
         CharakFormat.doctor((booking['doctors'] as Map?)?['name'] as String?);
-    final docCategory = ((booking['doctors'] as Map?)?['categories']
-            as Map?)?['name'] as String? ??
-        '';
+    final docCategory = specialtyName(((booking['doctors'] as Map?)?['categories']
+            as Map?)?['name'] as String?);
     final pricing = List<Map<String, dynamic>>.from(
         (booking['doctors'] as Map?)?['doctor_pricing'] as List? ?? []);
     final priceRow = pricing.where((p) => p['channel'] == channel).firstOrNull;
