@@ -40,6 +40,10 @@ class _State extends ConsumerState<VideoCallScreen> {
   }
 
   Future<void> _initCall() async {
+    setState(() {
+      _loading = !_joined;
+      _joinError = null;
+    });
     try {
       final res = await ApiClient.instance.post(
         '/bookings/${widget.bookingId}/call',
@@ -93,6 +97,7 @@ class _State extends ConsumerState<VideoCallScreen> {
     }
     if (!_joined) return 'Connecting…';
     if (_call.isStub) return 'Dev stub · Agora not configured';
+    if (_call.reconnecting) return 'Reconnecting…';
     switch (_call.stage) {
       case CharakCallStage.connected:
         return 'Video consult · connected';
@@ -114,7 +119,9 @@ class _State extends ConsumerState<VideoCallScreen> {
       );
     }
 
-    return CharakCallScaffold(
+    final failed = _joinError != null || _call.stage == CharakCallStage.failed;
+    return Stack(children: [
+      CharakCallScaffold(
       peerName: _peerName ?? 'Doctor',
       peerSubtitle: _subtitle,
       statusText: _connected ? _call.clock : 'Connecting…',
@@ -147,6 +154,23 @@ class _State extends ConsumerState<VideoCallScreen> {
           onPressed: _endCall,
         ),
       ],
-    );
+      ),
+      // A call that didn't connect gets one clear way to try again, with a
+      // fresh token, instead of a dead screen.
+      if (failed)
+        Positioned(
+          left: 40,
+          right: 40,
+          bottom: 150,
+          child: SafeArea(
+            top: false,
+            child: CharakButton(
+              label: 'Try again',
+              icon: LucideIcons.rotateCcw,
+              onPressed: _initCall,
+            ),
+          ),
+        ),
+    ]);
   }
 }

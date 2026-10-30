@@ -62,19 +62,100 @@ def test_initiate_call_on_completed_booking_returns_400():
     assert resp.status_code == 400
 
 
-def test_duplicate_active_call_returns_409():
-    calls_chain = make_chain(list_data=[{"id": "existing-call"}])
-    mock_db = make_supabase({
-        "bookings": make_chain(data=REQUESTED_BOOKING),
-        "clarification_calls": calls_chain,
+def _fake_calls_db(calls=(), booking=None):
+    from tests.fakedb import FakeSupabase
+    return FakeSupabase({
+        "bookings": [booking or REQUESTED_BOOKING],
+        "clarification_calls": [dict(c) for c in calls],
     })
 
-    with patch(CALLS_TARGET, mock_db), patch(JWT_TARGET) as jw:
-        jw.decode.return_value = DOCTOR_PAYLOAD
-        client = TestClient(app)
-        resp = client.post("/bookings/bk-1/clarification-call", headers={"Authorization": DOCTOR_TOKEN})
 
-    assert resp.status_code == 409
+def test_ringing_again_reuses_the_open_call_instead_of_refusing():
+    """The doctor's screen used to leave a call open when closed with the back
+    gesture; every later "Call patient" then failed with 409."""
+    db = _fake_calls_db([{**CALL_ROW, "started_at": "2026-10-30T08:00:00+00:00",
+                          "created_at": "2026-10-30T08:00:00+00:00"}])
+    with patch(CALLS_TARGET, db), patch(JWT_TARGET) as jw:
+        jw.decode.return_value = DOCTOR_PAYLOAD
+        resp = TestClient(app).post("/bookings/bk-1/clarification-call",
+                                    headers={"Authorization": DOCTOR_TOKEN})
+
+    assert resp.status_code == 201
+    assert resp.json()["id"] == "call-1"
+    rows = db.rows("clarification_calls")
+    assert len(rows) == 1
+    assert rows[0]["started_at"] > "2026-10-30T08:00:00+00:00"   # rang again
+
+
+PATIENT_TOKEN   = "Bearer patient_token"
+PATIENT_PAYLOAD = {"sub": "pat-1", "role": "patient"}
+
+
+def _ringing(db):
+    with patch(CALLS_TARGET, db), patch(JWT_TARGET) as jw:
+        jw.decode.return_value = PATIENT_PAYLOAD
+        return TestClient(app).get("/bookings/patient/ringing-call",
+                                   headers={"Authorization": PATIENT_TOKEN})
+
+
+def test_a_call_rings_for_the_patient_while_it_is_fresh():
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    db = _fake_calls_db([{**CALL_ROW, "started_at": now, "created_at": now}])
+    resp = _ringing(db)
+    assert resp.status_code == 200
+    assert resp.json()["call"]["booking_id"] == "bk-1"
+    assert resp.json()["call"]["call_id"] == "call-1"
+    assert resp.json()["open_requests"] == 1
+
+
+def test_a_call_left_open_stops_ringing_after_a_minute():
+    db = _fake_calls_db([{**CALL_ROW, "started_at": "2026-01-01T08:00:00+00:00",
+                          "created_at": "2026-01-01T08:00:00+00:00"}])
+    assert _ringing(db).json()["call"] is None
+
+
+def test_nothing_rings_once_the_booking_is_paid():
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    db = _fake_calls_db([{**CALL_ROW, "started_at": now}],
+                        booking={**REQUESTED_BOOKING, "status": "paid"})
+    assert _ringing(db).json() == {"call": None, "open_requests": 0}
+
+
+def test_the_patient_declines_and_the_call_is_closed_as_missed():
+    db = _fake_calls_db([CALL_ROW])
+    with patch(CALLS_TARGET, db), patch(JWT_TARGET) as jw:
+        jw.decode.return_value = PATIENT_PAYLOAD
+        resp = TestClient(app).post("/bookings/bk-1/clarification-call/call-1/decline",
+                                    headers={"Authorization": PATIENT_TOKEN})
+    assert resp.status_code == 200
+    assert db.rows("clarification_calls")[0]["call_status"] == "missed"
+
+
+def test_only_the_patient_can_decline():
+    db = _fake_calls_db([CALL_ROW])
+    with patch(CALLS_TARGET, db), patch(JWT_TARGET) as jw:
+        jw.decode.return_value = DOCTOR_PAYLOAD
+        resp = TestClient(app).post("/bookings/bk-1/clarification-call/call-1/decline",
+                                    headers={"Authorization": DOCTOR_TOKEN})
+    assert resp.status_code == 403
+
+
+def test_a_note_written_after_the_patient_declined_is_kept():
+    db = _fake_calls_db([{**CALL_ROW, "call_status": "missed"}])
+    # _get_call reads the embedded bookings(doctor_id), which the fake doesn't
+    # resolve; give the row the shape PostgREST returns.
+    db.rows("clarification_calls")[0]["bookings"] = {"doctor_id": "doc-1"}
+    with patch(CALLS_TARGET, db), patch(JWT_TARGET) as jw:
+        jw.decode.return_value = DOCTOR_PAYLOAD
+        resp = TestClient(app).patch("/bookings/bk-1/clarification-call/call-1/complete",
+                                     json={"notes": "Call back after 6"},
+                                     headers={"Authorization": DOCTOR_TOKEN})
+    assert resp.status_code == 200
+    row = db.rows("clarification_calls")[0]
+    assert row["call_status"] == "missed"
+    assert row["notes"] == "Call back after 6"
 
 
 def test_complete_call():

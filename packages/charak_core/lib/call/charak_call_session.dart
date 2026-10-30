@@ -4,6 +4,8 @@ import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../crash/charak_crash.dart';
+
 /// What the backend hands back from `/bookings/{id}/clarification-call` and
 /// `/bookings/{id}/call`. The backend mints a clearly-labelled stub token
 /// until AGORA_APP_ID and AGORA_APP_CERTIFICATE are set, so [live] tells the
@@ -65,6 +67,11 @@ enum CharakCallStage { idle, connecting, waitingForPeer, connected, failed, ende
 /// [CharakCallStage.waitingForPeer] and [isStub], and the screens fall back to
 /// the avatar field of `CharakCallScaffold`.
 class CharakCallSession extends ChangeNotifier {
+  /// How long joining may take before the call is reported as failed. Agora
+  /// keeps retrying a join it cannot complete (no network, a firewall) and
+  /// says nothing, so without this the screen sat on "Ringing…" for ever.
+  static const joinTimeout = Duration(seconds: 20);
+
   CharakCallStage _stage = CharakCallStage.idle;
   CharakCallCredentials? _creds;
   RtcEngine? _engine;
@@ -72,8 +79,10 @@ class CharakCallSession extends ChangeNotifier {
   bool _micOn = true;
   bool _cameraOn = true;
   bool _localReady = false;
+  bool _reconnecting = false;
   String? _error;
   Timer? _tick;
+  Timer? _joinTimer;
   Duration _elapsed = Duration.zero;
   bool _disposed = false;
 
@@ -84,6 +93,9 @@ class CharakCallSession extends ChangeNotifier {
   bool get hasPeer => _remoteUid != null;
   String? get error => _error;
   Duration get elapsed => _elapsed;
+
+  /// The network dropped mid-call and Agora is reconnecting on its own.
+  bool get reconnecting => _reconnecting;
 
   /// `mm:ss`, for the `.call-top` status strip.
   /// mm:ss, rolling over to h:mm:ss past the hour — a long consult used to
@@ -109,6 +121,9 @@ class CharakCallSession extends ChangeNotifier {
     }
     _error = null;
     _creds = creds;
+    _remoteUid = null;
+    _localReady = false;
+    _reconnecting = false;
     _set(CharakCallStage.connecting);
 
     if (creds.isStub) {
@@ -136,13 +151,42 @@ class CharakCallSession extends ChangeNotifier {
       // rebuild and nothing would notify again — leaving the self-view blank
       // for the whole call and making an early toggleMic a silent no-op.
       _engine = engine;
+      _joinTimer = Timer(joinTimeout, () {
+        if (_stage == CharakCallStage.connecting) {
+          _fail("Couldn't connect to the call. Check your internet and try again.",
+              diagnostic: 'join timed out after ${joinTimeout.inSeconds}s');
+        }
+      });
       engine.registerEventHandler(RtcEngineEventHandler(
         onJoinChannelSuccess: (connection, elapsed) {
+          _joinTimer?.cancel();
           _localReady = true;
           _startClock();
           _set(_remoteUid == null
               ? CharakCallStage.waitingForPeer
               : CharakCallStage.connected);
+        },
+        // Agora 6.x reports a bad token, app id or channel here, not through
+        // onError: the codes the old handler waited for are deprecated and
+        // never arrive, so a call with a bad token hung on "Ringing…" with
+        // nothing said. Each reason is turned into words a person can act
+        // on, and recorded so a failure on a phone can be looked up later.
+        onConnectionStateChanged: (connection, state, reason) {
+          debugPrint('[call] connection $state ($reason)');
+          if (state == ConnectionStateType.connectionStateReconnecting) {
+            _reconnecting = true;
+            _notify();
+            return;
+          }
+          if (state == ConnectionStateType.connectionStateConnected && _reconnecting) {
+            _reconnecting = false;
+            _notify();
+          }
+          final message = _reasonMessage(reason);
+          if (message != null || state == ConnectionStateType.connectionStateFailed) {
+            _fail(message ?? "The call couldn't connect. Try again.",
+                diagnostic: 'connection $state, $reason');
+          }
         },
         onUserJoined: (connection, uid, elapsed) {
           _remoteUid = uid;
@@ -154,12 +198,9 @@ class CharakCallSession extends ChangeNotifier {
           _set(CharakCallStage.waitingForPeer);
         },
         onError: (code, message) {
-          // Token problems are the ones worth surfacing; transient warnings
-          // would otherwise tear down a working call.
-          if (code == ErrorCodeType.errTokenExpired ||
-              code == ErrorCodeType.errInvalidToken) {
-            _fail('The call token expired — start the call again');
-          }
+          // Logged only. Most codes are transient warnings, and the fatal
+          // ones also arrive through onConnectionStateChanged above.
+          debugPrint('[call] error $code $message');
         },
       ));
       await engine.enableVideo();
@@ -174,18 +215,29 @@ class CharakCallSession extends ChangeNotifier {
           channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
         ),
       );
-    } catch (e) {
-      // Drop the half-built engine so a retry does not inherit it.
-      final failed = _engine;
-      _engine = null;
-      if (failed != null) {
-        try {
-          await failed.release();
-        } catch (_) {
-          // Nothing useful to do — the call has already failed.
-        }
-      }
-      _fail('Could not start the video call');
+    } catch (e, stack) {
+      _fail('Could not start the video call', diagnostic: '$e', stack: stack);
+    }
+  }
+
+  /// What to tell the person for a connection change that ends the call, or
+  /// null for one that doesn't.
+  static String? _reasonMessage(ConnectionChangedReasonType reason) {
+    switch (reason) {
+      case ConnectionChangedReasonType.connectionChangedInvalidToken:
+      case ConnectionChangedReasonType.connectionChangedTokenExpired:
+        return 'This call link has expired. Start the call again.';
+      case ConnectionChangedReasonType.connectionChangedInvalidAppId:
+      case ConnectionChangedReasonType.connectionChangedInconsistentAppid:
+      case ConnectionChangedReasonType.connectionChangedCertificationVeryfyFailure:
+        return "Video calls aren't set up correctly on our side. Please tell Charak support.";
+      case ConnectionChangedReasonType.connectionChangedInvalidChannelName:
+      case ConnectionChangedReasonType.connectionChangedRejectedByServer:
+      case ConnectionChangedReasonType.connectionChangedBannedByServer:
+      case ConnectionChangedReasonType.connectionChangedJoinFailed:
+        return "The call couldn't connect. Try again.";
+      default:
+        return null;
     }
   }
 
@@ -217,6 +269,7 @@ class CharakCallSession extends ChangeNotifier {
   Future<void> leave() async {
     _tick?.cancel();
     _tick = null;
+    _joinTimer?.cancel();
     final engine = _engine;
     _engine = null;
     _remoteUid = null;
@@ -267,9 +320,30 @@ class CharakCallSession extends ChangeNotifier {
     });
   }
 
-  void _fail(String message) {
+  /// Ends the attempt: the engine is released (Agora's engine is a single
+  /// instance, so a retry cannot start while this one lives), the clock
+  /// stops, and the reason is recorded for later diagnosis.
+  void _fail(String message, {String? diagnostic, StackTrace? stack}) {
+    if (_stage == CharakCallStage.failed || _stage == CharakCallStage.ended) return;
+    debugPrint('[call] failed: $message${diagnostic == null ? '' : ' ($diagnostic)'}');
+    CharakCrash.recordError(
+      Exception('Video call failed: ${diagnostic ?? message}'),
+      stack,
+      reason: 'call on ${_creds?.channel ?? 'unknown channel'}',
+    );
+    _joinTimer?.cancel();
+    _tick?.cancel();
+    _tick = null;
+    _remoteUid = null;
+    _localReady = false;
+    _reconnecting = false;
     _error = message;
     _set(CharakCallStage.failed);
+    final engine = _engine;
+    _engine = null;
+    if (engine != null) {
+      engine.leaveChannel().catchError((_) {}).then((_) => engine.release()).catchError((_) {});
+    }
   }
 
   void _set(CharakCallStage stage) {
@@ -285,6 +359,7 @@ class CharakCallSession extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _tick?.cancel();
+    _joinTimer?.cancel();
     // Fire-and-forget: dispose cannot await, but the engine must still go.
     final engine = _engine;
     _engine = null;

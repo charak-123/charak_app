@@ -23,21 +23,21 @@ NEAR = {"id": "near", "name": "Dr Near", "rating_avg": 3.0, "suspended": False,
         "verification_status": "verified", "offers_home_visit": True,
         "base_lat": 28.6315, "base_lng": 77.2167, "service_radius_km": 5,
         "categories": {"name": "Cardiology"},
-        "doctor_pricing": [{"channel": "home_visit", "price": 900}]}
+        "doctor_pricing": [{"channel": "home_visit", "price": 900}], "doctor_schedules": [{"day_of_week": 0, "start_time": "09:00", "end_time": "12:00"}]}
 MID  = {"id": "mid", "name": "Dr Mid", "rating_avg": 5.0, "suspended": False,
         "verification_status": "verified", "offers_home_visit": True,
         "base_lat": 28.68, "base_lng": 77.25, "service_radius_km": 2,
         "categories": {"name": "Cardiology"},
-        "doctor_pricing": [{"channel": "home_visit", "price": 400}]}
+        "doctor_pricing": [{"channel": "home_visit", "price": 400}], "doctor_schedules": [{"day_of_week": 0, "start_time": "09:00", "end_time": "12:00"}]}
 FAR  = {"id": "far", "name": "Dr Far", "rating_avg": 4.0, "suspended": False,
         "verification_status": "verified", "offers_home_visit": True,
         "base_lat": 19.0760, "base_lng": 72.8777, "service_radius_km": 5,
         "categories": {"name": "Cardiology"},
-        "doctor_pricing": [{"channel": "home_visit", "price": 100}]}
+        "doctor_pricing": [{"channel": "home_visit", "price": 100}], "doctor_schedules": [{"day_of_week": 0, "start_time": "09:00", "end_time": "12:00"}]}
 NOLOC = {"id": "noloc", "name": "Dr Online", "rating_avg": 4.5, "suspended": False,
          "verification_status": "verified", "offers_home_visit": False,
          "offers_online_consult": True, "categories": {"name": "Cardiology"},
-         "doctor_pricing": [{"channel": "online_consult", "price": 300}]}
+         "doctor_pricing": [{"channel": "online_consult", "price": 300}], "doctor_schedules": [{"day_of_week": 0, "start_time": "09:00", "end_time": "12:00"}]}
 
 HERE = "lat=28.6139&lng=77.2090"
 

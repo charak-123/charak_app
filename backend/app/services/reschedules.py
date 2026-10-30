@@ -73,7 +73,8 @@ def propose(booking_id: str, doctor_id: str, cause: str, options: list[str],
         if start < _now() + MIN_LEAD:
             raise AppError("New times must be at least 30 minutes from now", 400)
         local = availability.to_ist(start)
-        grid = availability.get_available_slots(doctor_id, local.date(), days=1, duration_min=duration)
+        grid = availability.get_available_slots(doctor_id, local.date(), days=1, duration_min=duration,
+                                                channel=booking.get("channel"))
         if local.strftime("%H:%M") not in {s["start"] for s in grid.get(str(local.date()), [])}:
             raise AppError(f"{local.strftime('%-d %b, %-I:%M %p')} isn't open on your calendar for a "
                            f"{duration}-minute visit", 409)

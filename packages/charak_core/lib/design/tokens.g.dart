@@ -243,6 +243,9 @@ abstract final class CharakTileTones {
   static const skin = (Color(0xFFECE7FA), Color(0xFF4A3499));
   static const ortho = (Color(0xFFF4F5F7), Color(0xFF283142));
   static const all = [general, paediatrics, cardiology, ayurveda, skin, ortho];
+
+  /// Each tone's spot-mark disc (CharakSpot), in the order of [all].
+  static const spots = [Color(0xFFB3C8F4), Color(0xFFEDD2A6), Color(0xFFF2C4C0), Color(0xFFC8CDAE), Color(0xFFD3C8F3), Color(0xFFCDD1D8)];
 }
 
 /// The Anek type scale. Width (wdth) is the identity: wide headers, normal
@@ -377,6 +380,13 @@ abstract final class CharakSpace {
   static const double lg = 24.0;
   static const double xl = 32.0;
   static const double xxl = 48.0;
+}
+
+abstract final class CharakElevation {
+  static const card = [
+    BoxShadow(color: Color(0x0D0E1726), offset: Offset(0, 1.0), blurRadius: 4.0, spreadRadius: 0.0),
+    BoxShadow(color: Color(0x1F0E1726), offset: Offset(0, 10.0), blurRadius: 28.0, spreadRadius: -6.0),
+  ];
 }
 
 /// Quick out, soft landing. Nothing runs longer than

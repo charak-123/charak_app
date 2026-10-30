@@ -17,7 +17,7 @@ VERIFIED = {
     "id": "doc-1", "name": "Dr Rao", "verification_status": "verified",
     "suspended": False, "rating_avg": 4.5,
     "categories": {"name": "Cardiology"},
-    "doctor_pricing": [{"channel": "online_consult", "price": 500}],
+    "doctor_pricing": [{"channel": "online_consult", "price": 500}], "doctor_schedules": [{"day_of_week": 0, "start_time": "09:00", "end_time": "12:00"}],
     "offers_online_consult": True, "offers_home_visit": False,
 }
 
@@ -82,8 +82,8 @@ def test_category_filtering_is_case_insensitive():
 
 
 def test_max_price_filters_on_the_cheapest_matching_channel():
-    cheap = {**VERIFIED, "id": "cheap", "doctor_pricing": [{"channel": "online_consult", "price": 300}]}
-    dear  = {**VERIFIED, "id": "dear",  "doctor_pricing": [{"channel": "online_consult", "price": 2000}]}
+    cheap = {**VERIFIED, "id": "cheap", "doctor_pricing": [{"channel": "online_consult", "price": 300}], "doctor_schedules": [{"day_of_week": 0, "start_time": "09:00", "end_time": "12:00"}]}
+    dear  = {**VERIFIED, "id": "dear",  "doctor_pricing": [{"channel": "online_consult", "price": 2000}], "doctor_schedules": [{"day_of_week": 0, "start_time": "09:00", "end_time": "12:00"}]}
     with patch(DOCTORS_DB, make_supabase({"doctors": make_chain(list_data=[cheap, dear])})):
         body = client.get("/doctors/search?max_price=500").json()
 

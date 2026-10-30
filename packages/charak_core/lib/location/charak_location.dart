@@ -81,6 +81,27 @@ class CharakLocation {
     return CharakPlace(lat: pos.latitude, lng: pos.longitude);
   }
 
+  /// The address at a saved point, read by the phone's geocoder, for showing
+  /// where a pin already is. Coordinates only when the lookup fails.
+  static Future<CharakPlace> describe(double lat, double lng) async {
+    try {
+      final marks = await Geocoding().placemarkFromCoordinates(lat, lng)
+          .timeout(const Duration(seconds: 8));
+      if (marks.isNotEmpty) {
+        return _fromPlacemark(
+          Position(
+            latitude: lat, longitude: lng, timestamp: DateTime.now(), accuracy: 0, altitude: 0,
+            altitudeAccuracy: 0, heading: 0, headingAccuracy: 0, speed: 0, speedAccuracy: 0,
+          ),
+          marks.first,
+        );
+      }
+    } catch (_) {
+      // No geocoder, no network or a timeout.
+    }
+    return CharakPlace(lat: lat, lng: lng);
+  }
+
   static CharakPlace _fromPlacemark(Position pos, Placemark m) {
     String? clean(String? s) {
       final t = s?.trim();

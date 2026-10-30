@@ -5,6 +5,7 @@ import 'package:charak_core/charak_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../home/booking_providers.dart';
+import '../../specialties.dart';
 
 /// Opening the prescription: `POST /prescriptions/{id}/view` records the first
 /// open on the server (once; later opens change nothing) and completes the
@@ -89,7 +90,7 @@ class _BodyState extends State<_Body> {
     final rx = widget.rx;
     final doc = widget.booking['doctors'] as Map<String, dynamic>? ?? const {};
     final docName = CharakFormat.doctor(doc['name'] as String?);
-    final specialty = (doc['categories'] as Map?)?['name'] as String?;
+    final specialty = specialtyName((doc['categories'] as Map?)?['name'] as String?);
     final sent = rx.submittedAt;
     final followUpOpen = rx.followUp != null && rx.followUp!.status == 'open';
 
@@ -124,13 +125,13 @@ class _BodyState extends State<_Body> {
           ],
           CharakCard(
             child: Row(children: [
-              CharakAvatar(name: docName, imageUrl: doc['photo_url'] as String?, radius: 22),
+              CharakAvatar(name: docName, imageUrl: doc['photo_url'] as String?, radius: 22, viewable: true),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(docName, style: CharakText.body.weight(600).copyWith(color: CharakColors.ink)),
                   Text(
-                    [if (specialty != null) specialty, CharakFormat.channel(widget.booking['channel'] as String?)]
+                    [if (specialty.isNotEmpty) specialty, CharakFormat.channel(widget.booking['channel'] as String?)]
                         .join(' · '),
                     style: CharakText.caption.copyWith(color: CharakColors.inkMuted),
                   ),

@@ -104,7 +104,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/onboarding/verification-pending', pageBuilder: (_, __) => _rise(const VerificationPendingScreen())),
       GoRoute(path: '/onboarding/verified',   pageBuilder: (_, __) => _rise(const VerifiedWelcomeScreen())),
       GoRoute(path: '/setup/channels',        pageBuilder: (_, __) => _push(const ChannelSetupScreen())),
-      GoRoute(path: '/setup/online',          pageBuilder: (_, __) => _push(const OnlineConsultSetupScreen())),
+      GoRoute(path: '/setup/online',
+          pageBuilder: (_, state) => _push(OnlineConsultSetupScreen(fromSetup: state.extra as bool? ?? false))),
       GoRoute(path: '/setup/home-visit',
           pageBuilder: (_, state) => _push(HomeVisitSetupScreen(fromSetup: state.extra as bool? ?? false))),
       GoRoute(path: '/setup/pricing',         pageBuilder: (_, __) => _push(const PricingSetupScreen())),
@@ -141,7 +142,12 @@ final routerProvider = Provider<GoRouter>((ref) {
   // A tapped notification should land on the thing it is about, not the last
   // screen the doctor happened to be on. The mapping itself lives in
   // `push_routes.dart` so it can be tested without a GoRouter.
+  // Only a tap moves the doctor. A push that arrives while they are using
+  // the app shows as a banner (charak_push.dart) and the Requests tab
+  // refreshes itself; jumping screens under them mid-task was the old
+  // behaviour, and it also took them off whatever they were typing.
   final pushSub = CharakPush.instance.messages.listen((m) {
+    if (!m.opened) return;
     final destination = doctorPushDestination(m);
     if (destination == null) return;
     final tab = destination.tabIndex;

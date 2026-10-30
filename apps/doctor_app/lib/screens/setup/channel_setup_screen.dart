@@ -13,8 +13,30 @@ class ChannelSetupScreen extends ConsumerStatefulWidget {
 class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
   bool _online = false;
   bool _home   = false;
+  bool _touched = false;
   bool _loading = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  /// Opens on the channels already chosen, not two blank switches.
+  Future<void> _load() async {
+    try {
+      final me = await ApiClient.instance.get('/doctors/me') as Map<String, dynamic>;
+      // A switch flipped while this loaded is the doctor's answer; keep it.
+      if (!mounted || _touched) return;
+      setState(() {
+        _online = me['offers_online_consult'] as bool? ?? false;
+        _home = me['offers_home_visit'] as bool? ?? false;
+      });
+    } catch (_) {
+      // Blank switches are a usable fallback: the doctor sets them anyway.
+    }
+  }
 
   Future<void> _submit() async {
     if (!_online && !_home) {
@@ -31,7 +53,7 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
       });
       if (!mounted) return;
       if (_online) {
-        context.go('/setup/online');
+        context.go('/setup/online', extra: true);
       } else {
         context.go('/setup/home-visit', extra: true);
       }
@@ -70,14 +92,14 @@ class _ChannelSetupScreenState extends ConsumerState<ChannelSetupScreen> {
                       title: 'Online consult',
                       subtitle: 'Video consults on your scheduled hours.',
                       value: _online,
-                      onChanged: (v) => setState(() => _online = v),
+                      onChanged: (v) => setState(() { _touched = true; _online = v; }),
                     ),
                     CharakToggleCard(
                       icon: LucideIcons.house,
                       title: 'Home visit',
                       subtitle: 'You travel to the patient, within your radius.',
                       value: _home,
-                      onChanged: (v) => setState(() => _home = v),
+                      onChanged: (v) => setState(() { _touched = true; _home = v; }),
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: CharakSpacing.base),

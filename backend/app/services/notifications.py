@@ -216,10 +216,22 @@ def deliver(notification_id: str) -> Optional[str]:
     if not tokens:
         return _finish(notification_id, "skipped", "no token registered")
 
+    # The apps route a tapped notification on its event name and booking id
+    # (charak_push.dart), so both ride in the payload whatever the event's own
+    # data says. Without them every push arrived as "unknown" and a tap on
+    # "Doctor is calling" opened the app wherever it was, not the call.
+    payload = {
+        **(row.get("data") or {}),
+        "event": row.get("event") or "",
+        "notification_id": str(row.get("id") or notification_id),
+    }
+    if row.get("booking_id"):
+        payload["booking_id"] = str(row["booking_id"])
+
     sent, transient, errors = 0, False, []
     for token in tokens:
         try:
-            _send(token, row["title"], row["body"], row.get("data") or {})
+            _send(token, row["title"], row["body"], payload)
             sent += 1
         except TokenGone:
             _forget_token(token)
@@ -309,6 +321,19 @@ def _forget_token(token: str) -> None:
         logger.warning("could not forget a dead token: %r", exc)
 
 
+# Android notification channels, created by the apps (charak_push.dart). A
+# push that names no channel lands on FCM's fallback channel, which Android
+# shows without a heads-up banner or sound, so a doctor never noticed a new
+# request arrive. Calls get their own channel so a person can let calls ring
+# while silencing everything else.
+ANDROID_CHANNEL_DEFAULT = "charak_default"
+ANDROID_CHANNEL_CALLS = "charak_calls"
+
+
+def _android_channel(data: dict) -> str:
+    return ANDROID_CHANNEL_CALLS if data.get("event") == "call.incoming" else ANDROID_CHANNEL_DEFAULT
+
+
 def _send(token: str, title: str, body: str, data: dict) -> None:
     if FCM_PROJECT_ID and (FIREBASE_ADMIN_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS):
         _send_v1(token, title, body, data)
@@ -321,7 +346,10 @@ def _send_legacy(token: str, title: str, body: str, data: dict) -> None:
         with httpx.Client(timeout=5) as client:
             res = client.post(
                 FCM_LEGACY_URL,
-                json={"to": token, "notification": {"title": title, "body": body}, "data": data},
+                json={"to": token,
+                      "notification": {"title": title, "body": body,
+                                       "android_channel_id": _android_channel(data)},
+                      "data": data, "priority": "high"},
                 headers={"Authorization": f"key={FCM_SERVER_KEY}"},
             )
     except httpx.TransportError as exc:
@@ -350,7 +378,16 @@ def _send_v1(token: str, title: str, body: str, data: dict) -> None:
                     "token": token,
                     "notification": {"title": title, "body": body},
                     "data": data,
-                    "android": {"priority": "high"},
+                    "android": {
+                        "priority": "high",
+                        "notification": {
+                            "channel_id": _android_channel(data),
+                            "default_sound": True,
+                            # One notification per booking and event: a
+                            # second ring replaces the first.
+                            "tag": f"{data.get('event', '')}:{data.get('booking_id', '')}",
+                        },
+                    },
                 }},
                 headers={"Authorization": f"Bearer {access_token}"},
             )
@@ -605,6 +642,16 @@ def clarification_call_started(booking: dict, background=None):
         booking["patient_id"], "patient", "call.incoming",
         "Doctor is calling",
         "Your doctor is calling to clarify a few details before the consultation.",
+        {"booking_id": booking["id"]},
+        booking["id"], background,
+    )
+
+
+def clarification_call_declined(booking: dict, background=None):
+    return notify(
+        booking["doctor_id"], "doctor", "call.declined",
+        "Patient can't talk right now",
+        "They declined your call. Try again in a little while.",
         {"booking_id": booking["id"]},
         booking["id"], background,
     )

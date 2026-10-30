@@ -129,7 +129,7 @@ http.Response _json(Object body, [int status = 200]) => http.Response(
 
 /// Answers every request the patient app makes. [newPatient]: Terms and
 /// Privacy not yet accepted (the sign-up consent step).
-MockClient patientBackend({bool newPatient = false}) => MockClient((req) async {
+MockClient patientBackend({bool newPatient = false, bool doctorOnTheWay = false}) => MockClient((req) async {
       final p = req.url.path.replaceAll(RegExp(r'/$'), '');
       final m = req.method;
       if (p == '/legal/current') {
@@ -252,7 +252,17 @@ MockClient patientBackend({bool newPatient = false}) => MockClient((req) async {
       if (slots != null) return _json(_slots());
       final doc = RegExp(r'^/doctors/([^/]+)$').firstMatch(p);
       if (doc != null) return _json(doctors.firstWhere((d) => d['id'] == doc.group(1), orElse: () => doctors.first));
-      if (p == '/bookings/patient/list') return _json(bookings);
+      if (p == '/bookings/patient/list') {
+        return _json([
+          // A paid home visit whose doctor has tapped Start Journey.
+          if (doctorOnTheWay)
+            {
+              ..._booking('bk-on-the-way', 'doc-2', 'paid', _at(0, 18), channel: 'home_visit', price: 800),
+              'journey_started_at': _iso(DateTime.now().subtract(const Duration(minutes: 9))),
+            },
+          ...bookings,
+        ]);
+      }
       final intake = RegExp(r'^/bookings/([^/]+)/intake$').firstMatch(p);
       if (intake != null) {
         return _json([

@@ -5,7 +5,10 @@ import { Key, Calendar, ShieldCheck, FileText, Clock, Mail, Video, Home, X } fro
 import { api } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 import {
   PageBody, PageHeader, Section, StatGrid, StatTile,
   EmptyState, ErrorState, ListSkeleton,
@@ -24,6 +27,8 @@ interface PendingDoctor {
   offers_home_visit: boolean
   verification_document_path: string | null
   verification_document_mime: string | null
+  // The public directory photo (doctor-photos bucket), as patients will see it.
+  photo_url: string | null
   categories: { name: string } | null
   // Written by both the website (Register.jsx) and the app
   // (profile_setup_screen.dart / verification_screen.dart) — camelCase
@@ -85,6 +90,8 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
   const [rejectOpen, setRejectOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [preview, setPreview] = useState<{ url: string; mime: string | null } | null>(null)
+  const [photoOpen, setPhotoOpen] = useState(false)
+  const photo = safeUrl(doctor.photo_url)
 
   const verifyMutation = useMutation({
     mutationFn: (payload: { action: 'approve' | 'reject'; reason?: string }) =>
@@ -123,12 +130,24 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
       <CardContent className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Avatar>
-              <AvatarFallback>{getInitials(doctor.name)}</AvatarFallback>
-            </Avatar>
+            {/* The photo patients will see: part of checking that the person
+                matches the document. Click for full size. */}
+            <button
+              type="button"
+              className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+              disabled={!photo}
+              onClick={() => setPhotoOpen(true)}
+              aria-label={photo ? `View photo of ${doctor.name ?? 'this doctor'}` : 'No photo uploaded'}
+            >
+              <Avatar className="size-12">
+                {photo && <AvatarImage src={photo} alt="" />}
+                <AvatarFallback>{getInitials(doctor.name)}</AvatarFallback>
+              </Avatar>
+            </button>
             <div>
               <p className="text-sm font-semibold">{doctor.name ?? 'No name set yet'}</p>
               <p className="text-sm text-muted-foreground">{doctor.phone ?? doctor.email ?? '—'}</p>
+              {!photo && <p className="text-xs text-warning">No profile photo</p>}
             </div>
           </div>
           <StatusPill status="pending" />
@@ -209,6 +228,25 @@ function DoctorCard({ doctor }: { doctor: PendingDoctor }) {
             </dl>
           )
         })()}
+
+        {photo && (
+          <Dialog open={photoOpen} onOpenChange={setPhotoOpen}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{doctor.name ?? 'Profile photo'}</DialogTitle>
+                <DialogDescription>
+                  The directory photo patients will see. Check it shows the same person as the
+                  submitted document.
+                </DialogDescription>
+              </DialogHeader>
+              <img
+                src={photo}
+                alt={`Profile photo of ${doctor.name ?? 'the doctor'}`}
+                className="max-h-[70vh] w-full rounded-tile border border-border object-contain"
+              />
+            </DialogContent>
+          </Dialog>
+        )}
 
         {verifyMutation.isError && (
           <p className="text-xs text-destructive">

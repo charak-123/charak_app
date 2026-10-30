@@ -73,12 +73,28 @@ class _CharakGalleryState extends State<CharakGallery> {
           const SizedBox(height: 24),
           const CharakSectionHeader(title: 'Find care', actionLabel: 'See all', onAction: _noop),
           const SizedBox(height: 12),
-          const Row(children: [
-            Expanded(child: CharakSpecialtyTile(label: 'General', icon: LucideIcons.stethoscope, toneIndex: 0)),
-            SizedBox(width: 10),
-            Expanded(child: CharakSpecialtyTile(label: 'Paediatrics', icon: LucideIcons.baby, toneIndex: 1)),
-            SizedBox(width: 10),
-            Expanded(child: CharakSpecialtyTile(label: 'Cardiology', icon: LucideIcons.heartPulse, toneIndex: 2)),
+          const CharakSpecialtyGrid(prominent: true, tiles: [
+            CharakSpecialtyTile(label: 'Home visit', hint: 'A doctor comes to you', icon: LucideIcons.house, toneIndex: 1),
+            CharakSpecialtyTile(
+                label: 'Online consult', hint: 'See a doctor on video', icon: LucideIcons.video, toneIndex: 0),
+          ]),
+          const SizedBox(height: 12),
+          const CharakSpecialtyGrid(tiles: [
+            CharakSpecialtyTile(
+                label: 'General physician', hint: 'Fever, cough, BP, sugar', icon: LucideIcons.stethoscope, toneIndex: 0),
+            CharakSpecialtyTile(label: 'Paediatrics', hint: 'Babies & children', icon: LucideIcons.baby, toneIndex: 1),
+            CharakSpecialtyTile(
+                label: 'Cardiology', hint: 'Heart & blood pressure', icon: LucideIcons.heartPulse, toneIndex: 2),
+            CharakSpecialtyTile(label: 'Dermatology', hint: 'Skin, hair & nails', icon: LucideIcons.sparkles, toneIndex: 4),
+          ]),
+          const SizedBox(height: 12),
+          // Every tone's spot mark.
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            for (final (i, icon) in const [
+              LucideIcons.stethoscope, LucideIcons.baby, LucideIcons.heartPulse,
+              LucideIcons.personStanding, LucideIcons.sparkles, LucideIcons.bone,
+            ].indexed)
+              CharakSpot(icon: icon, toneIndex: i),
           ]),
           const SizedBox(height: 24),
           const CharakSectionTitle(label: 'Buttons'),
@@ -213,6 +229,24 @@ class _CharakGalleryState extends State<CharakGallery> {
             tone: CharakStatusTone.review,
             leadLabel: 'Under senior review.',
             message: 'You can pay once a senior doctor approves the bill.',
+          ),
+          const SizedBox(height: 24),
+          const CharakSectionTitle(label: 'Time picker'),
+          const SizedBox(height: 10),
+          // showCharakTimeRangePicker's sheet body: no clock face, nothing
+          // scrolls.
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            decoration: BoxDecoration(
+              color: CharakColors.card,
+              borderRadius: const BorderRadius.all(CharakRadius.card),
+            ),
+            child: CharakTimeRangePicker(
+              start: const TimeOfDay(hour: 9, minute: 30),
+              end: const TimeOfDay(hour: 13, minute: 0),
+              confirmLabel: 'Set hours',
+              onConfirm: (_, __) {},
+            ),
           ),
           const SizedBox(height: 24),
           const CharakSectionTitle(label: 'Legal'),

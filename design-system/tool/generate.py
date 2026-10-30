@@ -161,6 +161,10 @@ def dart(t: dict) -> str:
     for k, v in c["tile"].items():
         w(f"  static const {k} = ({argb(v['bg'])}, {argb(v['fg'])});")
     w("  static const all = [" + ", ".join(c["tile"].keys()) + "];")
+    if all("spot" in v for v in c["tile"].values()):
+        w("")
+        w("  /// Each tone's spot-mark disc (CharakSpot), in the order of [all].")
+        w("  static const spots = [" + ", ".join(argb(v["spot"]) for v in c["tile"].values()) + "];")
     w("}")
     w("")
 
@@ -216,6 +220,20 @@ def dart(t: dict) -> str:
         w(f"  static const double {k} = {num(v)};")
     w("}")
     w("")
+
+    # Elevation: the patient scheme's card lift (use CharakShadows, which
+    # keeps the ink scheme flat).
+    layers = {k: v for k, v in t.get("elevation", {}).items() if isinstance(v, list)}
+    if layers:
+        w("abstract final class CharakElevation {")
+        for k, ls in layers.items():
+            w(f"  static const {k} = [")
+            for l in ls:
+                w(f"    BoxShadow(color: {argb(l['color'])}, offset: Offset(0, {num(l['y'])}), "
+                  f"blurRadius: {num(l['blur'])}, spreadRadius: {num(l['spread'])}),")
+            w("  ];")
+        w("}")
+        w("")
 
     # Motion
     m = t["motion"]

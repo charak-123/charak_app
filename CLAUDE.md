@@ -15,7 +15,7 @@ touching any UI. The short version:
 - Patient app = light scheme (cream ground, white cards). Doctor app = ink scheme
   (`CharakColors.useScheme(CharakScheme.doctor)` in `main.dart`). Screens read
   **role** colours (`CharakColors.ground/card/ink/inkMuted/primary…`) so shared
-  code works in both. No hex literals, no `BoxShadow`, no `Colors.white` fills,
+  code works in both. No hex literals, no hand-rolled `BoxShadow`, no `Colors.white` fills,
   no `TextStyle(fontFamily: …)` in screens.
 - Blue acts (everything tappable), Chandan welcomes (greetings, ratings, the
   wordmark, "Requested"), never a Chandan button.
@@ -23,7 +23,9 @@ touching any UI. The short version:
 - Layout: big title in the top third, actions in the lower two-thirds. Tab roots use
   `CharakLargeTitleScaffold`; pushed screens use `CharakTopBar` + `CharakCtaBar`;
   confirmations use `showCharakConfirm` (a sheet).
-- Flat: 26px cards, 20px tiles/fields, pill buttons ≥ 52px, no shadows.
+- 26px cards, 20px tiles/fields, pill buttons ≥ 52px. Flat, except one soft
+  One UI-style lift, `CharakShadows.card`, on the patient Home care cards, search and the
+  floating tab bar.
 - Motion only from `CharakMotion` / `CharakCurves` (≤ 450ms, press = scale 0.96,
   honour `charakReduceMotion`).
 - Reuse components from `packages/charak_core/lib/components/` (catalogue in

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:charak_core/charak_core.dart';
+import '../../specialties.dart';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
@@ -77,8 +78,31 @@ class _State extends ConsumerState<DirectoryScreen> {
   Widget build(BuildContext context) {
     final async = ref.watch(_directoryProvider(_params));
     return CharakScreen(
-      title: widget.replacement != null ? 'Choose another doctor' : (_category.isNotEmpty ? _category : 'All doctors'),
-      body: async.when(
+      title: widget.replacement != null
+          ? 'Choose another doctor'
+          : (_category.isNotEmpty
+              ? specialtyName(_category)
+              : switch (_channel) {
+                  'home_visit' => 'Home visits',
+                  'online_consult' => 'Online consults',
+                  _ => 'All doctors',
+                }),
+      body: Column(children: [
+        // Online, home visit or both: the first thing to choose, so it leads
+        // the screen, and stays put while the list reloads under it.
+        if (widget.replacement == null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+            child: CharakSegmented<String>(
+              value: _channel,
+              onChanged: (v) => setState(() => _channel = v),
+              segments: [
+                for (final (label, value) in _channelFilters)
+                  CharakSegment(value: value, label: label),
+              ],
+            ),
+          ),
+        Expanded(child: async.when(
         // `.skel` — doctor cards are avatar rows with a price footer, so the
         // list preset mirrors them directly under the real top bar.
         loading: () => const CharakSkeletonList(
@@ -101,15 +125,28 @@ class _State extends ConsumerState<DirectoryScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
             children: [
+              // The count on the left, the sort hard right.
               Padding(
-                padding: const EdgeInsets.fromLTRB(2, 4, 2, 10),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text('${items.length} doctors near you',
-                      style: CharakText.label.tabular.copyWith(color: CharakColors.ink)),
-                  const Spacer(),
-                  Icon(LucideIcons.mapPin, size: 16, color: CharakColors.inkMuted),
-                  const SizedBox(width: 4),
-                  Text('Navi Mumbai', style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
+                padding: const EdgeInsets.fromLTRB(2, 4, 0, 14),
+                child: Row(children: [
+                  Expanded(
+                    child: Text(
+                      '${items.length} ${items.length == 1 ? 'doctor' : 'doctors'}'
+                      '${switch (_channel) {
+                        'home_visit' => ' who visit at home',
+                        'online_consult' => ' for online consults',
+                        _ => '',
+                      }}',
+                      style: CharakText.label.tabular.copyWith(color: CharakColors.ink),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  CharakChip(
+                    label: 'Lowest price',
+                    icon: LucideIcons.arrowUpDown,
+                    selected: _sortByPrice,
+                    onTap: () => setState(() => _sortByPrice = !_sortByPrice),
+                  ),
                 ]),
               ),
 
@@ -122,35 +159,13 @@ class _State extends ConsumerState<DirectoryScreen> {
                 ),
                 const SizedBox(height: 12),
               ],
-              // Filters left, sort pushed hard right.
-              Row(children: [
-                Expanded(
-                  child: CharakChipRow(
-                    children: _channelFilters
-                        .map((f) => CharakChip(
-                              label: f.$1,
-                              selected: _channel == f.$2,
-                              onTap: () => setState(() => _channel = f.$2),
-                            ))
-                        .toList(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                CharakChip(
-                  label: 'Price',
-                  icon: LucideIcons.arrowUpDown,
-                  selected: _sortByPrice,
-                  onTap: () => setState(() => _sortByPrice = !_sortByPrice),
-                ),
-              ]),
-              const SizedBox(height: 14),
 
               if (items.isEmpty)
                 CharakEmptyState(
                   icon: LucideIcons.searchX,
                   title: 'No doctors here yet',
                   message: _category.isNotEmpty
-                      ? '$_category is live but no doctor has opened slots '
+                      ? '${specialtyName(_category)} is live but no doctor has opened slots '
                           'nearby. Try another specialty.'
                       : 'No doctors have opened slots nearby yet.',
                   action: CharakButton(
@@ -162,17 +177,21 @@ class _State extends ConsumerState<DirectoryScreen> {
               else
                 ...items.map((d) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: _DoctorCard(doctor: d, replacement: widget.replacement),
+                  child: _DoctorCard(doctor: d, replacement: widget.replacement, channel: _channel),
                 )),
             ],
           );
         },
-      ),
+      )),
+      ]),
     );
   }
 
+  /// The lowest first-visit price, on the chosen channel when there is one.
   double _cheapestPrice(Map<String, dynamic> doctor) {
-    final pricing = List<Map<String, dynamic>>.from(doctor['doctor_pricing'] as List? ?? []);
+    final pricing = List<Map<String, dynamic>>.from(doctor['doctor_pricing'] as List? ?? [])
+        .where((p) => _channel.isEmpty || p['channel'] == _channel)
+        .toList();
     if (pricing.isEmpty) return double.infinity;
     return pricing.map((p) => (p['price'] as num).toDouble()).reduce((a, b) => a < b ? a : b);
   }
@@ -186,28 +205,35 @@ class _State extends ConsumerState<DirectoryScreen> {
 class _DoctorCard extends StatelessWidget {
   final Map<String, dynamic> doctor;
   final Map<String, dynamic>? replacement;
-  const _DoctorCard({required this.doctor, this.replacement});
+
+  /// The channel the list is filtered to ('' for all): its price is the one
+  /// shown.
+  final String channel;
+  const _DoctorCard({required this.doctor, this.replacement, this.channel = ''});
 
   @override
   Widget build(BuildContext context) {
     final name      = CharakFormat.doctor(doctor['name'] as String?);
     final photoUrl  = doctor['photo_url'] as String?;
     final rating    = (doctor['rating_avg'] as num?)?.toDouble() ?? 0;
-    final category  = (doctor['categories'] as Map?)?['name'] as String? ?? '';
+    final category  = specialtyName((doctor['categories'] as Map?)?['name'] as String?);
     final creds     = doctor['qualifications'] as String? ?? category;
     final pricing   = List<Map<String,dynamic>>.from(doctor['doctor_pricing'] as List? ?? []);
     final online    = doctor['offers_online_consult'] as bool? ?? false;
     final home      = doctor['offers_home_visit'] as bool? ?? false;
     final verified  = doctor['verified'] as bool? ?? true;
 
-    final onlinePrice = pricing.where((p) => p['channel'] == 'online_consult').firstOrNull;
-    final anyPrice = onlinePrice ?? pricing.firstOrNull;
+    final shown = channel.isEmpty ? pricing : pricing.where((p) => p['channel'] == channel).toList();
+    final anyPrice = shown.isEmpty
+        ? null
+        : shown.reduce((a, b) => (a['price'] as num) <= (b['price'] as num) ? a : b);
 
     return CharakCard(
       onTap: () => context.push('/doctor/${doctor['id']}', extra: replacement),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          CharakAvatar(name: name, imageUrl: photoUrl, radius: 26, tone: 2),
+          // The photo opens full size; the rest of the card opens the profile.
+          CharakAvatar(name: name, imageUrl: photoUrl, radius: 26, tone: 2, viewable: true),
           const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             // The name gets the whole row (two lines if it must) and the
@@ -248,6 +274,8 @@ class _DoctorCard extends StatelessWidget {
             const Spacer(),
             if (anyPrice != null)
               Text.rich(TextSpan(children: [
+                if (channel.isEmpty && shown.length > 1)
+                  TextSpan(text: 'from ', style: CharakText.caption.copyWith(color: CharakColors.inkMuted)),
                 TextSpan(
                     text: CharakFormat.rupees(anyPrice['price'] as num),
                     style: CharakText.numeric.copyWith(color: CharakColors.ink)),

@@ -90,6 +90,13 @@ class AddressPickerSection extends ConsumerWidget {
                   ? a['label'] as String
                   : 'Address',
               subtitle: formatAddress(a),
+              // A saved address can be corrected: a flat number, a landmark,
+              // or the pin itself.
+              trailing: IconButton(
+                tooltip: 'Edit address',
+                icon: Icon(LucideIcons.pencil, size: 18, color: CharakColors.primary),
+                onPressed: () => _edit(context, ref, a),
+              ),
               onTap: () => onSelected(a['id'] as String),
             ),
             const SizedBox(height: 8),
@@ -118,29 +125,48 @@ class AddressPickerSection extends ConsumerWidget {
     ref.invalidate(patientAddressesProvider);
     onSelected(created['id'] as String?);
   }
+
+  Future<void> _edit(BuildContext context, WidgetRef ref, Map<String, dynamic> address) async {
+    final saved = await showCharakSheet<Map<String, dynamic>>(
+      context,
+      title: 'Edit address',
+      child: _AddAddressForm(initial: address),
+    );
+    if (saved == null) return;
+    ref.invalidate(patientAddressesProvider);
+    onSelected(saved['id'] as String?);
+  }
 }
 
 // ── Add-address form ──────────────────────────────────────────────────────────
 
+/// Adds an address, or with [initial] edits a saved one. Every field stays
+/// editable after "Fill from my current location": the phone's geocoder only
+/// suggests text, and the patient knows their flat number better than it
+/// does.
 class _AddAddressForm extends StatefulWidget {
-  const _AddAddressForm();
+  final Map<String, dynamic>? initial;
+  const _AddAddressForm({this.initial});
   @override
   State<_AddAddressForm> createState() => _AddAddressFormState();
 }
 
 class _AddAddressFormState extends State<_AddAddressForm> {
-  final _label = TextEditingController(text: 'Home');
-  final _line1 = TextEditingController();
-  final _line2 = TextEditingController();
-  final _landmark = TextEditingController();
-  final _city = TextEditingController();
-  final _pincode = TextEditingController();
+  late final _label = TextEditingController(text: _initial('label') ?? 'Home');
+  late final _line1 = TextEditingController(text: _initial('line1'));
+  late final _line2 = TextEditingController(text: _initial('line2'));
+  late final _landmark = TextEditingController(text: _initial('landmark'));
+  late final _city = TextEditingController(text: _initial('city'));
+  late final _pincode = TextEditingController(text: _initial('pincode'));
 
-  double? _lat;
-  double? _lng;
+  late double? _lat = (widget.initial?['lat'] as num?)?.toDouble();
+  late double? _lng = (widget.initial?['lng'] as num?)?.toDouble();
   bool _locating = false;
   bool _saving = false;
   String? _error;
+
+  bool get _editing => widget.initial != null;
+  String? _initial(String k) => widget.initial?[k] as String?;
 
   @override
   void dispose() {
@@ -198,7 +224,7 @@ class _AddAddressFormState extends State<_AddAddressForm> {
       _error = null;
     });
     try {
-      final created = await ApiClient.instance.post('/addresses/', {
+      final body = {
         'label': _label.text.trim().isEmpty ? 'Home' : _label.text.trim(),
         'line1': _line1.text.trim(),
         if (_line2.text.trim().isNotEmpty) 'line2': _line2.text.trim(),
@@ -207,8 +233,11 @@ class _AddAddressFormState extends State<_AddAddressForm> {
         'pincode': _pincode.text.trim(),
         'lat': _lat,
         'lng': _lng,
-      }) as Map<String, dynamic>;
-      if (mounted) Navigator.of(context).pop(created);
+      };
+      final saved = (_editing
+          ? await ApiClient.instance.patch('/addresses/${widget.initial!['id']}', body)
+          : await ApiClient.instance.post('/addresses/', body)) as Map<String, dynamic>;
+      if (mounted) Navigator.of(context).pop(saved);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -222,7 +251,12 @@ class _AddAddressFormState extends State<_AddAddressForm> {
   Widget build(BuildContext context) {
     final located = _lat != null && _lng != null;
 
-    return Column(mainAxisSize: MainAxisSize.min, children: [
+    // Scrolls inside the sheet, which rides up with the keyboard: with the
+    // keyboard open the form is taller than what is left, and without this
+    // the field being typed into sat behind the keyboard.
+    return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
       CharakField(
           label: 'Label', controller: _label, placeholder: 'Home, Office…'),
       const SizedBox(height: 12),
@@ -272,13 +306,23 @@ class _AddAddressFormState extends State<_AddAddressForm> {
       const SizedBox(height: 14),
 
       // The pin is what makes the address dispatchable, so it gets its own
-      // explicit step rather than happening invisibly on save.
-      if (located)
+      // explicit step rather than happening invisibly on save. Once pinned
+      // it can be taken again (standing somewhere else, or a poor first fix);
+      // the typed address is kept either way.
+      if (located) ...[
         const CharakInfoStrip(
           icon: LucideIcons.circleCheck,
-          label: 'Location pinned. Check the address above.',
-        )
-      else
+          label: 'Location pinned. You can still edit any line above.',
+        ),
+        const SizedBox(height: 8),
+        CharakButton(
+          label: 'Pin my current location again',
+          icon: LucideIcons.locateFixed,
+          variant: CharakButtonVariant.outline,
+          isLoading: _locating,
+          onPressed: _locating ? null : _locate,
+        ),
+      ] else
         CharakButton(
           label: 'Fill from my current location',
           icon: LucideIcons.locateFixed,
@@ -298,7 +342,7 @@ class _AddAddressFormState extends State<_AddAddressForm> {
 
       const SizedBox(height: 16),
       CharakButton(
-        label: 'Save address',
+        label: _editing ? 'Save changes' : 'Save address',
         isLoading: _saving,
         onPressed: _valid && !_saving ? _save : null,
       ),
@@ -306,6 +350,7 @@ class _AddAddressFormState extends State<_AddAddressForm> {
       if (!located)
         const CharakHintLine(
             text: 'Pin the location so the doctor can be routed to you.'),
-    ]);
+    ]),
+    );
   }
 }

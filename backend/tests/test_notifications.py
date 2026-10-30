@@ -575,3 +575,47 @@ def test_the_sweep_stops_at_its_budget_and_leaves_the_rest_for_next_tick():
         out = notif.sweep_outbox(budget_seconds=20.0)
     assert deliver.call_count == 2
     assert out == {"considered": 5, "sent": 2, "deferred": 3}
+
+
+# ── what reaches the phone ───────────────────────────────────────────────────
+
+def test_the_push_carries_its_event_and_booking_so_a_tap_can_route(frozen):
+    """The apps route a tapped notification on data.event and data.booking_id.
+    Neither used to be sent, so every tap landed nowhere."""
+    sent = []
+    db = _outbox()
+    _notify(db, send=lambda token, title, body, data: sent.append(data),
+            data={"amount": 500}, booking_id="bk-9")
+    assert sent[0]["event"] == "test.event"
+    assert sent[0]["booking_id"] == "bk-9"
+    assert sent[0]["amount"] == "500"
+    assert sent[0]["notification_id"] == db.rows("notifications")[0]["id"]
+
+
+def test_a_ringing_call_goes_to_the_calls_channel_and_the_rest_to_the_default():
+    assert notif._android_channel({"event": "call.incoming"}) == notif.ANDROID_CHANNEL_CALLS
+    assert notif._android_channel({"event": "booking.requested"}) == notif.ANDROID_CHANNEL_DEFAULT
+    assert notif._android_channel({}) == notif.ANDROID_CHANNEL_DEFAULT
+
+
+def test_the_v1_message_names_an_android_channel():
+    """A push with no channel lands on FCM's fallback channel: no banner."""
+    posted = {}
+
+    class _Res:
+        status_code = 200
+        text = ""
+
+        def raise_for_status(self):
+            pass
+
+    def post(url, json, headers):
+        posted.update(json)
+        return _Res()
+
+    with patch.object(notif, "_google_access_token", lambda: "at"), \
+            patch.object(notif._fcm_http, "post", post):
+        notif._send_v1("tok", "T", "B", {"event": "booking.requested", "booking_id": "bk-1"})
+    android = posted["message"]["android"]
+    assert android["priority"] == "high"
+    assert android["notification"]["channel_id"] == notif.ANDROID_CHANNEL_DEFAULT

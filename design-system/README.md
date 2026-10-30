@@ -69,8 +69,11 @@ The four rules on page 1 of the board. Every decision below follows from them.
 2. **One family, three widths.** Anek goes *wide* for headers, *normal* for
    reading and *narrow* for fees and times. It is one typeface in two scripts,
    matching the Devanagari mark.
-3. **Flat, tonal, rounded.** There are **no drop shadows**. White cards on a
-   cream ground, grouped into big 26px blocks, provide the depth.
+3. **Tonal, rounded, one soft lift.** Depth comes from white cards on a cream
+   ground. On the patient scheme, the cards you choose from on Home (care
+   cards, search) also take one soft, wide shadow in the manner of One UI,
+   `CharakShadows.card`. Nothing else casts a shadow, and there are never
+   hard drop shadows.
 4. **Blue acts, Chandan welcomes.** Anything you tap is blue. Chandan appears in
    greetings, ratings, the wordmark and the "Requested" moment. It is **never**
    used for a button, so the two roles don't mix.
@@ -151,16 +154,26 @@ Every booking state owns **exactly one** colour. Chips use the soft fill with th
 and `CharakStatusPill.forStatus(status)` renders it. Always pair colour with a
 text label; colour alone is never the signal.
 
-### 3.4 Specialty tiles
+### 3.4 Specialty tones and the spot mark
 
-| Tile | Background | Ink |
-|---|---|---|
-| General | `#EEF3FD` | `#183885` |
-| Paediatrics | `#FDF8EF` | `#733C19` |
-| Cardiology | `#FBEAEA` | `#A12A2A` |
-| Ayurveda / Physio | `#E3E6D4` | `#4A4F33` |
-| Skin | `#ECE7FA` | `#4A3499` |
-| Ortho | `#F4F5F7` | `#283142` |
+Each kind of care has a tone, used only for its **spot mark** (`CharakSpot`):
+a line glyph in the tone's ink over a soft disc in the tone's spot colour, set
+off-centre so the two overlap like a two-colour print. The spot is the patient
+app's mark for a kind of care; it never sits inside a boxed badge, and tones
+never fill tiles, so a page of them stays calm rather than a rainbow.
+
+| Tone | Disc (spot) | Glyph (fg) | Used for |
+|---|---|---|---|
+| General | `#B3C8F4` | `#183885` | General physician, Nursing, Online consult |
+| Paediatrics | `#EDD2A6` | `#733C19` | Paediatrics, Home visit |
+| Cardiology | `#F2C4C0` | `#A12A2A` | Cardiology, Gynaecology |
+| Ayurveda / Physio | `#C8CDAE` | `#4A4F33` | Physiotherapy |
+| Skin | `#D3C8F3` | `#4A3499` | Dermatology |
+| Ortho | `#CDD1D8` | `#283142` | Orthopaedics |
+
+Values: `color.tile.<tone>.spot` / `.fg` in `tokens.json` (`CharakTileTones.spots`).
+On the ink scheme the disc is the spot colour at 24% and the glyph the tone's
+light colour.
 
 ---
 
@@ -233,9 +246,14 @@ Rules:
 Spacing: `4 · 8 · 12 · 16 · 20 (gutter) · 24 · 32 · 48`. The screen gutter is
 **20**. Cards are padded 20, and vertical rhythm between blocks is 24.
 
-**Elevation: none.** Never add `BoxShadow`. Depth comes from tone (white on
-cream, ink-800 on ink-900). Selected states use a 2px blue outline or a blue
-fill, never a glow. Focus is a 2px blue outline.
+**Elevation: one level.** `CharakShadows.card` (`elevation.card` in
+`tokens.json`): a tight ambient layer (y 1, blur 4, ink-900 at 5%) under a
+wide, low key layer (y 10, blur 28, spread −6, ink-900 at 12%). It is used on
+the care cards (`CharakSpecialtyGrid`), the search bar and the floating tab
+bar, on the patient scheme only; the ink scheme stays flat. Never hand-roll a `BoxShadow`.
+Otherwise depth comes from tone (white on cream, ink-800 on ink-900).
+Selected states use a 2px blue outline or a blue fill, never a glow. Focus is
+a 2px blue outline.
 
 ---
 
@@ -256,8 +274,11 @@ Every **tab-root screen** uses `CharakLargeTitleScaffold`:
 │ ┌ blue hero: next booking ──┐ │
 │ │ … 11:00 AM   [ Pay ₹800 ] │ │  ── lower two-thirds: act
 │ └───────────────────────────┘ │
+│ [ Home visit ] [ Online cons. ]│  ← care grid, prominent
 │ Find care            See all  │
-│ [tile] [tile] [tile]          │
+│ [ General    ] [ Paediatrics  ]│  ← care grid: a card each,
+│ [ Cardiology ] [ Dermatology  ]│    spot marks, plain hints
+│ [ …          ] [ …            ]│
 │ ( ● Now Bar · in 11:53     )  │  ← floats above the tab bar
 ├───────────────────────────────┤
 │  (Home)  Bookings History Pro │  ← bottom bar, active pill
@@ -305,16 +326,19 @@ each one, and `design-system/screenshots/` has both schemes rendered.
 | Toggle card | `CharakToggleCard` | Settings row as its own card |
 | Section header | `CharakSectionHeader` | "Find care ···· See all" |
 | Section label | `CharakSectionTitle` | Overline above grouped content |
-| Specialty tile | `CharakSpecialtyTile(toneIndex:)` | 88px tonal tile (r20), icon top-left, name bottom in the tone's ink, 3 per row |
-| Avatar | `CharakAvatar` | Rounded square (⅓ radius), six ramp tones, `circle: true` for the account button |
+| Spot mark | `CharakSpot(icon:, toneIndex:, size:)` | Line glyph over a tonal disc, offset to overlap by half (§3.4) |
+| Care grid | `CharakSpecialtyGrid(tiles:, prominent:)` of `CharakSpecialtyTile(label:, hint:, icon:, toneIndex:)` | Two cards a row, each its own card with the soft `CharakShadows.card` lift (r20, 10px apart; presses to 0.96). A specialty card is **symptom-first** (Apple Health style): a 30px spot and the specialty's name small, in its tone, on top; what it treats large below ("Fever, cough, BP, sugar", 18/650). `prominent`: r26 cards, 52px spot, wide title, blue ↗ chip, for Home's "Home visit · Online consult" pair. Each row takes its taller card's height |
+| Avatar | `CharakAvatar` | Rounded square (⅓ radius), six ramp tones, `circle: true` for the account button. `viewable: true` opens a photo full screen on tap |
+| Photo viewer | `showCharakPhoto`, `CharakPhotoAction` | Full-screen photo grown from the tapped avatar (hero) on ink-900: pinch / double-tap zoom, drag down or × to close, optional top-bar actions ("Change photo") |
 | Doctor card | Composed: `CharakCard` + avatar + `CharakRatingChip` + hairline + tabular fee | See `directory_screen.dart` |
-| Bottom bar | `CharakBottomBar` + `CharakNavItem` | Patient: white bar, blue-100 pill. Doctor: ink bar, solid blue pill. `badge:` count |
+| Bottom bar | `CharakBottomBar` + `CharakNavItem` | Patient: a **floating** white capsule (12px from the edges, the soft lift), blue-100 pill; the shell sets `extendBody: true` and content scrolls under it. Doctor: full-width ink bar, solid blue pill. `badge:` count |
 | Large title → app bar | `CharakLargeTitleScaffold` | §6 |
 | Top bar | `CharakTopBar` | Pushed screens |
 | Screen header | `CharakScreenHeader` | Eyebrow + big title + subtitle |
-| Now Bar | `CharakNowBar` | Ink pill above the tab bar, rises after 600ms, tap to expand 60→140 |
+| Now Bar | `CharakNowBar` | Ink pill above the tab bar, rises after 600ms, tap to expand 60→140. Home shows it for an online consult about to start and, first, for a home visit whose doctor has started their journey ("Dr. X is on the way · left at 6:42 PM"; no arrival estimate until live location exists) |
 | Heads-up | `showCharakHeadsUp()` | Blue banner drops from the top, "Later" / "Review" |
-| Sheet | `showCharakSheet`, `showCharakConfirm` | 32px corners, rises (450ms), leaves (200ms) |
+| Sheet | `showCharakSheet`, `showCharakConfirm` | 32px corners, rises (450ms), leaves (200ms), rides up with the keyboard; content that can outgrow it scrolls inside it |
+| Time picker | `showCharakTimePicker`, `showCharakTimeRangePicker` | A sheet, not a clock dialog: readout (From / To), hour grid 12–11, quarter-hour minutes, AM/PM segments. Nothing scrolls; opens on the current time |
 | CTA bar | `CharakCtaBar` | Pinned bottom action block |
 | Summary | `CharakSummaryCard`, `CharakSummaryRow`, `CharakSummaryDivider` | Key/value blocks |
 | Fees | `CharakFeeList` | Tabular amounts |
@@ -385,8 +409,12 @@ The board annotates three screens (PDF pages 6–11). Their implementation:
 6. **Reduce motion**: plain fades, pulse stops.
 
 Content: date eyebrow (Chandan) · display greeting · status line · search ·
-next booking as a **blue hero** with its action (Pay / View / Status) · Find care
-tiles (3 columns).
+next booking as a **blue hero** with its action (Pay / View / Status) · the
+first choice, **Home visit · Online consult**, as a prominent care grid · Find
+care as a care grid of eight specialty cards (2 columns, a spot mark and a
+plain-words hint such as "Fever, cough, BP, sugar"). Patients read
+the names in `apps/patient_app/lib/specialties.dart` ("Nursing", not the
+backend's "Nurse").
 
 ### Patient · Doctor & slot (`directory/doctor_profile_screen.dart`, `booking/slot_selection_screen.dart`)
 In this codebase the board's single screen is split in two: the profile, then
@@ -473,7 +501,7 @@ Do:
 Don't:
 
 - Hard-code hex colours, `Colors.white` fills, `TextStyle(fontFamily: …)` or
-  `BoxShadow` in screens.
+  `BoxShadow` in screens (the one lift is `CharakShadows.card`).
 - Use `CharakColors.ink` as a **fill** (it is text colour; on the doctor scheme
   it is near-white). Selected fills are `CharakColors.primary`.
 - Use Chandan for a button.
@@ -549,7 +577,7 @@ new look. New code should use the V2 names.
 | `success` / `warning` / `danger` | Confirmed `#5E7F3A` / Review `#E07A1F` / Declined `#D23B3B` |
 | `CharakText` Inter 30/22/18/16/14/11 | Anek scale, §4. `h1` → titleMedium, `h2` → titleSmall, `micro` → overline |
 | `CharakRadius.card` 20 / `input` 14 | 26 / 20 |
-| `CharakShadow.*` | **removed**: V2 is flat |
+| `CharakShadow.*` | **removed**. The one lift is `CharakShadows.card` (care cards, search) |
 | `CharakDurations.*` (100–600ms) | mapped to motion tokens (150–450ms) |
 | `CharakCurves.out` / `inOut` | = `emphasized` / `standard`; new `exit`, `press` |
 | Uppercase status pills | Sentence-case chips with one colour per state |
@@ -557,6 +585,7 @@ new look. New code should use the V2 names.
 | Hand-rolled tab bars | `CharakBottomBar` |
 | Inline screen headers | `CharakLargeTitleScaffold` |
 | Centred dialogs | `showCharakConfirm` sheets |
+| `showTimePicker` (Material clock dialog) | `showCharakTimePicker` / `showCharakTimeRangePicker` sheets |
 | Doctor app: light screens + ink tab bar | Fully ink (`CharakScheme.doctor`) |
 
 ---
@@ -568,7 +597,7 @@ For any new or changed screen:
 - [ ] Big title in the top third; main action in the lower two-thirds (CTA bar,
       card bottom or Now Bar).
 - [ ] Tab root uses `CharakLargeTitleScaffold`; pushed screen uses `CharakTopBar`.
-- [ ] Only role colours. No hex, no `BoxShadow`, no Chandan buttons.
+- [ ] Only role colours. No hex, no hand-rolled `BoxShadow` (the one lift is `CharakShadows.card`), no Chandan buttons.
 - [ ] Looks right on **both** schemes (check the doctor app for anything shared).
 - [ ] Every number (fee, time, rating, count) is `.tabular`.
 - [ ] Headers use title.* styles (width ≥ 118).

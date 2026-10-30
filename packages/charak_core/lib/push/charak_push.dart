@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
@@ -19,24 +20,40 @@ class CharakPushMessage {
   final String? bookingId;
   final Map<String, String> data;
 
+  /// True when the person tapped the notification (from the tray, or the
+  /// banner shown while the app was open); false when it simply arrived
+  /// while they were using the app. Only a tap should move them to another
+  /// screen: a push that arrives mid-task used to yank them off whatever
+  /// they were doing.
+  final bool opened;
+
   const CharakPushMessage({
     required this.event,
     this.title,
     this.body,
     this.bookingId,
     this.data = const {},
+    this.opened = false,
   });
 
-  factory CharakPushMessage.fromRemote(RemoteMessage m) {
-    final data = m.data.map((k, v) => MapEntry(k, '$v'));
-    return CharakPushMessage(
-      event: data['event'] ?? 'unknown',
-      title: m.notification?.title ?? data['title'],
-      body: m.notification?.body ?? data['body'],
-      bookingId: data['booking_id'],
-      data: data,
-    );
-  }
+  factory CharakPushMessage.fromRemote(RemoteMessage m, {bool opened = false}) =>
+      CharakPushMessage.fromData(
+        m.data.map((k, v) => MapEntry(k, '$v')),
+        title: m.notification?.title,
+        body: m.notification?.body,
+        opened: opened,
+      );
+
+  factory CharakPushMessage.fromData(Map<String, String> data,
+          {String? title, String? body, bool opened = false}) =>
+      CharakPushMessage(
+        event: data['event'] ?? 'unknown',
+        title: title ?? data['title'],
+        body: body ?? data['body'],
+        bookingId: data['booking_id'],
+        data: data,
+        opened: opened,
+      );
 }
 
 /// Registers this device for push and surfaces what arrives.
@@ -52,11 +69,22 @@ class CharakPush {
   CharakPush._();
   static final CharakPush instance = CharakPush._();
 
+  // Channel ids match backend services/notifications.py, which names one on
+  // every push. Android shows a heads-up banner only on a high-importance
+  // channel, and a push that names none lands on FCM's own quiet fallback.
   static const _androidChannel = AndroidNotificationChannel(
     'charak_default',
-    'Charak',
-    description: 'Booking requests, payments and review decisions.',
+    'Bookings and payments',
+    description: 'Booking requests and answers, payments and visit updates.',
     importance: Importance.high,
+  );
+
+  /// Separate so someone can keep calls ringing and quiet everything else.
+  static const _callsChannel = AndroidNotificationChannel(
+    'charak_calls',
+    'Calls',
+    description: 'A doctor calling you about a booking.',
+    importance: Importance.max,
   );
 
   final _controller = StreamController<CharakPushMessage>.broadcast();
@@ -122,12 +150,17 @@ class CharakPush {
 
       _subs.add(FirebaseMessaging.onMessage.listen(_onForeground));
       _subs.add(FirebaseMessaging.onMessageOpenedApp.listen(
-        (m) => _controller.add(CharakPushMessage.fromRemote(m)),
+        (m) => _controller.add(CharakPushMessage.fromRemote(m, opened: true)),
       ));
-      // The notification that cold-started the app.
+      // The notification that cold-started the app: from the tray (FCM), or
+      // a banner this class raised before the app was closed.
       final initial = await messaging.getInitialMessage();
       if (initial != null) {
-        _controller.add(CharakPushMessage.fromRemote(initial));
+        _controller.add(CharakPushMessage.fromRemote(initial, opened: true));
+      } else {
+        final launch = await _local.getNotificationAppLaunchDetails();
+        final payload = launch?.notificationResponse?.payload;
+        if (launch?.didNotificationLaunchApp == true && payload != null) _onLocalTap(payload);
       }
 
       _available = true;
@@ -140,37 +173,60 @@ class CharakPush {
 
   Future<void> _initLocalNotifications() async {
     // Android suppresses foreground notifications, so they are re-raised here.
+    // A tap on one of these banners used to do nothing: there was no
+    // handler, so "Request accepted" opened nothing while the app was open.
     await _local.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
       ),
+      onDidReceiveNotificationResponse: (r) {
+        final payload = r.payload;
+        if (payload != null) _onLocalTap(payload);
+      },
     );
-    await _local
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(_androidChannel);
+    final android = _local.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    await android?.createNotificationChannel(_androidChannel);
+    await android?.createNotificationChannel(_callsChannel);
+  }
+
+  void _onLocalTap(String payload) {
+    try {
+      final data = (jsonDecode(payload) as Map).map((k, v) => MapEntry('$k', '$v'));
+      _controller.add(CharakPushMessage.fromData(data, opened: true));
+    } catch (e) {
+      debugPrint('[push] unreadable notification payload: $e');
+    }
   }
 
   void _onForeground(RemoteMessage m) {
-    _controller.add(CharakPushMessage.fromRemote(m));
+    final message = CharakPushMessage.fromRemote(m);
+    _controller.add(message);
 
+    // Android doesn't show a push that arrives while the app is open, so it
+    // is raised here. A ringing call isn't: the app shows its own incoming
+    // call screen for that.
     final notification = m.notification;
-    if (notification == null) return;
+    if (notification == null || message.event == 'call.incoming') return;
+    final channel = _androidChannel;
     _local.show(
-      notification.hashCode,
+      // One banner per booking and event, as the backend tags them: a repeat
+      // replaces the last rather than stacking.
+      '${message.event}:${message.bookingId}'.hashCode,
       notification.title,
       notification.body,
       NotificationDetails(
         android: AndroidNotificationDetails(
-          _androidChannel.id,
-          _androidChannel.name,
-          channelDescription: _androidChannel.description,
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
           importance: Importance.high,
           priority: Priority.high,
         ),
         iOS: const DarwinNotificationDetails(),
       ),
+      payload: jsonEncode(message.data),
     );
   }
 

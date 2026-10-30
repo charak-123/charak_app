@@ -8,7 +8,7 @@ from ..db import fetch_one, supabase
 from ..deps import get_current_user, require_doctor
 from ..errors import AppError
 from ..phone import normalize_e164
-from ..services import erasure, geo, incidents, pricing, reviews, storage
+from ..services import erasure, geo, incidents, listing, pricing, reviews, storage
 from .procedure_bills import effective_review_threshold
 
 router = APIRouter()
@@ -50,12 +50,15 @@ def get_me(user: dict = Depends(require_doctor)):
     # show the doctor's saved rates instead of placeholders.
     doctor = fetch_one(
         supabase.table("doctors")
-        .select("*, doctor_pricing(*), doctor_procedures(*)")
+        .select("*, doctor_pricing(*), doctor_procedures(*), doctor_schedules(*)")
         .eq("id", user["sub"])
     )
     if not doctor:
         raise AppError("Doctor profile not found", 404)
-    return doctor
+    # Whether patients can find this doctor, and what each channel still
+    # needs: the app says "add your home-visit hours" rather than leaving a
+    # verified doctor wondering why nobody books.
+    return {**doctor, "listing": listing.summary(doctor)}
 
 
 # What ops checked when they verified a doctor. Changing any of these on a
@@ -393,7 +396,7 @@ def search_doctors(
         raise AppError("serviceable_only requires lat and lng", 400)
     query = (
         supabase.table("doctors")
-        .select("*, categories(name), doctor_pricing(*)")
+        .select("*, categories(name), doctor_pricing(*), doctor_schedules(*)")
         .eq("verification_status", "verified")
         .eq("suspended", False)
     )
@@ -428,6 +431,18 @@ def search_doctors(
     # here rather than in SQL so search keeps working on a database that has
     # not had migration 0016 yet (the column is simply absent there).
     results = [d for d in results if d.get("accepting_requests", True) is not False]
+
+    # Only what a patient can actually book. Verified is not enough: a doctor
+    # verified before setting prices and hours used to be listed, and a
+    # patient found nothing to book. A channel still being set up is not
+    # shown as offered (services/listing.py).
+    results = [listing.mask(d) for d in results]
+    results = [
+        d for d in results
+        if (d["offers_online_consult"] or d["offers_home_visit"])
+        and (channel not in ("online_consult", "home_visit")
+             or d["offers_online_consult" if channel == "online_consult" else "offers_home_visit"])
+    ]
 
     # Post-filter by category name (Supabase join filter is limited in python SDK)
     if category:
@@ -487,14 +502,16 @@ def _cheapest(doctor: dict, channel: str) -> float:
 def get_doctor_public(doctor_id: str):
     doctor = fetch_one(
         supabase.table("doctors")
-        .select("*, doctor_pricing(*), doctor_procedures(*), categories(name)")
+        .select("*, doctor_pricing(*), doctor_procedures(*), categories(name), doctor_schedules(*)")
         .eq("id", doctor_id)
         .eq("verification_status", "verified")
         .eq("suspended", False)
     )
     if not doctor:
         raise AppError("Doctor not found or not verified", 404)
-    return _public_doctor(doctor)
+    # Still reachable from an old booking or a shared link, but a channel the
+    # doctor hasn't finished setting up isn't offered.
+    return _public_doctor(listing.mask(doctor))
 
 
 @router.get("/{doctor_id}/service-area")
@@ -583,23 +600,28 @@ def get_prices(doctor_id: str):
     they follow (GET /bookings/{id}/follow-up-options)."""
     doctor = fetch_one(
         supabase.table("doctors")
-        .select("offers_online_consult, offers_home_visit, follow_up_validity_days")
+        .select("offers_online_consult, offers_home_visit, follow_up_validity_days, base_lat, base_lng, "
+                "doctor_pricing(*), doctor_schedules(*)")
         .eq("id", doctor_id).eq("verification_status", "verified").eq("suspended", False)
     )
     if not doctor:
         raise AppError("Doctor not found or not verified", 404)
-    return pricing.price_list(doctor_id, doctor)
+    return pricing.price_list(doctor_id, listing.mask(doctor))
 
 
 @router.get("/{doctor_id}/slots")
 def get_slots(doctor_id: str, from_date: str = None, days: int = 14,
-              duration_min: Optional[int] = None):
+              duration_min: Optional[int] = None, channel: Optional[str] = None):
     """
     Open slots for a doctor, grouped by date.
 
     ``days`` is honoured rather than ignored: the patient app asks for six and
     used to be handed fourteen, because the parameter stopped at the route and
     never reached get_available_slots.
+
+    ``channel`` keeps to that channel's hours: a doctor's home-visit hours
+    are not online slots. App builds that don't send it get every hour, as
+    before.
     """
     from datetime import date
     from ..services.availability import get_available_slots, now_ist
@@ -612,7 +634,9 @@ def get_slots(doctor_id: str, from_date: str = None, days: int = 14,
         raise AppError("from_date must be ISO format, e.g. 2026-10-01", 400)
     if duration_min is not None and duration_min not in pricing.DURATIONS:
         raise AppError(f"duration_min must be one of {', '.join(map(str, pricing.DURATIONS))}", 400)
-    return get_available_slots(doctor_id, d, days=days, duration_min=duration_min)
+    if channel is not None and channel not in ("online_consult", "home_visit"):
+        raise AppError("channel must be online_consult or home_visit", 400)
+    return get_available_slots(doctor_id, d, days=days, duration_min=duration_min, channel=channel)
 
 
 @router.delete("/me")

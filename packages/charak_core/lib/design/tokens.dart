@@ -143,6 +143,13 @@ extension CharakTextStyleX on TextStyle {
   );
 }
 
+/// Card lift: One UI's soft, wide shadow, on the patient (cream) scheme only.
+/// The ink scheme stays flat, where a shadow wouldn't show. The only way a
+/// shadow enters the app; never hand-roll a `BoxShadow`.
+abstract final class CharakShadows {
+  static List<BoxShadow> get card => CharakColors.isInk ? const [] : CharakElevation.card;
+}
+
 abstract final class CharakRadius {
   /// 26 — cards and grouped-list blocks.
   static const card = Radius.circular(CharakRadii.card);

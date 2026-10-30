@@ -11,6 +11,7 @@ import 'dart:io';
 
 import 'package:charak_core/charak_core.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,6 +42,7 @@ final _screens = <(String, String, Object?)>[
   ('01_sign_in', '/auth/sign-in', null),
   ('02_profile_step', '/auth/name', null),
   ('03_home', '/home', null),
+  ('03b_home_doctor_on_the_way', '/home', null),
   ('04_directory', '/directory', null),
   ('05_doctor_profile', '/doctor/doc-1', null),
   ('06_channel_and_length', '/book/doc-2/channel', null),
@@ -74,6 +76,10 @@ final _screens = <(String, String, Object?)>[
   ('21_payments', '/payments', null),
   ('22_get_help', '/booking/bk-paid/help', null),
   ('23_get_help_reschedule', '/booking/bk-accepted/help', null),
+  ('24_incoming_call', '/booking/bk-requested/incoming', {
+    'booking_id': 'bk-requested', 'call_id': 'call-1', 'doctor_name': 'Meera Kulkarni',
+    'rang_at': DateTime.now().toUtc().toIso8601String(), 'ring_seconds': 60,
+  }),
   ('17_update_required', '/update',
       const CharakUpdateInfo(minVersion: '1.2.0', storeUrl: 'https://play.google.com/store/apps/details?id=com.charak.patient_app')),
 ];
@@ -107,13 +113,16 @@ void main() {
       addTearDown(tester.platformDispatcher.clearAllTestValues);
       addTearDown(tester.view.reset);
 
+      // Real, blurred shadows (flutter_test draws them hard by default), so the
+      // capture shows the card lift as a phone does.
+      debugDisableShadows = false;
       CharakColors.useScheme(CharakScheme.patient);
-      ApiClient.debugClient = patientBackend(newPatient: name.contains('consent'));
+      ApiClient.debugClient = patientBackend(
+          newPatient: name.contains('consent'), doctorOnTheWay: name.contains('on_the_way'));
       FlutterSecureStorage.setMockInitialValues({'auth_token': 'fixture-token'});
       SharedPreferences.setMockInitialValues({'user_id': patientId, 'user_name': 'Aarav Kulkarni'});
 
       final container = ProviderContainer();
-      addTearDown(container.dispose);
       await tester.pumpWidget(UncontrolledProviderScope(container: container, child: const PatientApp()));
       await tester.pump(const Duration(milliseconds: 100));
       final router = container.read(routerProvider);
@@ -130,6 +139,12 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
       }
       await expectLater(find.byType(PatientApp), matchesGoldenFile('../../build/screens/$name.png'));
+      debugDisableShadows = true;
+      // Tear the app down inside the test: the ringing watcher
+      // (incoming_calls.dart) keeps a timer for as long as the router lives,
+      // and a timer still pending when the test ends fails it.
+      await tester.pumpWidget(const SizedBox());
+      container.dispose();
     });
   }
 }

@@ -682,10 +682,9 @@ class _MedicineFormState extends State<_MedicineForm> {
 
   String? _v(String k) => _c[k]!.text.trim().isEmpty ? null : _c[k]!.text.trim();
 
+  // No keyboard padding here: CharakSheet rides up with the keyboard itself.
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-        child: ConstrainedBox(
+  Widget build(BuildContext context) => ConstrainedBox(
           constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
           child: ListView(shrinkWrap: true, children: [
             for (final (k, label, hint) in _fields) ...[
@@ -715,6 +714,5 @@ class _MedicineFormState extends State<_MedicineForm> {
                       ),
             ),
           ]),
-        ),
       );
 }

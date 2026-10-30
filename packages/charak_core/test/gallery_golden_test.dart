@@ -11,6 +11,7 @@ import 'dart:io';
 
 import 'package:charak_core/charak_core.dart';
 import 'package:charak_core/gallery.dart';
+import 'package:flutter/rendering.dart' show debugDisableShadows;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -55,6 +56,9 @@ void main() {
 
   for (final (name, scheme) in [('patient', CharakScheme.patient), ('doctor', CharakScheme.doctor)]) {
     testWidgets('gallery · $name', (tester) async {
+      // Real, blurred shadows (flutter_test draws them hard by default), so the
+      // capture shows the card lift as a phone does.
+      debugDisableShadows = false;
       CharakColors.useScheme(scheme);
       tester.view.physicalSize = const Size(390 * 2, 2300 * 2);
       tester.view.devicePixelRatio = 2;
@@ -76,6 +80,7 @@ void main() {
         find.byType(CharakGallery),
         matchesGoldenFile('../../../design-system/screenshots/gallery_$name.png'),
       );
+      debugDisableShadows = true;
       CharakColors.useScheme(CharakScheme.patient);
     });
   }
